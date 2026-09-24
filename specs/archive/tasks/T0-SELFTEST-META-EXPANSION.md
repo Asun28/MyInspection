@@ -2,7 +2,8 @@
 id: T0-SELFTEST-META-EXPANSION
 title: Adapt v0.47 nightly meta coverage across selftest selection, receipts and operating contracts
 status: merged
-depends_on: []
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
+depends_on: [T0-SELFTEST-NIGHTLY-META]
 allow_paths:
   - scripts/selftest.ps1
   - .github/workflows/scaffold-selftest.yml
@@ -30,45 +31,10 @@ doc_sync: Update the default and precise deferred set in existing operating cont
 
 # T0-SELFTEST-META-EXPANSION
 
-User authorized v0.47 adoption on 2026-09-06. Adapt upstream T275/T279 by behavior, not label.
-The local 17ac is a reviewer trust-boundary regression, unlike upstream's mutation-runner 17ac.
-Shared selftest edits are delivered before the dependent cards; this card does not reset any existing R3 counter.
+Remote adoption is authorized by the user's 2026-09-08 instruction to complete all unfinished scaffold cards in independent worktrees and PRs. This card is pending remote implementation and acceptance; its local source history is provenance only, not a remote pass or merge.
 
-## Verification evidence (2026-09-06)
+Use task-loop with GPT-6 Astra, high effort; R3 remains the configured GPT-5.6 Sol, high effort. Preserve current remote product changes, scaffold-trigger isolation, CI identity/jobs checks and timeout budgets. Apply only this card's scoped changes, with fresh RED/GREEN, current-source evidence and its own PR. Do not merge the divergent local master or copy historical pass receipts.
 
-Final `scripts/selftest.ps1` SHA-256: `3CDA762926FDEC0D8ACE1A8955B738C68975BA21D1A6FDA83C654AD80315A7D2`.
-The real RED rejected the old default with `META-EXPANSION-DEFAULT`. A later handler-isolation
-regression also failed with `META-EXPANSION-SCOPE` before fixing both replay handlers to `Function:local:`.
-R3 round 1 blocked feature `23120579` because lightweight production source guards were inside the protocol selector.
-The repair keeps all four failure-protocol call checks/deletion mutations and both terminal skip/overlap guards ordinary.
-The new regression failed first with `META-LIVE-PLACEMENT`; the repaired DoD passed (`meta-live-green2.log`).
-It covers actual entry/child forwarding, receipts, selector/completion/outer-condition mutations and six production-call
-deletions through the real ordinary-mode control envelope. Independent source mutations re-deferring either live-check
-group are rejected with `META-LIVE-MUTATION`; deleting the actual terminal overlap-collection assignment is also rejected
-by that ordinary envelope (`meta-live-wiring-mutations2.log`). The standalone `skip-ledger` fixture passed too.
+## R5 closure by upstream adoption — 2026-09-11
 
-| Final source run | Exit | Seconds | Meta receipts |
-|---|---:|---:|---|
-| `selftest.ps1 -Shard core -IncludeMeta` | 0 | 1090.16 | `8.2e/protocol`, `8.2e/harness`: EXECUTED |
-| `selftest.ps1 -Shard workflow -IncludeMeta` | 0 | 688.55 | `1i/fixtures`: EXECUTED |
-
-Both full shard runs kept the source hash unchanged and emitted their PASS sentinels.
-Logs are retained under `.review/meta-shards-final4/`; focused and mutation logs above are under `.review/`.
-
-Matched scope measurement used the same final source in an isolated instrumented copy, after the shard runs.
-Each real scope ran once with IncludeMeta true (the previously unconditional bodies), then once with false;
-only the source-path environment and measurement wrapper were supplied. Both scopes retain their live source checks in both modes.
-
-| Scope | Included seconds | Ordinary seconds |
-|---|---:|---:|
-| `1i/fixtures` plus live source check | 24.9541 | 2.2949 |
-| `8.2e/protocol` plus live source checks | 24.8368 | 1.4849 |
-
-The added control-envelope checks cost 16.4724 seconds. These two scopes saved 46.0111 seconds in this
-single matched run, or about 29.5387 seconds after that added cost. This is a scoped measurement,
-not a full-suite before/after benchmark or a CI speed promise. It excludes the already registered
-aggregation stress harness. Result and output: `.review/meta-cost-r3-repair/result.json` and `stdout.log`.
-Source stayed unchanged throughout. Earlier-source and failed measurement-wrapper logs are retained separately,
-and are not evidence for this final candidate.
-
-Official local delivery: feature `1bcb034cb3e39f790792ced5792e02f1832b59a6`, R3 pass on the same SHA, merge `04b355d43cab0a49383b18105ba5f2e29b447952`.
+Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md), delivered in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc928c4dd36607cc19eace40ec3cc8c01dd1`). `status: merged` records closure through that merged replacement; it does not claim this original card's implementation, DoD, RED, mutation or performance plan was independently completed. The original worktree and evidence are preserved; its old execution queue is retired.

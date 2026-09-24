@@ -30,25 +30,21 @@ const CARDS_SCHEMA = {
         properties: {
           id: { type: 'string' },
           title: { type: 'string' },
-          status: { type: 'string', enum: ['todo'] },
-          review_gate: { type: 'string', enum: ['codex {verdict:pass}'] },
-          acceptance: { type: 'array', minItems: 1, items: { type: 'string' } },
-          requirements: { type: 'array', minItems: 1, items: { type: 'string' } },
-          diagnosis: { type: 'string' },
           depends_on: { type: 'array', items: { type: 'string' } },
           parallelizable_with: { type: 'array', items: { type: 'string' } },
           allow_paths: { type: 'array', items: { type: 'string' } },
+          sweep: { type: 'string' },
           forbid: { type: 'array', items: { type: 'string' } },
           non_goals: { type: 'array', items: { type: 'string' } },
           dod_command: { type: 'string' },
-          dod_exit: { type: 'integer', enum: [0] },
+          dod_exit: { type: 'number' },
           dod_assert: { type: 'string' },
           plan_ref: { type: 'string' },
           hygiene: { type: 'string' },
           doc_sync: { type: 'string' },
           notes: { type: 'string' },
         },
-        required: ['id', 'title', 'status', 'depends_on', 'allow_paths', 'dod_command', 'dod_exit', 'dod_assert', 'review_gate'],
+        required: ['id', 'title', 'depends_on', 'allow_paths', 'dod_command', 'dod_assert'],
       },
     },
     freeze_point: { type: 'string' },
@@ -107,6 +103,7 @@ const CONSTRAINTS =
   '- depends_on 无环; 冻结点(契约/schema 那张卡)在所有依赖它的卡之前且其它卡依赖它; 标出真实可并行窗口。\n' +
   '- 每卡 dod_command 在目标 shell(本模板默认 Windows/PowerShell)下【真能跑且二值可判】; import 路径/包根与目录结构一致。\n' +
   '- 每卡 allow_paths 必须覆盖其 DoD 真正要改/要建的文件(例: DoD 跑测试 → allow_paths 含测试目录; DoD import 某依赖 → 该依赖在依赖清单且 allow_paths 含清单文件)。\n' +
+  '- allow_paths 超过 5 项时，sweep 必须记录跨文件调查范围与结论；该宽度应有实际耦合依据。\n' +
   '- 路径只经项目约定的 storage/派生层(若有该不变量); DoD 禁硬编码运行时临时路径。\n' +
   '- 构建期 vs 运行期网络要分清: 卡内显式声明的构建期联网装依赖(如 npm install / 下载权重)属显式批准, 不与"运行期禁网"边界冲突; 把仅用于人工演示、不入确定性门禁的卡(如前端)显式标注、其 DoD 不放进禁网门禁。\n' +
   '- 并行窗口里的卡 allow_paths 互不重叠(各自 worktree 合并不撞)。\n' +
@@ -116,11 +113,8 @@ log('decompose-cards: 投影计划任务章节为任务卡 + 4 角度对抗卡�
 
 const decomp = await agent(
   '把(修正后的)计划任务章节投影为【完整的带依赖关系任务卡集】(specs/tasks 的薄投影，非第二份计划)。\n' + CONSTRAINTS + '\n\n' +
-    '每卡只必填核心字段 id/title/status/depends_on/allow_paths/dod_command/dod_exit/dod_assert/review_gate；status=todo、dod_exit=0、review_gate=codex {verdict:pass}。branch/worktree 由 id 派生，不重复填写。\n' +
-    '支持字段 plan_ref/parallelizable_with/forbid/non_goals/diagnosis/hygiene/doc_sync/notes 只在有实际内容时添加；没有则省略，不为填字段发明任务。项目硬边界始终继承 CLAUDE.md，forbid 只补本卡特有约束。\n' +
-    'acceptance 可选；声明时一条起，严格 A1..An，描述可核对的结果，写入 YAML 时用块式双引号字符串。禁止为了条数而凑验收。\n' +
-    'requirements 可选；确有需要追踪的需求才写唯一 R1/R2 等正整数 id + 非空可测试内容，不要求特定语言句式。acceptance 可用 [R1] [R2] 引用已声明 id。缺 requirements 不产生新义务，不要求仅为追踪而补卡或增加变异测试。\n' +
-    '把计划「本版砍掉/推迟」「右尺寸·刻意不做」里的能力级非目标按影响域分发进对应卡的 non_goals(只放与该卡功能相关的;无则省略);non_goals 是 forbid(横切硬边界)的能力级对偶,供 R3 评审 #14 判「顺手多做」的越界。\n' +
+    '为计划任务章节列出的每张卡产出每卡全字段(id/title/depends_on/parallelizable_with/allow_paths/sweep/forbid/non_goals/dod_command/dod_exit/dod_assert/plan_ref/hygiene/doc_sync/notes)。\n' +
+    '把计划「本版砍掉/推迟」「右尺寸·刻意不做」里的能力级非目标按影响域分发进对应卡的 non_goals(只放与该卡功能相关的;无则 []);non_goals 是 forbid(横切硬边界)的能力级对偶,供 R3 评审 #14 判「顺手多做」的越界。\n' +
     '标 freeze_point(契约/schema 卡)与 topo_valid 与真实 parallel_window。',
   { phase: 'Decompose', schema: CARDS_SCHEMA }
 )
@@ -131,7 +125,7 @@ const LENSES = [
   '拓扑/依赖正确性: depends_on 无环、冻结点在所有依赖它的卡前、显式依赖(编排卡←脚手架/存储卡, 实跑卡←样例资产卡)是否齐, 并行窗口是否真实',
   'DoD 可机检性: 每卡 dod_command 在目标 shell 下是否真能跑且二值可判; import 路径与目录结构一致; 禁硬编码运行时路径; 依赖是否在 allow_paths/依赖清单内 —— 可 Read 仓库实际文件核',
   '硬边界/许可: 是否违反 CLAUDE.md 声明的硬边界(确定性/离线/无GPU/许可 等, 以本项目为准); 构建期联网是否被正确隔离出运行期禁网门禁',
-  'allow_paths 覆盖与冲突: 每卡 allow_paths 是否覆盖其 DoD 真正要改的文件; 冻结卡是否只冻一等资产文件而非整目录; 并行卡 allow_paths 是否互不重叠; non_goals 是否承接了计划中与本卡有关的「本版砍掉/推迟」(存在相关排除能力才要求承接;没有则省略)',
+  'allow_paths 覆盖与冲突: 每卡 allow_paths 是否覆盖其 DoD 真正要改的文件; 冻结卡是否只冻一等资产文件而非整目录; 并行卡 allow_paths 是否互不重叠; non_goals 是否承接了计划的「本版砍掉/推迟」(漏接=卡缺能力级围栏, 评审 #14 将无的放矢)',
 ]
 
 const audits = await parallel(

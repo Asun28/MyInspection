@@ -7,6 +7,11 @@ import kotlin.test.*
 import nz.myinspection.core.report.importing.docx.`package`.DocxPart
 import nz.myinspection.core.report.importing.docx.`package`.DocxPartKind
 
+// R4 fresh replay (2026-09-08): 11 source + 2 I/O-counter mutants failed named assertions.
+// Source SHA-256: 73bfa6f6a26732ba7da5b1774ea47f86011e8584e507bda3054ece02dcff17de.
+// Removing ancestorChoosesNearestWordParentAndExcludesSelf let ancestor-self survive the
+// full core suite (895 tests, 4 existing skips); restored this unique guard and original bytes.
+// Recipes, per-mutant XML and exact baseline/restoration hashes: .review/xml-r4/.
 class DocxXmlTreeTest {
     private val word = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     // Production parts have already passed the reader's byte/depth/node/text limits.
@@ -87,6 +92,8 @@ class DocxXmlTreeTest {
         val targets = listOf("file" to target.toURI().toASCIIString(), "network" to "http://xml-probe.invalid/entity")
         val body = "<w:p xmlns:w='$word'>Synthetic XML control</w:p>"
         val hostile = listOf("doctype" to ("<!DOCTYPE w:p>" + body),
+            "internal-general" to ("<!DOCTYPE w:p [<!ENTITY a 'internal'>]>" +
+                body.replace("Synthetic XML control", "&a;")),
             "internal-expansion" to ("<!DOCTYPE w:p [<!ENTITY a 'xxxx'><!ENTITY b '&a;&a;&a;&a;'>]>" +
                 body.replace("Synthetic XML control", "&b;"))) + targets.flatMap { (kind, systemId) -> listOf(
             "$kind-general" to ("<!DOCTYPE w:p [<!ENTITY external SYSTEM '$systemId'>]>" +
@@ -140,5 +147,6 @@ class DocxXmlTreeTest {
         } finally {
             System.setSecurityManager(previous)
         }
+        assertSame(previous, System.getSecurityManager())
     }
 }

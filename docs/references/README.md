@@ -16,6 +16,7 @@
 
 | 文件 | 覆盖 | 何时读 |
 |---|---|---|
+| `docx-extraction-contract-llms.txt` | DOCX 提取 API、wire 编码/独立向量、XML 树与保守图片验收合同 | 实现或评审 Manifest/XML Tree/Extractor/Planner 时 |
 | `uv-llms.txt` | uv（Python 包/项目管理器）本项目惯用法 + Windows 坑 | 建 venv / 加依赖 / 跑测试 / 调 CI 依赖时 |
 | `claude-opus-5-prompting-llms.txt` | Opus 5 提示词专属细则（**相对 4.8 的五处反转** / 拒答与回退 / effort 起点 / thinking 默认开 / 对话与写盘两种冗长度 / 子代理上限 / 范围收窄 / 评审覆盖） | 给 Opus（想/架构/评审角色）调提示、或写 Opus 面向的 skill/hook/rubric 时；**拿为 4.8 写的旧 prompt 迁移时必读「五处反转」段**（那几条在 4.8 上对、在 Opus 5 上反着伤你） |
 | `claude-opus-4-8-prompting-llms.txt` | Opus 4.8 提示词专属细则（effort/thinking 默认关/字面遵循/子代理偏少/**前端家风 AEFRM 正文**/computer use/评审 recall） | **兜底席位，非日常档——没有退休。** Fable 5 与 Opus 5 都带安全分类器，官方默认回退按拒答类目（5 个：`cyber`/`bio`/`frontier_llm`/`reasoning_extraction`/`general_harms`）改道到**当时推荐**的兜底模型，官方示例选中的就是这一档——**示例非契约，映射会变，读响应的 `fallback` 块别写死**。**配回退链、排查「怎么突然是另一个模型答的」、或取 AEFRM 设计规格正文时读**（opus-5 与 sonnet-5 两篇的设计节都指向这里，三页同文防重复） |

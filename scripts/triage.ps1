@@ -54,6 +54,9 @@ $ErrorActionPreference = 'Stop'
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open
 . (Join-Path $PSScriptRoot '_cards.ps1')
 . (Join-Path $PSScriptRoot '_lessons.ps1')   # 必须层驻留规则 + enforced_by 的共享判定核（上游 v0.43.0）
+# [HARNESS-RATIO] 只为可选报告探针提供纯判定；缺少时保留 reporter 恒不崩的既有契约。
+try { . (Join-Path $PSScriptRoot '_guard.ps1') } catch { }
+try { . (Join-Path $PSScriptRoot '_context.ps1') } catch { }
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 # _config 仅取 LessonsMustCap；缺失/留空亦能跑（fail-safe 默认）。
@@ -83,8 +86,8 @@ function Add-Finding($probe, $severity, $what, $next) {
 # 只认**末尾**的 HANDOFF 块（同 handoff.ps1 Read-Block 契约）：progress.md 若被误 append 新块而非
 # 原地编辑，[regex]::Match 的懒惰首匹配会读到过期首块——TD57/TD-120。返回 Match 对象或 $null。
 function Get-LastHandoffBlock([string]$text) {
-  $ms = [regex]::Matches($text, '(?s)<!--\s*HANDOFF:START\s*-->(.*?)<!--\s*HANDOFF:END\s*-->')
-  if ($ms.Count -gt 0) { return $ms[$ms.Count - 1] } else { return $null }
+  if (-not (Get-Command Get-ScaffoldHandoffBlock -ErrorAction SilentlyContinue)) { return '' }
+  return (Get-ScaffoldHandoffBlock -Text $text)
 }
 
 # ── 探针 1：lessons-promote（LEDGER 里仍在 ledger 层却已达晋升门槛）──
@@ -191,8 +194,8 @@ function Invoke-ProbeHandoff {
   if (Test-Path $prog) {
     $m = Get-LastHandoffBlock (Get-Content $prog -Raw)
     if ($m) {
-      $status = ([regex]::Match($m.Groups[1].Value, '(?m)^\s*STATUS:\s*(.*?)\s*$')).Groups[1].Value
-      if ($status -and $status -notin @('done', 'handoff-ready')) {
+      $status = ([regex]::Match($m, '(?m)^\s*STATUS:\s*(.*?)\s*$')).Groups[1].Value
+      if ($status -and $status -notin @(Get-ScaffoldHandoffTerminalStatus)) {
         Add-Finding 'handoff-open' 'major' "cwd 交接未收口（STATUS=$status）——下个 session 续接前须填好 HANDOFF 块。" "pwsh -File scripts\handoff.ps1 check"
       }
     }
@@ -213,8 +216,8 @@ function Invoke-ProbeHandoff {
       if (-not (Test-Path $wtProg)) { continue }
       $wm = Get-LastHandoffBlock (Get-Content $wtProg -Raw)
       if (-not $wm) { continue }
-      $wtStatus = ([regex]::Match($wm.Groups[1].Value, '(?m)^\s*STATUS:\s*(.*?)\s*$')).Groups[1].Value
-      if ($wtStatus -and $wtStatus -notin @('done', 'handoff-ready')) {
+      $wtStatus = ([regex]::Match($wm, '(?m)^\s*STATUS:\s*(.*?)\s*$')).Groups[1].Value
+      if ($wtStatus -and $wtStatus -notin @(Get-ScaffoldHandoffTerminalStatus)) {
         Add-Finding 'handoff-open' 'major' `
           "卡 $id 的 worktree 交接未收口（STATUS=$wtStatus）——主检出续接前先读它的 HANDOFF 块。" `
           "pwsh -File scripts\handoff.ps1 show -Path $wtProg"
@@ -228,7 +231,7 @@ function Invoke-ProbeCap {
   if (-not (Test-Path $ClaudeMd)) { return }
   # 计量单位是**驻留的经验 id**，不是 markdown 条目（上游 issue #184）：把多个 id 并进一条 bullet
   # 曾经既满足封顶、又让驻留规则数继续涨。判定核与 lessons.ps1 check 共用（_lessons.ps1）。
-  $sec = Get-ScaffoldMustLayerSection -Path $ClaudeMd
+  $sec = Get-ScaffoldMustLayerSection -Path $ClaudeMd -Bullets @(Get-ScaffoldMustLayerBullet -Path $ClaudeMd)
   if (-not $sec.Found) {
     # 标题漂移或重复驻留时继续计数都会假绿；「测不准」必须报出来（fail-closed）。
     $detail = if ($sec.Reason -eq 'DUPLICATE-RESIDENT-ID') { "重复驻留 id：$(@($sec.DuplicateIds) -join ', ')" } else { '找不到「经验铁律」小节（标题漂移？）' }
@@ -475,6 +478,35 @@ function Invoke-ProbeScaffoldStale {
       'pwsh -File scripts\scaffold-sync.ps1 check'
   }
 }
+
+# ── 探针 13：harness-ratio（累计脚手架代码量相对产品代码量）──
+# `android/` 是本仓产品根（CLAUDE.md 的产品/元层边界）；固定96的通用目录未含它，
+# 若照抄会把 Android 项目误读成「没有产品」，把例行 heartbeat 变成永久噪声。
+function Get-ProbeLineCount([string[]]$Dirs, [string[]]$Ext) {
+  $n = 0
+  foreach ($d in $Dirs) {
+    $full = Join-Path $RepoRoot $d
+    if (-not (Test-Path -LiteralPath $full)) { continue }
+    foreach ($file in (Get-ChildItem -LiteralPath $full -Recurse -File -ErrorAction SilentlyContinue)) {
+      if ($Ext -notcontains $file.Extension.ToLowerInvariant()) { continue }
+      try { $n += @([System.IO.File]::ReadAllLines($file.FullName)).Count } catch { }
+    }
+  }
+  return $n
+}
+
+function Invoke-ProbeHarnessRatio {
+  # reporter 契约：_guard.ps1 是可选共享核，缺失仅跳过此探针，不能让其余信号崩溃。
+  if (-not (Get-Command Get-ScaffoldHarnessRatioFinding -ErrorAction SilentlyContinue)) { return }
+  $ext = @('.ps1', '.psd1', '.psm1', '.mjs', '.js', '.ts', '.tsx', '.py', '.yml', '.yaml', '.json', '.sh', '.sql', '.kt', '.java', '.go', '.rs', '.css', '.html')
+  $harness = Get-ProbeLineCount -Dirs @('scripts', '.claude', '.github') -Ext $ext
+  $product = Get-ProbeLineCount -Dirs @('android', 'backend', 'frontend', 'prompts', 'data', 'configs', 'tests') -Ext $ext
+  $finding = Get-ScaffoldHarnessRatioFinding -HarnessLines $harness -ProductLines $product
+  if ($finding) {
+    Add-Finding 'harness-ratio' 'minor' $finding '在 docs\HARNESS-REVIEW.md 做减法：先根据 effectiveness 账本找从未触发的闸，再决定是否退休一条。'
+  }
+}
+
 function Select-ScaffoldCurrentVerdicts {
   param(
     [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Candidates,
@@ -572,17 +604,16 @@ if ($Verb -eq 'selfcheck') {
       $merged = (1..($case.n - 2) | ForEach-Object { "[L90$_]" }) -join ''
       $wrappedId = "[L90$($case.n - 1)]"
       $fxClaude = Join-Path $fxRoot "CLAUDE-$($case.n).md"
-      $continuation = if ($case.n -eq $MustCap) {
-        @("lazy continuation $wrappedId（同一 markdown 条目的懒续行）")
-      } else {
-        @('', "  indented paragraph $wrappedId（空行后的缩进段落仍属同一条目）")
-      }
+      # The shared parser attaches continuation text only when it is indented
+      # directly beneath the list item.  Both cap boundaries must use that same
+      # grammar, otherwise the four-id fixture really contains only three ids.
+      $continuation = @("  indented continuation $wrappedId（同一 markdown 条目的续行）")
       Set-Content -Path $fxClaude -Encoding utf8 -Value @(
         @('## 经验铁律（必须加载）', "- **$merged** 多个 id 并进一条 bullet") +
         $continuation +
         @("- **[L9$($case.n)9]** 单 id 一条", '', '## 下一节'))
       $ClaudeMd = $fxClaude       # 注入：探针读脚本作用域
-      $bulletCount = ([regex]::Matches((Get-Content $fxClaude -Raw), '(?m)^\s*-\s+\*\*')).Count
+      $bulletCount = @(Get-ScaffoldMustLayerBullet -Path $fxClaude).Count
       if ($bulletCount -gt $MustCap) { $fails.Add("用例5（$($case.n)/$MustCap）夹具无效：旧口径（条目数 $bulletCount）本身已超上限，证明不了新口径") }
       $findings.Clear()
       Invoke-ProbeCap
@@ -1042,6 +1073,7 @@ Invoke-ProbeOrphanWorktree
 Invoke-ProbeLessonsDemote
 Invoke-ProbeDeliveryBlocked
 Invoke-ProbeScaffoldStale
+Invoke-ProbeHarnessRatio
 
 $order = @{ blocking = 0; major = 1; minor = 2 }
 $sorted = $findings | Sort-Object @{ Expression = { $order[$_.severity] } }, probe

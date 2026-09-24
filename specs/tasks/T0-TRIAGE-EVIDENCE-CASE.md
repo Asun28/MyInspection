@@ -18,7 +18,7 @@ non_goals:
   - lessons parser、探针 roster、文档教学面或其它探针语义
   - 重写 PR #127 / #137 历史
 diagnosis: 大小写敏感性属于具体目录而非 OS；HEAD 夹具对所有 root 返回同一 SHA，无法杀死错绑 RepoRoot 的变异；发现/枚举/解析/HEAD 失败被 null/continue 静默吞掉会让当前 block 消失
-dod_command: pwsh -NoProfile -File scripts/triage.ps1 selfcheck
+dod_command: $t=(& pwsh -NoProfile -File scripts/triage.ps1 selfcheck 2>&1 | Out-String); $x=$LASTEXITCODE; Write-Host $t; if ($x -ne 0 -or $t -cnotmatch '(?m)^triage selfcheck: PASS(?=（|[ \t\r]|$)' -or $t -cmatch '(?m)^[ \t]*(?:triage selfcheck: FAIL\b|FAIL\b)') { exit 1 }
 dod_exit: 0
 dod_assert: actual-root 敏感/不敏感夹具证明证据身份；同来源冲突必选 block；不同 root 使用不同 SHA 且 review→triage 精确绑定被测；相关证据 unreadable/unknown 时仍 exit 0 但产出明确 finding；删除任一守卫时自检必红
 review_gate: codex {verdict:pass}
