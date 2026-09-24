@@ -3,7 +3,8 @@ id: T0-SCAFFOLD-TRIGGER-ADOPTION
 title: Adopt product-only scaffold trigger exclusion with shared focused proof
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
+superseded_by: T0-SCAFFOLD-TRIGGER-REMOTE
 branch: T0-SCAFFOLD-TRIGGER-ADOPTION
 worktree: C:\wt\T0-SCAFFOLD-TRIGGER-ADOPTION
 allow_paths:
@@ -53,3 +54,7 @@ The card deliberately contains no pagination implementation and requires no old 
 The focused DoD is an iteration check. Final acceptance still includes full selftest and verify,
 including real gate 17a3 and 17ai execution. Coordinate overlapping nightly work by merging
 its exact schedule and meta wiring; this card neither adds nor removes a nightly policy.
+
+## Reconcile note (2026-09-24)
+
+Origin delivered this card's work before the 2026-09 local/origin reconcile: the product-only trigger exclusion through `T0-SCAFFOLD-TRIGGER-REMOTE` ([PR #245](https://github.com/Asun28/MyInspection/pull/245), `b4a72de9`) and the isolated migration-failure fixture through `T0-SELFTEST-SCAFFOLD-ONLY` ([PR #272](https://github.com/Asun28/MyInspection/pull/272)). This DoD's `selftest.ps1 -Fixture scaffold-trigger` does not exist in origin's selftest. The local implementation (merged locally as `9229141a` on 2026-09-07) is replaced by origin's scaffold in the reconcile.
