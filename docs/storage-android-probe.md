@@ -178,18 +178,20 @@ the named test fails with an assertion.
 
 ## Evidence
 
-Run 2026-09-24 on a Samsung SM-A346E (API 33, `user` build) and an `sdk_gphone64_x86_64` emulator (API 35,
-`userdebug`, `ro.kernel.qemu=1`). Candidate sources (SHA-256): adapter `8b3da964…16de3b`, probe `b1cf29bf…8ac2d3`,
-JVM test `55775125…88c69`, debug manifest `e42374a7…e66ff`; host script as extracted from this file `40f89944…66e0`.
+Run 2026-09-25 on a Samsung SM-A346E (API 33, `user` build) and an `sdk_gphone64_x86_64` emulator (API 35,
+`userdebug`, `ro.kernel.qemu=1`), every build from commit `37c235be` of this branch, whose `android/` tree id is
+`ca63349872091c21c0eb683f9bad1050a31145f6` (`git rev-parse 37c235be:android`). The script prints that tree id and
+`android-dirty` on every run, so a run can be matched to a candidate by comparing it with
+`git rev-parse <candidate>:android`; the whole `android/` tree, prerequisites included, is what it identifies. Source
+SHA-256 at that commit: adapter `54dd0218…72d965`, probe `7a1ad65f…c23d18`; host script as extracted from this file
+`cf12ee73…91a2ff`.
 
 | Step | Result |
 |---|---|
-| RED, before the adapter existed | DoD exit 1: unresolved `AndroidAppStorageEnvironment` |
-| Baseline before the batch | DoD exit 0; both devices `[PROBE-OK]` 31/31, APK `86d23bd2…71ecb1` |
+| RED, on base `68d38333` before the adapter existed | DoD exit 1: unresolved `AndroidAppStorageEnvironment` |
+| Baseline | DoD exit 0 (265 app JVM tests, 0 failures); both devices `[PROBE-OK]` 31/31 with `android-dirty=0`, APK `63e62c07…22ada6` |
 | Control: unmodified APK with `-Expect A1.root.noBackup` (API 33) | script exit 1, receipt does not match |
-| Mutation batch | 19/19 detected: D01–D14 built (exit 0) and matched their `-Expect` on both devices; J01–J05 compiled and failed the named test with `java.lang.AssertionError`; adapter restored to `8b3da964…` |
-| Final, restored sources | DoD exit 0 (265 app JVM tests, 0 failures); both devices `[PROBE-OK]` 31/31, APK `fd889428…e7c153` |
+| Mutation batch | 19/19 detected: D01–D14 built (exit 0) and matched their `-Expect` on both devices, each run printing the tree id above with `android-dirty=1`; J01–J05 compiled and failed the named test with `java.lang.AssertionError`; adapter restored to `54dd0218…` |
+| Final, restored | DoD exit 0 (265 app JVM tests, 0 failures); both devices `[PROBE-OK]` 31/31 with `android-dirty=0`, APK `63e62c07…22ada6` |
 
-The final APK's bytes differ from the pre-batch build although every source hash is the same, so the source hashes,
-not the APK hash, identify the candidate; each receipt still names the APK it ran.
 Raw states on both devices: `external=mounted internal=unknown global=mounted root=mounted rootParent=unknown`.
