@@ -108,3 +108,7 @@ $diff = (& git -c core.quotepath=false diff --no-ext-diff --no-textconv --no-col
 if ($LASTEXITCODE -ne 0 -or $lines -gt 300 -or $diff.Length -gt 60000) { throw 'complete registration budget exceeded' }
 Write-Host "[POLICY-SOURCE-REGISTRATION-PASS] five paths; lines=$lines chars=$($diff.Length)"
 ```
+
+## Reconcile note (2026-09-24)
+
+The 2026-09 local/origin reconcile landed the local-only parts of local master's PR review v2 phase 1a chain on master: PROTOCOL-DOC (`a66af219`), CHECKLISTS (`2782b55b`), RECORDS (`dec30514`), FACTS-LIB (`b675d6a6`) and STATE-1A (`62ec5f3b`). For the schema and its checker (SCHEMA and UNIT-ID-REVISION), master keeps origin's versions from T0-PREREVIEW-REMOTE-SCHEMA. The source documents that `scripts/fixtures/prereview/policy-source/raw/` copies are now on master, and each raw copy is byte-identical to its document (`git hash-object` equal on 2026-09-24). Whether this card is closed, narrowed or kept is a user decision.

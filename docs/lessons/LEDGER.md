@@ -34,7 +34,7 @@
 ---
 
 ## L1
-- date: 2026-06-01 ｜ tags: powershell, tooling, parallel, claude-code ｜ tier: must ｜ severity: blocking ｜ recurrence: 3
+- date: 2026-06-01 ｜ tags: powershell, tooling, parallel, claude-code ｜ tier: ledger ｜ severity: blocking ｜ recurrence: 3
 - symptom: 一批并行工具调用里，若**首个**命令非零退出，整批后续调用被**连带取消**，已写的文件丢失。
 - root_cause: 并行批次共享失败传播；非零退出触发整批 abort。
 - rule: **只读诊断与写操作分批**；写操作（Write/Edit/提交）单独成批或串行；预期可能非零的探测命令单独跑。
@@ -2319,7 +2319,7 @@
 - refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
 
 ## L309
-- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
@@ -2437,3 +2437,19 @@
 - rule: 闸报红时先确定**它这次读的是哪棵树的配置与输入**，再谈它对不对。判据是换一棵树重跑：同一条闸命令在主检出与被审 worktree 各跑一次并比对退出码，两处结论不同即说明红的是**作用域**而非缺陷。扫描作用域（git log --all 跨 ref）与配置作用域（当前检出树）不一致时，在落后的基线树上跑必然产出「对该树正确、对仓库整体错误」的结论。做完这一步之前，不得据一次红去断言工具有缺陷，更不得据此开卡——把误诊写进卡片比不开卡贵得多。
 - enforced_by: none（判定纪律；机械等价物 = 同一条闸命令在主检出与被审 worktree 各跑一遍、比对退出码，不同即先查作用域）
 - refs: L282
+
+## L331
+- date: 2026-09-16 ｜ tags: powershell,git,fixtures,native-command ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: A fixture helper named Git recursively called itself when its body invoked git, stalling the self-check before any production assertion.
+- root_cause: PowerShell command lookup is case-insensitive and functions take precedence over external executables; Git and git resolve to the same function.
+- rule: Give native-command test wrappers distinct names such as Invoke-FixtureGit. Before integrating the wrapper, run one small real command and require its exit code and output so self-recursion is detected immediately.
+- enforced_by:
+- refs: specs/archive/tasks/T0-PREREVIEW-FACTS-LIB.md
+
+## L332
+- date: 2026-09-17 ｜ tags: powershell,dot-source,entrypoint,selfcheck ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: The state script entered library mode during SelfCheck after importing another script with the same parameter names; no state assertions ran.
+- root_cause: PowerShell dot-sourcing executes the imported param block in the caller scope, overwriting AsLibrary and SelfCheck values.
+- rule: Capture entry mode before dot-sourcing scripts with overlapping parameter names, or isolate imports in a module. Test the actual process entrypoint and require both exit 0 and its assertion-completion sentinel.
+- enforced_by: specs/archive/tasks/T0-PREREVIEW-STATE-1A.md
+- refs: scripts/_prereview-state.ps1; specs/archive/tasks/T0-PREREVIEW-STATE-1A.md

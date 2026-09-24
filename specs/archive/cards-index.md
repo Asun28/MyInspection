@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 216 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 227 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -79,6 +79,13 @@
 | T0-LICENSE-SCANNER | merged | Gradle 已解析坐标图合同提取与离线图套件（TD2 收口卡 1/4） |
 | T0-LICENSE-SELFTEST-DRIFT | merged | 恢复 Gradle diagnostics 的 selftest 回归覆盖并消除权威套件漂移 |
 | T0-LOCAL-RECONCILE-REGISTER | merged | 注册落后本地 master 的十二张可评审文档调和卡 |
+| T0-PREREVIEW-CHECKLISTS | merged | docs/PREREVIEW-CHECKLISTS.md - worker-facing checklists in four Lens sections that enter the pack a… |
+| T0-PREREVIEW-FACTS-LIB | merged | _prereview-facts.ps1 -AsLibrary - worktree, base (via _gitbase.ps1), snapshot tree, policy hash, un… |
+| T0-PREREVIEW-PROTOCOL-DOC | merged | docs/PREREVIEW-PROTOCOL.md (1a protocol and status-code table), TRUST-MANIFEST rows for both provid… |
+| T0-PREREVIEW-RECORDS | merged | _prereview-records.ps1 record core - boolean validation, unit membership, C-{n} id minting, exact-d… |
+| T0-PREREVIEW-SCHEMA | merged | Frozen record schema, worker-envelope projection, check-prereview-schema.ps1 and the Prereview* con… |
+| T0-PREREVIEW-STATE-1A | merged | _prereview-state.ps1 v1 - state schema, atomic state write, dispute append, 1a packet renderer and… |
+| T0-PREREVIEW-UNIT-ID-REVISION | merged | Frozen schema revision 1 - hunk ordinal identities and coordinated fixture migration (cross-surface… |
 | T0-R3-DIFF-BUDGET | merged | 在 push/R3 前按真实 diff 预算硬阻断超大任务卡 |
 | T0-R3-FLOW-ENUM-SYNC | merged | 把真实 diff 预算闸补进每一处确定性闸枚举，并各配锚定断言（承接 T0-R3-DIFF-BUDGET 的 A13） |
 | T0-RECONCILE-DATA-AUTHORITY | merged | 同步离线数据库、安全与备份设计权威 |
@@ -137,9 +144,11 @@
 | T0-TOOLCHAIN | merged | 本机 Android 工具链 + android/ Gradle 双模块骨架空编译绿 + verify/CI 收紧 |
 | T0-TRIAGE-EVIDENCE-CASE-REGISTER | merged | 登记 triage 裁决证据目录大小写语义修复卡 |
 | T0-TRIAGE-EVIDENCE-SCOPE-REGISTER | merged | 把 PR |
+| T1-APP-STORAGE-POLICY | merged | App-private storage routing over a verified path boundary |
 | T1-CANON-HASH | merged | canonical JSON 序列化 + SHA-256 + 黄金向量（★冻结点） |
 | T1-DATABASE-LIFECYCLE-AUTHORITY | merged | 数据库生命周期写权限：活跃/历史读取分流 + 基线与清理终态守卫 |
 | T1-SAFE-MEDIA-LOGGING-REMOTE | merged | 安全日志底座与四处媒体接线的远端交付（原 T1-SAFE-MEDIA-LOGGING） |
+| T1-SAFE-MEDIA-LOGGING | merged | 安全日志底座与四处媒体接线（跨层日志断言同步） |
 | T1-SCHEMA-CORE | merged | SQLDelight 全量 schema + UUIDv7 + 基线迁移 + JVM 测试（★冻结点） |
 | T1-SKELETON-E2E | merged | 一次性走通骨架：建巡检 → 加一项 → 拍一张 → 导出一份 PDF（真机可见，用完即弃） |
 | T1-SPIKE-PLATFORM | merged | 真机平台可行性 spike ×3（overlay / SAF / PDF 压力）+ 结论报告 |
@@ -174,8 +183,10 @@
 | T3-FINALIZE | merged | finalize 事务：完备性校验 → canonical 哈希落库 → 只读强制 + Supplement 哈希链 |
 | T3-PDF-ARTIFACT-PATHS | merged | Report artifact path derivation and anchored shape predicate |
 | T3-PDF-PAGINATION-FIXTURES-REMOTE | merged | Publish the locally verified fixed-height pagination fixtures |
+| T3-PDF-PAGINATION-FIXTURES | merged | Fixed-height pagination fixtures before immutable measurement binding |
 | T3-PDF-RENDERER | merged | Pure JVM PDF render program, four export qualities, geometry and per-page sampling bounds |
 | T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE | merged | Remote delivery of pure-data typography profile and signed metric guard |
+| T3-PDF-TYPOGRAPHY-CONTRACT | merged | Pure-data typography profile and signed metric guard |
 | T3-REPORT-COMPOSER-R3-CLOSURE | merged | 报告布局 R3 收口：40mm 内联缩略图、不可拆图槽、可读时间与引用完整性 |
 | T3-REPORT-COMPOSER | merged | 纯 Kotlin 报告布局引擎：分页/缩略图排版/双语行配对/哈希页脚 + 黄金布局树（★冻结点级质量） |
 | T3-REPORT-CONTENT-ADAPTER | merged | Adapt shared semantic report content into the existing A4 layout plan |

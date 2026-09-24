@@ -6,6 +6,8 @@
 
 ## PR review v2
 
+> 2026-09 reconcile：本地 1a 链的本地独有部分（PROTOCOL-DOC、CHECKLISTS、RECORDS、FACTS-LIB、STATE-1A）随 reconcile 并入 master（schema 与校验器保留 origin 经 T0-PREREVIEW-REMOTE-SCHEMA 采纳的版本），记录见下方「PR review v2：本地 1a 链记录」一节。`docs/PREREVIEW-PROTOCOL.md`、`docs/PREREVIEW-CHECKLISTS.md` 与 `scripts/_prereview-facts.ps1` 因此已在 master 上；T0-PREREVIEW-REMOTE-POLICY、T0-PREREVIEW-REMOTE-FACTS、T0-PREREVIEW-POLICY-SOURCE、T0-PREREVIEW-POLICY-SOURCE-CHECK 与 T0-PREREVIEW-SOURCE-REGISTRATION 的处置待用户裁定。origin 经 #303 登记的待发布卡 T0-PREREVIEW-RECORDS 与 T0-PREREVIEW-STATE-1A 与本地已交付卡同 ID，reconcile 以本地归档卡取代，其远端发布判据未单独执行，处置同样待用户裁定；三个本地 prereview 库都加了 gate 1h 自检入口，因而 FACTS-LIB 与 STATE-1A 卡钉住的 SHA 描述的是 reconcile 前的文件。
+
 远端采纳按 [交付计划](plans/PREREVIEW-REMOTE-ADOPTION.md) 顺序执行：T0-PREREVIEW-REMOTE-SCHEMA → T0-PREREVIEW-REMOTE-POLICY → T0-PREREVIEW-REMOTE-FACTS。只采纳最终 revision 1 契约、策略与 FACTS-LIB；原始本地卡图及其它实现不计为远端完成。作者沿用当前 Astra，正式 R3 为 Sol。
 
 ## 模型席位（性价比路由原则）
@@ -38,7 +40,7 @@
 | W0 | T0-CARD-TEMPLATE-SLIM | 精简任务卡；acceptance/requirements 可选且兼容旧卡 | — | S | Codex | Codex R3 | **merged**（master `c60a67ba`；R3 PASS `a6a180f8`）；可选字段与引用合同已同步；2026-09 local/origin reconcile 按 origin 整文件规则回退了本地实现，未被其他卡取代；一条起的 acceptance、R-id 校验与精简生成器不在 master，见 TD182 |
 | W0 | T0-SELFTEST-META-EXPANSION | 默认延后三处元测试；保留实时检查及每日完整覆盖 | — | S | Codex | Codex R3 | **merged**：本地 04b355d4；R3 pass，core/workflow IncludeMeta 全绿；superseded_by T0-SCAFFOLD-UPSTREAM-ADOPTION（origin 卡记录，2026-09 local/origin reconcile） |
 | W0 | T0-SELFTEST-SKILL-ROUTING | 仅技能改动复用 core + workflow，混合及未知范围仍全跑 | T0-SELFTEST-META-EXPANSION | S | Codex | Codex R3 | **merged**：本地 5f0000cf；R3 pass，core/workflow 全绿，8项关键变异被检出；superseded_by T0-SCAFFOLD-UPSTREAM-ADOPTION（origin 卡记录，2026-09 local/origin reconcile） |
-| W0 | T0-REVIEW-LOW-RISK | 低风险文档评审建议模式与本地可信入口 | — | M | GPT-6 Astra · high | GPT-5.6 Terra · high | **merged**（origin 卡记录：superseded_by T0-SCAFFOLD-UPSTREAM-ADOPTION，PR #297）；本地仍在推进，用户已裁定保留为活卡，最终 reconcile 切片把卡片与本行改回 todo；仍按现行 R3 合并闸执行，待本卡交付后才改变策略 |
+| W0 | T0-REVIEW-LOW-RISK | 低风险文档评审建议模式与本地可信入口 | — | M | GPT-6 Astra · high | GPT-5.6 Terra · high | **todo**（用户 2026-09-24 裁定保留为活卡；origin 曾于 2026-09-11 以 superseded_by T0-SCAFFOLD-UPSTREAM-ADOPTION 关闭，见卡片 reconcile note）；仍按现行 R3 合并闸执行，待本卡交付后才改变策略 |
 | W0 | T0-RECONCILE-LESSONS-PATTERN-FIXTURE | lessons 精确源的变异守卫语义夹具 | T0-RECONCILE-LESSONS-FIXTURE | S | GPT-5.6 Terra · high | Sonnet 5 · max | **todo**；仅修归档卡的精确源绑定与夹具语义 |
 | W0 | T0-SHIP-REVIEW-BASE-BUNDLE | 两条 ship 路径使用同一基线的评审脚本及辅助文件 | T0-SELFTEST-SKILL-ROUTING | M | Codex | Codex R3 | **merged**（origin 卡记录）；不改变既有评审上限；superseded_by T0-SCAFFOLD-UPSTREAM-ADOPTION（origin 卡记录，2026-09 local/origin reconcile） |
 | W0 | T0-INIT-ASSIGNMENT-ANCHORS | 初始化只匹配真实配置赋值，保留注释及字面量 | T0-SHIP-REVIEW-BASE-BUNDLE | S | Codex | Codex R3 | **merged**（origin 卡记录）；仅在隔离夹具运行初始化；superseded_by T0-SCAFFOLD-UPSTREAM-ADOPTION（origin 卡记录，2026-09 local/origin reconcile） |
@@ -140,10 +142,15 @@
 | W1 | T1-SKELETON-E2E | **一次性走通骨架**：建巡检→加一项→拍一张→导出 PDF（真机可见，用完即弃） | T0 | S–M | Opus 5 | Sonnet 5 max | **merged**（本地合并 `19fd908e`；R5 `320f8dac`） |
 | W1 | T1-SCHEMA-CORE ★ | SQLDelight 全 schema+UUIDv7+基线迁移+JVM 测试 | T0 | H | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（本地合并 `fcdc88d2`；R5/冻结登记 `a64f8f45`） |
 | W1 | T1-SPIKE-PLATFORM | V1 真机可行性 ×3：overlay/SAF/80 照 PDF 压力 | T0-TOOLCHAIN | H | Opus 5 · max | Sonnet 5 max | **merged**：PR #286 / `6ad05ec40b6bcfc7a1831cc36a1e71f856d335fb`；R3 首轮 pass、CI 成功、cleanup 完成；真机与 APK 边界见平台报告 |
+| W1 | T1-SAFE-MEDIA-LOGGING | 封闭日志字段与四处媒体失败接线，保留真实控制流和回归 | T1-SPIKE-PLATFORM | M | GPT-5.6 Terra · medium | GPT-5.6 Sol R3 · high | **merged**（master `b58eeb4a`，R3 第二次评审 pass）；7 项故障测试含 RETRY/FAILURE、2 项原有接线检查、24 项语义变异和完整 verify/E2E 通过；647 changed lines / 38419 chars |
+| W1 | T1-STORAGE-PATH-BOUNDARY | 真实路径解析、已验证根快照与子目录边界 | T1-SPIKE-PLATFORM | M | GPT-6 Astra · high | GPT-5.6 Sol R3 · high | **merged**（master `115138a4`，R3 首轮 pass；R5 于 2026-09-24 补记）；20 项真实文件系统测试（Windows Junction，POSIX 未跑）、35/35 变异；615 行 |
+| W1 | T1-APP-STORAGE-POLICY | 环境转换、六类存储路由、封闭媒体状态与路径前置接线 | T1-SPIKE-PLATFORM,T1-SAFE-MEDIA-LOGGING,T1-STORAGE-PATH-BOUNDARY | M | GPT-6 Astra · high | GPT-5.6 Sol R3 · high | **merged**（master `f68d7006`；Codex 配额耗尽期间全新 Opus 5.5 R3 第 3 轮 pass，合并树=评审树 `448da9cd`）；消费 StoragePathBoundary，12 项策略测试、45/45 变异、250 项 app 测试；500 行 / 27.3k；实际 Android 能力仍归 T1-APP-STORAGE-ANDROID |
+| W1 | T1-APP-STORAGE-ANDROID | Android 存储适配器与双设备自验证探针 | T1-APP-STORAGE-POLICY,T1-SPIKE-PLATFORM | M | GPT-6 Astra · high | GPT-5.6 Sol R3 · high | **todo**；完整承接 no-backup/external/转换/卷状态/目录可写/空间及直接变异；既有 debug Activity 方式，300–450行含修复空间；650/45k提前拆 |
 | W1 | [T1-SAFE-MEDIA-LOGGING-REMOTE](../specs/archive/tasks/T1-SAFE-MEDIA-LOGGING-REMOTE.md) | 封闭安全日志与四处媒体失败接线 | T1-SPIKE-PLATFORM | M | GPT-5.6 Terra · medium | GPT-5.6 Sol R3 · high | **merged**；[PR #304](https://github.com/Asun28/MyInspection/pull/304)，reviewed head `6216e9d16f93cac6b4a62a1edb93de09c9746330`，CI `35158547855`，merge `cd7e20160a093817c9a4245cfafe9e393e9a6e49`；正式 R3 pass；不改存储、调度或删除语义 |
 | W1 | T1-APP-STORAGE-POLICY-TESTS | AppStoragePolicyTest 钉住端口参数、环境转换读值与两处 catch 宽度（纯测试） | T1-APP-STORAGE-POLICY-REMOTE | S | Opus 5.5 · high | Opus 5.5 R3（Codex配额恢复前） | **merged**；[PR #332](https://github.com/Asun28/MyInspection/pull/332)，reviewed head `a2d788e030b54704500f4139e37d0b224cc3426d`，CI `35932836390`，merge `d2e98e9c29ed2d14a0dab1482e304b0c80be954b`；Opus R3 首轮 pass；变异 36/44 → 44/44，生产代码不变 |
-| W1 | T1-LOCAL-DATA-SECURITY | 内外存储分层与 Keystore secret box（依赖安全日志） | T1-SPIKE-PLATFORM,T1-SAFE-MEDIA-LOGGING-REMOTE,T1-STORAGE-PATH-BOUNDARY-REMOTE,T1-APP-STORAGE-POLICY-REMOTE | M | GPT-5.6 Terra · high | Sonnet 5 max | ADR-0006；保留完整安全验收及前置日志回归；不改 schema/backup format |
-| W1 | T1-SHARE-SCREEN-PRIVACY | Android 隐私出口：安全文件分享 + 敏感窗口分级 + cleartext/系统备份清单闸 | T1-LOCAL-DATA-SECURITY | S–M | GPT-5.6 Terra · high | Sonnet 5 max | 下游统一隐私出口 |
+| W1 | T1-LOCAL-DATA-SECURITY | 内外存储分层与 Keystore secret box（依赖安全日志） | T1-SPIKE-PLATFORM,T1-SAFE-MEDIA-LOGGING-REMOTE,T1-STORAGE-PATH-BOUNDARY-REMOTE,T1-APP-STORAGE-POLICY,T1-APP-STORAGE-ANDROID | M | GPT-5.6 Terra · high | Sonnet 5 max | ADR-0006；保留完整安全验收及前置日志回归；不改 schema/backup format |
+| W1 | T1-PRIVACY-MANIFEST-POLICY-GATE | merged-manifest 隐私闸与窄 policy primitives | T1-LOCAL-DATA-SECURITY | M | GPT-5.6 Terra · high | GPT-5.6 Sol R3 · high | **todo**；独立执行；450–620 行，守 backup/D2D、cleartext、全相册权限及三份闭集 policy |
+| W1 | T1-SHARE-SCREEN-PRIVACY | verified report staging、窄 FileProvider 与临时 grant | T1-LOCAL-DATA-SECURITY,T1-PRIVACY-MANIFEST-POLICY-GATE,T3-REPORT-EXPORT-CORE | H | GPT-5.6 Terra · high | GPT-5.6 Sol R3 · high | **todo**；仅消费 Export Core typed VerifiedReportArtifact；完整范围预估 960–1,330 行 / 62k–88k，不能直接实施，须再按 staging 与 provider/grant 拆分 |
 | W1 | T1-CANON-HASH ★ | canonical JSON+SHA-256+黄金向量 | T1-SCHEMA-CORE | H | DeepSeek V4 Pro · high | Opus 5 | **merged**（master `4681e69c`，PR #2；R5/冻结登记 `2425d07e`） |
 | W1 | T1-TEMPLATE-ENGINE ★ | 模板 schema+加载器+stable-id/版本对齐+按类型枚举 | T1-SCHEMA-CORE | M | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（master `72ec5e67`，PR #3；R5/冻结登记 `774022e7`） |
 | W2 | T2-ROUTINE-CONTENT | Routine 双语模板 80–120 项+校验测试 | T1-TEMPLATE-ENGINE | S | DeepSeek V4 Pro · medium | Luna Max | **merged**（master `00cb5f0`；deepseek-rescue 替代 Luna Max 复核，卡文已同步登记；9 轮 R3 后合并——烟雾报警器声明组连续 4 轮被拦：内容照抄→许可风险→中性标签改写丢事实→措辞被压缩丢法定 or 替代方案，详见 PR #5） |
@@ -189,12 +196,21 @@
 | W4 | T3-REPORT-IMPORT-PLANNER | 显式导入确认、完整当前预览与确定性映射回执（拆卡后的收尾半；来源清单与逐项决定见 PLAN-PROJECTION / REVIEW-DECISIONS） | T2-ROUTINE-CONTEXT-V2,T3-DOCX-REPORT-EXTRACTOR,T3-REPORT-IMPORT-PLAN-PROJECTION,T3-REPORT-IMPORT-REVIEW-DECISIONS | H | GPT-5.6 Sol · max | GPT-5.6 Terra · max | **merged**（2026-09-08，本地 `d7510b02`；正式 R3 首轮 pass；62 plan、实际合并树 1044 core、6 E2E、24 项源码变异）；当前预览、原子批确认、READY 与脱敏回执完成；写入/UI 仍待后续卡 |
 | W4 | T3-REPORT-IMPORT-COMMIT | staged media + recovery marker + 单事务创建正常 editable DRAFT | T3-REPORT-INTERCHANGE-SCHEMA,T3-REPORT-IMPORT-PLANNER,T2-REPEATABLE-ROOM-RUNTIME,T2-CAPTURE-CORE,T2-PHOTO-QUALITY-PROFILES,T3-FINALIZE | H+ | GPT-5.6 Sol · max | GPT-5.6 Terra · max | ROUTINE-only；不留 raw DOCX；不 auto-finalize/回写历史 links |
 | W4 | T3-PDF-RENDERER | 纯 JVM 渲染程序：四档质量+mm→pt 几何+逐槽采样/逐页内存上界 | T3-REPORT-CONTENT-ADAPTER | M | Sonnet 5 · max | Opus 5 | **merged**（master `a3d1e702`，PR #227，R3 第 2 轮 pass 零 finding；27 测试、26/26 变异全杀；两次用户裁定拆卡，见卡内「拆分依据」） |
-| W4 | T3-PDF-RENDER-DEVICE | PdfDocument 执行器 + CJK 字体资产 + 真机四档记录 | T3-PDF-RENDERER,T1-SPIKE-PLATFORM | M | Sonnet 5 · max | Opus 5 | DoD 含 :app:testDebugUnitTest；平台调用收窄成可替换端口；A4 需用户真机 |
-| W4 | T3-PDF-IMAGE-FIT | 固定FIT_CENTER几何：不变placement框+实际解码尺寸，Double计算并钳进框内 | T3-PDF-RENDERER | S | Opus 5.5 · xhigh | Opus 5.5 R3（Codex配额恢复前） | **merged**；PR #325（39f06b06） |
-| W4 | T3-PDF-IMAGE-OWNERSHIP | bounds/采样转交、decode/draw与流/位图所有权（窄端口） | T3-PDF-IMAGE-FIT,T3-PDF-RENDERER | M | Opus 5.5 · xhigh | Opus 5.5 R3（Codex配额恢复前） | **merged**；PR #326（fa24575c） |
-| W4 | T3-PDF-IMAGE-BRIDGE | Android BitmapFactory/Canvas端口，补全bridge；JVM测试精确钉住源码 | T3-PDF-IMAGE-OWNERSHIP,T1-SPIKE-PLATFORM | S | Opus 5.5 · xhigh | Opus 5.5 R3（Codex配额恢复前） | **merged**；PR #327（e1d47a5f）；RENDER-DEVICE的图片侧前置已齐 |
+| W4 | T3-PDF-TYPOGRAPHY-CONTRACT | 纯数据profile、font role与有符号metric guard | T3-PDF-RENDERER | M | GPT-5.6 Terra · high | GPT-5.6 Sol R3 · high | **merged**；2026-09-17本地8779d05d；首轮R3 pass；137行/7,469字符；5直接测试、328报告+6e2e、12/12变异通过；排版绑定由后继负责 |
+| W4 | T3-PDF-PAGINATION-FIXTURES | 两处固定行高分页夹具迁移，保留首块/续页预算证据 | T3-PDF-TYPOGRAPHY-CONTRACT | M | GPT-5.6 Terra · medium | GPT-5.6 Sol R3 · high | **merged**；2026-09-17本地7e4e35d3，feature8e828486；首轮R3 pass零finding；58行/5,408字符；基线/迁移/恢复各328报告+6e2e通过，2/2具名变异；SkipRed已记账，生产零diff；Binding/API/设备由后继交付 |
+| W4 | T3-PDF-MEASUREMENT-REQUESTS | language-aware请求、所有入口校验与legacy profile迁移 | T3-PDF-TYPOGRAPHY-CONTRACT,T3-PDF-PAGINATION-FIXTURES | M | GPT-6 Astra · xhigh | GPT-5.6 Sol R3 · high | **todo**；RED前新增完整前置；原47k未含修复余量；九文件候选36.8k–39.4k，含25%余量46.0k–49.3k；未含余量预测>40k先拆；不改TextRun |
+| W4 | T3-PDF-MEASUREMENT-BINDING | TextRun精确快照、caption最终来源与DEFAULT双图同页 | T3-PDF-MEASUREMENT-REQUESTS | M | GPT-6 Astra · high | GPT-5.6 Sol R3 · high | **todo**；第4轮与StorageAndroid同轮；原test-only草稿未RED并保留；四文件含修复余量219–253行/18k–24.1k；完整原验收由两卡分担，无default/fallback snapshot |
+| W4 | T3-PDF-TEXT-METRICS-OPS | PdfTextOp快照与baseline转发、实际行框校验 | T3-PDF-MEASUREMENT-BINDING | M | GPT-5.6 Terra · high | GPT-5.6 Sol R3 · high | **todo**；拆分B；候选144行/11,443字符，未GREEN/R4；不重算字形度量 |
+| W4 | T3-PDF-ANDROID-TEXT-MEASURER | Android Paint/Typeface 测量适配器与 CJK fallback 资产搬迁 | T3-PDF-TEXT-METRICS-OPS,T1-SPIKE-PLATFORM | M | GPT-5.6 Terra · high | GPT-6 Astra · high | **todo**；前置 OPS 后启动；实测后采用每次最终行 getTextBounds union，超框明确拒绝；380–570 行/34k–51k预估，650行/50k前拆；一次 move assets，未识别rename则须RED前拆资产/许可 |
+| W4 | T3-PDF-IMAGE-FIT | 固定FIT_CENTER几何：不变placement框+实际解码尺寸 | T3-PDF-RENDERER | S | Opus 5.5 · xhigh | DeepSeek V4 Flash预审 → Opus 5.5 R3（Codex配额恢复前） | **merged**；2026-09-23本地f367ca86，featuredaa4f720；196行；11测试、26/26变异；DeepSeek V4 Flash 8轮预审，Opus 5.5 R3第5轮pass（第3–5轮用户逐轮授权）；合并树=评审树0092e994；远端 PR #325 |
+| W4 | T3-PDF-IMAGE-OWNERSHIP | bounds/采样转交、decode/draw与流/位图所有权（窄端口） | T3-PDF-IMAGE-FIT,T3-PDF-RENDERER | M | Opus 5.5 · xhigh | DeepSeek V4 Flash预审 → Opus 5.5 R3（Codex配额恢复前） | **merged**；2026-09-23本地1558594d，feature17060f81；443行；20测试、23/23变异；DeepSeek V4 Flash 2轮预审，Opus 5.5 R3首轮pass；合并树=评审树b85231ae；远端 PR #326 |
+| W4 | T3-PDF-IMAGE-BRIDGE | Android BitmapFactory/Canvas端口，补全已交付bridge | T3-PDF-IMAGE-OWNERSHIP,T1-SPIKE-PLATFORM | S | Opus 5.5 · xhigh | DeepSeek V4 Flash预审 → Opus 5.5 R3（Codex配额恢复前） | **merged**；2026-09-23本地fee6451f，feature4993e073；174行；1个精确源码钉住测试、22/22变异；DeepSeek V4 Flash 5轮预审，Opus 5.5 R3第3轮pass（第3轮用户授权，并由用户裁定改为精确源码钉住）；合并树=评审树3a61ec1e；图片bridge三卡全部交付；RENDER-DEVICE 仍待 TEXT-METRICS-OPS / ANDROID-TEXT-MEASURER；远端 PR #327 |
+| W4 | T0-APP-TEST-SOURCE-INPUTS | :app源码读取型测试的Gradle输入声明（同PR #188对:core所做） | T3-PDF-IMAGE-BRIDGE | S | Sonnet 5 · high | 第二模型R3 | **todo**；T3-PDF-IMAGE-BRIDGE R3的[FOLLOW-UP]，2026-09-24用户同意开卡；注释等字节码不变的改动可令源码钉住测试UP-TO-DATE假绿 |
+| W4 | T3-PDF-RENDER-DEVICE | PdfDocument页/文档/文本执行与真实图片bridge集成 | T3-PDF-RENDERER,T1-SPIKE-PLATFORM,T3-PDF-TEXT-METRICS-OPS,T3-PDF-ANDROID-TEXT-MEASURER,T3-PDF-IMAGE-BRIDGE | M | GPT-5.6 Terra · high | GPT-5.6 Sol R3 · high | **todo**；消费已测量TextOp与已交付imagebridge；363–481行/24k–35k完整预测；本批第5轮后置 |
+| W4 | T3-PDF-DEVICE-FIXTURE | debug real80清单预检与固定ReportContent/双哈希输入 | T3-REPORT-CONTENT-ADAPTER,T1-SPIKE-PLATFORM | M | GPT-5.6 Terra · high | DeepSeek V4 Flash预审 → Opus 5.5 R3（Codex配额恢复前） | **merged**；2026-09-24本地08ab4d8a，feature89285d67；825行（用户批准超650/45k早停）；11测试、63/63变异；真实Kotlin builder复现双hash；DeepSeek V4 Flash 7轮预审，Opus 5.5 R3第5轮pass（第3–5轮经用户逐轮授权）；合并树=评审树f22b89c4；不宣称设备验收 |
+| W4 | T3-PDF-DEVICE-ACCEPTANCE | 真实80照四档完整真机验收及Agent视觉证据 | T3-PDF-RENDER-DEVICE,T3-PDF-DEVICE-FIXTURE | M | GPT-5.6 Terra · high | GPT-5.6 Sol R3 · high | **todo**；本次10卡之外独立承接完整physical四档80照/字形/铭牌/内存/大小/引用证据；498–684行含R4/证据/修复；仍为EXPORT-CORE前置，未验收 |
 | W4 | T3-PDF-ARTIFACT-PATHS | reports/{prop}/{insp}-{audience}-{quality}.pdf 派生 + 锚定形状判定 | T3-PDF-RENDERER | S | Sonnet 5 | DeepSeek V4 Pro | **merged** 2026-09-02（master `ce4b0a86`，PR #228，R3 pass 于第 1 轮零 finding）；197 行、5 测试、19/19 变异全杀零编译型假击杀 |
-| W4 | T3-REPORT-EXPORT-CORE | 一次语义投影→PDF/HTML；重开逐字节核验、parity、format receipt | T3-REPORT-INTERCHANGE-SCHEMA, T3-REPORT-HTML-RENDERER, T3-REPORT-HTML-PRESENTATION, T3-PDF-RENDER-DEVICE, T5-MEDIA-ARCHIVE-CONTRACT | H | GPT-5.6 Sol · max | GPT-5.6 Terra · max | **todo**；sibling 失败不删 last verified；不宣称 delivery/backup |
+| W4 | T3-REPORT-EXPORT-CORE | 一次语义投影→PDF/HTML；重开逐字节核验、parity、format receipt | T3-REPORT-INTERCHANGE-SCHEMA, T3-REPORT-HTML-RENDERER, T3-REPORT-HTML-PRESENTATION, T3-PDF-DEVICE-ACCEPTANCE, T5-MEDIA-ARCHIVE-CONTRACT | H | GPT-5.6 Sol · max | GPT-5.6 Terra · max | **todo**；sibling 失败不删 last verified；唯一创建 typed VerifiedReportArtifact，供 Share 以不可伪造 proof 消费；不宣称 delivery/backup |
 | W4 | T3-REPORT-IMPORT-UI | 物业内 Choose file→Scan→Match→Review→Create editable draft | T3-REPORT-IMPORT-COMMIT,T2-CAPTURE-UI | H | GPT-5.6 Sol · max | GPT-5.6 Terra · max | **todo**；Field Ledger；阻塞精确聚焦；成功进普通 INSPECTION_REVIEW |
 | W4 | T3-REPORT-EXPORT-UI | PDF/HTML × 房东/房客的 verified open/save/share 状态流 | T3-REPORT-EXPORT-CORE, T2-CAPTURE-UI, T1-SHARE-SCREEN-PRIVACY | H | GPT-5.6 Sol · max | GPT-5.6 Terra · max | **todo**；PDF 默认 Medium；HTML 无伪质量；系统 viewer/browser/chooser |
 | W4 | T3-HISTORY-COMPARE | 历史条(上次状态/滑动)+ghost overlay 集成+双轨基线 | T2-CAPTURE-UI,T1-SPIKE-PLATFORM,T2-REPEATABLE-ROOM-RUNTIME | H | Sonnet 5 · max | Opus 5 | **todo**；实例级 baseline 前置已由 PR #193 / master `6a92aa58` 满足；禁止退回 stable_id 单键匹配；**T1-SPIKE-PLATFORM 已判 ghost overlay 成立**（master `e8c2359a`），按实时叠图推进、不走「拍完并排比对」降级；用户另提「ghost 改画成绿色描边而非平铺半透明照」，呈现方式归本卡决定 |
@@ -304,7 +320,7 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 
 | 卡 | 里程碑 | 产出 | 前置 |
 |---|---|---|---|
-| [T1-APP-BOUNDARY-ASSEMBLY](../specs/tasks/T1-APP-BOUNDARY-ASSEMBLY.md) | V1 | 生产装配入口与巡检用例边界 | T1-LOCAL-DATA-SECURITY, T2-CAPTURE-CORE, T3-FINALIZE, T2-ROUTINE-CONTENT, T2-ROUTINE-CONTEXT-V2, T2-PHRASELIB |
+| [T1-APP-BOUNDARY-ASSEMBLY](../specs/tasks/T1-APP-BOUNDARY-ASSEMBLY.md) | V1 | 生产装配入口与巡检用例边界 | T1-LOCAL-DATA-SECURITY, T1-APP-STORAGE-ANDROID, T2-CAPTURE-CORE, T3-FINALIZE, T2-ROUTINE-CONTENT, T2-ROUTINE-CONTEXT-V2, T2-PHRASELIB |
 | [T2-MEDIA-ACCESS-BOUNDARY](../specs/tasks/T2-MEDIA-ACCESS-BOUNDARY.md) | V1 | 媒体能力收窄与路径校验复用 | T1-LOCAL-DATA-SECURITY, T2-PHOTO-PIPELINE, T2-PHOTO-PROPERTY-DEDUPE |
 | [T2-BULK-PHOTO-ASSIGNMENT](../specs/tasks/T2-BULK-PHOTO-ASSIGNMENT.md) | V1.1 | 批量照片选择、逐张分配与安全提交 | T7-SMOKE-POLISH, T2-MEDIA-ACCESS-BOUNDARY |
 | [T2-AUDIO-EVIDENCE](../specs/tasks/T2-AUDIO-EVIDENCE.md) | 产品 V2 | V2 原始录音证据、回放与归属 | T7-SMOKE-POLISH, T2-MEDIA-ACCESS-BOUNDARY |
@@ -328,6 +344,48 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 ### 保留的待澄清
 
 规则信任决策见 ADR-0008（2026-09-08 用户已批准）：APK 单公钥、本人批准规则、受控电脑分开保管两类私钥、USB 首次安装/传递。用户在完整方案和明确责任问题后回复“好的”，关闭用户待决策项；不代表密钥已生成或安装已完成。轮换、撤销、日期、确认绑定与恢复同步导入卡 A1–A8；本卡已通过远端 R3 并合并（PR #257），此项前置完成；实际制品与安装证据由后续验收提供。remediation provider/key 由 provider 决策卡先定，未选择供应商或授权采购；备份 format v2 字节布局必须走版本评审。V1.1/V2 参数由各自卡前置收口，不影响当前采集建设。既有 s48(2)(c) work-check 法律待办保留，不在本轮修改法律配置。
+
+## PR review v2：本地 1a 链记录（经 2026-09 local/origin reconcile 并入）
+
+> 2026-09 reconcile：本节是本地 master 的 1a 链计划与交付记录，随 reconcile 并入 origin。其中以 origin 领先为前提的排程规则（禁止 reconcile、先收口某卡再 reconcile 等）已被本次 reconcile 取代；远端采纳状态以上方「PR review v2」一节为准。
+
+计划真相源 `_local/PLAN-PR-REVIEW-V2.md`（v7，不入库）；卡正文自足，实施者不需要读计划。基线（143 张归档卡）：R3 首轮 pass 32.9%，平均每卡 3.9 次 block；非正式 pre-review 抓到的 20 张里仍有 17 张被 block。目标：在 ship 之前跑一份**建议性**发现包（Claude 发现者读整棵快照树 + 一枚 DeepSeek 透镜，两者并行、不投票），把可在本卡内修的缺陷在 R3 之前吃掉。codex R3 仍是唯一合并闸；包不进 codex 提示词，包里没有 `verdict` 字段，发现者与评审者的提示词只差 nonce。
+
+**阶段与检查点**
+
+- **1a（原 17 张 + 1 张用户批准的 schema 修订前置卡）**：只出包、不闸。`PrereviewEnabled=false` 即 `[PRE-RUN-DISABLED]` 总开关，任何时候可关。
+- **recall 检查点**：至少 5 张产品卡在首次 ship 前跑包、每次 R3 block 后跑 `link-r3`；合并 recall（same / related）≥ 50% 才开 1b；不足则包保持建议性或退役（kill criterion），不追加投入。
+- **1b（11 张，检查点后按真实数据重投影再落卡）**：处置、`review_status` 与闸谓词、批次语义（≤2 批）、ship 闸腿、账本行（`task.ps1` 仍是唯一写者）、指标（§6.9）。
+
+**调度约束（外部碰撞规则，卡内 Notes 同文）**
+
+- 四条写资源链，同链串行、宽度 1：`review.ps1`（RUNNER → FACTS-EXTRACT → FACTS）· `prereview-facts.ps1`（FACTPACK → FACTPACK-SLICES）· `prereview-workers.ps1`（WORKERS → WORKERS-CLAUDE → WORKERS-DEEPSEEK）· `prereview.ps1`（RUN → LINK-RECALL）。无共享文件的卡可并行（每卡 `parallelizable_with` 按 allow_paths 不相交 + 无依赖关系算出）。
+- （2026-09-15 快照，reconcile 前）任何 worktree 分支或 todo 卡的改动 / allow_paths 触及链文件（`review.ps1`、`task.ps1`、`selftest.ps1`、`_config.ps1`、`CLAUDE.md`、task-loop skill、`QUALITY-RUBRIC.md`、`DEVOPS-WORKFLOW.md`、`TRUST-MANIFEST.md`、`TASK-BOARD.md`）时，须在持有该文件的链卡开工前合并或退役。在飞分支：T0-SHIP-REVIEW-BASE-BUNDLE、T0-REVIEW-LOW-RISK、T0-SELFTEST-SCAFFOLD-ONLY、codex/task-loop-fast-patch-20260910、codex/local-master-reconcile-source-66c10ee、codex/T4-COMPLIANCE-ENGINE-R5-DOCSYNC、T0-CI-HARDENING-MATRIX、T0-SELFTEST-PAGED-PERF、T0-R3-DIFF-INPUT-TRUST 残留；todo 卡：T0-CI-DEADLINE-CONTAINMENT、T0-INIT-ASSIGNMENT-ANCHORS、T0-ASCII-*-CODES、T0-CI-JOBS-DRIFT、T0-R3-DIFF-BUDGET-R3-CLOSURE、T0-R3-MEASURED-OID-BINDING。
+- `origin/master` 比本地 master 多 67 个提交（37 个改链文件，含 #265 已在上游交付 T0-CI-DEADLINE-CONTAINMENT）：任一 1a 链卡在飞期间不做 reconcile；先按 #265 关闭本地 T0-CI-DEADLINE-CONTAINMENT 卡，再在 RUNNER 开工前或 LINK-RECALL 合并后 reconcile，时点由用户裁定。
+- 网络与机密：fixture 与 selftest 永不设 `PRE_LIVE`（唯一例外是 WORKERS-CLAUDE 登记的两个适配器用例，且先断言 fake claude 已解析、CI=1、HTTPS_PROXY 指向本机 record-and-refuse sink）；worker 环境为清空后的白名单，`ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` / `GH_TOKEN` 不进子进程；包、状态、日志全部落 temp root 与 git common dir，不进被评审树。
+
+| 波 | 卡 id | 产出（一句话） | depends_on | 难度 | 首选模型 · effort | 备选 | 卡片状态 / 备注 |
+|---|---|---|---|---|---|---|---|
+| 1a·0 | [T0-PREREVIEW-SCHEMA](../specs/archive/tasks/T0-PREREVIEW-SCHEMA.md) | 记录 schema（envelope + $defs、20 个状态码枚举、worker-envelope.min.json 投影）+ `check-prereview-schema.ps1` + `_config.ps1` 旋钮 | — | M | Opus 5 · high | Sonnet 5 · max | **merged**（master `9c3d3bdf`，2026-09-15） |
+| 1a·0 | [T0-PREREVIEW-RUNNER](../specs/tasks/T0-PREREVIEW-RUNNER.md) | `_subprocess.ps1` 有界两阶段进程 runner；`review.ps1` 换用它（继承环境、零行为变化） | — | H | Opus 5 · high | GPT-5.6 Terra | todo；开工前先按 #265 关闭本地 T0-CI-DEADLINE-CONTAINMENT，并裁定 reconcile 时点 |
+| 1a·1 | [T0-PREREVIEW-FACTS-EXTRACT](../specs/tasks/T0-PREREVIEW-FACTS-EXTRACT.md) | 评审提示词装配与 fence 助手纯搬到 `_reviewprompt.ps1`（同一提示词、只差 nonce） | RUNNER | M | Sonnet 5 · max | DeepSeek V4 Pro | todo；review.ps1 链第 2 张，宽度 1 |
+| 1a·2 | [T0-PREREVIEW-FACTS](../specs/tasks/T0-PREREVIEW-FACTS.md) | `review.ps1 -FactsOut` / `-SizeOnly -Tree` 只读事实导出（不建 `.review`、不计轮次） | FACTS-EXTRACT | M | Sonnet 5 · max | DeepSeek V4 Pro | todo；review.ps1 链第 3 张，宽度 1 |
+| 1a·1 | [T0-PREREVIEW-PROTOCOL-DOC](../specs/archive/tasks/T0-PREREVIEW-PROTOCOL-DOC.md) | `docs/PREREVIEW-PROTOCOL.md`（状态码表）+ TRUST-MANIFEST 两行 + CLAUDE.md 索引行 + task-loop 4.6 一句 | SCHEMA | M | Sonnet 5 · max | GPT-5.6 Luna | **merged**（master `a66af219`，2026-09-15，R3 四轮后人裁合并；兄弟卡 `[FOLLOW-UP]` 见卡体） |
+| 1a·1 | [T0-PREREVIEW-CHECKLISTS](../specs/archive/tasks/T0-PREREVIEW-CHECKLISTS.md) | `docs/PREREVIEW-CHECKLISTS.md` 四个 `## Lens:` 节（进包、进 policy hash） | SCHEMA | M | Opus 5 · high | Sonnet 5 · max | **merged**（master `2782b55b`，2026-09-15，R3 第 5 轮 pass；两次用户裁定 ResetRounds） |
+| 1a·1 | [T0-PREREVIEW-RECORDS](../specs/archive/tasks/T0-PREREVIEW-RECORDS.md) | `_prereview-records.ps1` 记录校验、unit 归属、C-n 铸造、指纹、missing 覆盖合成 | SCHEMA | M | Sonnet 5 · max | DeepSeek V4 Pro | **merged**（master `dec30514`，2026-09-16，R3 第 7 轮 pass 零 finding；三次用户裁定 ResetRounds，六轮 block 共 13 条 finding 全部属实、全部当场修） |
+| 1a·2 | [T0-PREREVIEW-PROMPT](../specs/tasks/T0-PREREVIEW-PROMPT.md) | `_prereview-prompt.ps1` Build-PrereviewPrompt + 按路径类选 Lens 节 | FACTS-EXTRACT, CHECKLISTS | M | Sonnet 5 · max | DeepSeek V4 Pro | todo |
+| 1a·1 | [T0-PREREVIEW-UNIT-ID-REVISION](../specs/archive/tasks/T0-PREREVIEW-UNIT-ID-REVISION.md) | 冻结 schema revision 1：hunk ID 序号消歧 + 夹具/投影/协议同步（2026-09-16 用户批准） | SCHEMA, RECORDS, PROTOCOL-DOC | M | Opus 5 · high | Sonnet 5 · max | **merged**（master `71895645`，首轮 R3 pass，10/10 定向变异） |
+| 1a·1 | [T0-PREREVIEW-FACTS-LIB](../specs/archive/tasks/T0-PREREVIEW-FACTS-LIB.md) | `_prereview-facts.ps1` 纯函数库：worktree / base / 快照树 / policy hash / units / live_allowed / 模型路由 / temp root | SCHEMA, UNIT-ID-REVISION | M | Sonnet 5 · max | DeepSeek V4 Pro | **merged**（master `b675d6a6`，首轮 R3 pass，31 项自检、18/18 变异、常规完整 selftest PASS） |
+| 1a·3 | [T0-PREREVIEW-FACTPACK](../specs/tasks/T0-PREREVIEW-FACTPACK.md) | `prereview-facts.ps1` 包骨架：temp root、`-FactsOut -Tree`、快照树导出、units.json、facts.json | FACTS, FACTS-LIB, CHECKLISTS | M | Sonnet 5 · max | DeepSeek V4 Pro | todo |
+| 1a·4 | [T0-PREREVIEW-FACTPACK-SLICES](../specs/tasks/T0-PREREVIEW-FACTPACK-SLICES.md) | 改动文件切片、acceptance.json、包级 secret 扫描（内容 + 路径）、包大小上限 | FACTPACK | L | DeepSeek V4 Pro | Sonnet 5 · max | todo |
+| 1a·2 | [T0-PREREVIEW-WORKERS](../specs/tasks/T0-PREREVIEW-WORKERS.md) | `prereview-workers.ps1` worker 命令契约、清空后白名单环境、自定义命令传输、envelope 解包 + provenance | SCHEMA, RUNNER, PROTOCOL-DOC | H | Opus 5 · high | Sonnet 5 · max | todo |
+| 1a·3 | [T0-PREREVIEW-WORKERS-CLAUDE](../specs/tasks/T0-PREREVIEW-WORKERS-CLAUDE.md) | 内置 claude 适配器：绝对路径解析、inline settings / schema、PRE_LIVE 守卫、离线 argv 探针 | WORKERS | H | Opus 5 · high | Sonnet 5 · max | todo；argv 探针证据（CLI 版本、退出信息）写进卡正文 |
+| 1a·4 | [T0-PREREVIEW-WORKERS-DEEPSEEK](../specs/tasks/T0-PREREVIEW-WORKERS-DEEPSEEK.md) | 内置 deepseek 透镜适配器：子进程、显式 `-Proxy`、端点先记日志、离线 HttpListener 回放 | WORKERS-CLAUDE | M | Sonnet 5 · max | DeepSeek V4 Pro | todo |
+| 1a·2 | [T0-PREREVIEW-STATE-1A](../specs/archive/tasks/T0-PREREVIEW-STATE-1A.md) | `_prereview-state.ps1` 1a 状态文档 + 原子写 + 包渲染（落 git common dir，不进被评审树） | RECORDS, FACTS-LIB | M | Sonnet 5 · max | DeepSeek V4 Pro | **merged**（master `62ec5f3b`，首轮 R3 pass，86 项自检、25/25 变异） |
+| 1a·5 | [T0-PREREVIEW-RUN](../specs/tasks/T0-PREREVIEW-RUN.md) | `prereview.ps1 run` 控制器：建包 → 提示词 → 并行两 worker → 归一 → 状态 / 包；`[PRE-RUN-DISABLED]` 总开关 | RECORDS, PROMPT, FACTPACK-SLICES, WORKERS-CLAUDE, WORKERS-DEEPSEEK, STATE-1A | H | Opus 5 · high | Sonnet 5 · max | todo；首次真跑证据（OAuth、包外读被拒、无 key 时透镜跳过、token / 墙钟）合并后记回卡 |
+| 1a·6 | [T0-PREREVIEW-LINK-RECALL](../specs/tasks/T0-PREREVIEW-LINK-RECALL.md) | `prereview.ps1 link-r3` + `recall`：每次 R3 block 后关联、合并 recall 度量（检查点） | RUN | L | DeepSeek V4 Pro | Sonnet 5 · max | todo；合并后开始检查点计数（≥5 张产品卡） |
+
+`1a·n` = 依赖图拓扑层，同层可并行（受上面的链约束）。R3 评审席不变：GPT-5.6 Sol（`_config.ps1`），不作同卡作者。
 
 ## 用户已定（2026-08-15 签认，下列为**执行契约**，执行模型按此做，勿再问）
 1. ✅ **ADR-0002 已签认**：备份 = app 私有存储 + SAF 加密归档导出；需求 §11 那处[定]以 ADR-0002 为准。T5 线解锁。

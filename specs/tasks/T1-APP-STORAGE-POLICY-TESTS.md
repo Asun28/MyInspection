@@ -69,3 +69,7 @@ ruling 2026-09-23/24). If R3 blocks more than three times, the card is split ins
 ## Delivery (R5, 2026-09-24)
 
 Merged by [PR #332](https://github.com/Asun28/MyInspection/pull/332): reviewed head `a2d788e030b54704500f4139e37d0b224cc3426d`, CI run `35932836390` (verify and required succeeded), merge `d2e98e9c29ed2d14a0dab1482e304b0c80be954b`. R3 was a fresh Opus 5.5 instance through `ReviewCommand` while the Codex quota is exhausted: pass on the first round, after the ship's own Codex leg failed closed on the usage limit (probe-confirmed, round reset). R4: the previous test file killed 36 of 44 named mutants; this one kills 44 of 44, including the eight A6 survivors. Production bytes unchanged.
+
+## Reconcile note (2026-09-24)
+
+The 2026-09 local/origin reconcile kept local master's storage policy (merged locally as `f68d7006` on 2026-09-24): `AppStoragePolicy.kt` at SHA-256 `D302EB195A4184F7...` and its 12-test `AppStoragePolicyTest.kt`, whose R4 receipt (45/45) is pinned to that production hash. It replaced origin's version from `T1-APP-STORAGE-POLICY-REMOTE` (#316) and this card's 13-test file (#332, 44/44 receipt). Two differences follow: `SecureStorageNamespace.subdirectory` is public in the kept production file where origin's was `internal`, and this card's saved-root replacement and `toPath`-failure vectors live on only as far as the local tests and `StoragePathBoundaryTest` cover them. Changing production bytes back would void the local receipt, so the visibility difference is recorded rather than reverted.

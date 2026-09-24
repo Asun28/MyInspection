@@ -2,8 +2,7 @@
 id: T0-REVIEW-LOW-RISK
 title: 横切 R3 低风险文档建议模式与本地可信评审入口
 depends_on: []
-status: merged
-superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
+status: todo
 branch: T0-REVIEW-LOW-RISK
 worktree: C:\wt\T0-REVIEW-LOW-RISK
 allow_paths:
@@ -26,10 +25,10 @@ forbid:
 non_goals:
   - 自动迁移已有任务卡或为源码改动开放 advisory
   - 新建评审或测试 runner 框架
-  - 自动跳过第二模型评审
+  - 远端写入、发布和自动跳过第二模型评审
 acceptance:
   - "A1 仅基线已提交卡的精确 review_gate: advisory 可选择建议模式；缺省、重复、未知或仅工作树自声明均 blocking"
-  - "A2 以 pinned base...head 的真实路径决定适用范围；普通 docs/specs Markdown 与本卡仅 status 变化可建议，安全/流程/交付/关键合同/冻结/源码/未知混合路径及关键源路径 rename 继续 blocking"
+  - "A2 以 pinned base...head 的真实路径决定适用范围；可建议的路径是白名单：仅 docs/research/ 下的 Markdown 与本卡仅 status 变化，其余一切路径（无论名称，含安全/流程/交付/关键合同/冻结/源码/未知/混合及关键源路径 rename）继续 blocking"
   - "A3 有效 advisory block 保留真实 JSON verdict/reasons 和明确 findings，gate 返回零，不消费阻断 round"
   - "A4 超时、空输出、畸形 JSON/字段、非零 reviewer、stale SHA 与裁决落盘失败均不得被 advisory 放行"
   - "A5 旧卡语义保持 blocking，本地 ship 运行主检出 review.ps1，与远端来源一致"
@@ -46,19 +45,10 @@ doc_sync: 同步 rubric/workflow/card template/task-loop/CLAUDE 的建议模式�
 
 用户已授权采纳有益的上游降摩擦与提速改进。本卡是受限策略接入，本身触及评审基础设施，故仍走 blocking R3。
 
-已提交基线卡显式选择 advisory，且实际改动只能证明为普通 docs/specs Markdown 时，允许真实负面评审作为建议落盘。任何关键、冻结、安全、工作流、交付或未知路径均保持 blocking。超时与无效评审不构成建议意见。
+已提交基线卡显式选择 advisory，且实际改动全部是 docs/research/ 下的 Markdown（白名单）时，允许真实负面评审作为建议落盘。白名单外任何路径（无论名称）与冻结路径均保持 blocking。超时与无效评审不构成建议意见。
 
 实现先写真实策略 SelfCheck 并由主 Agent 固化 RED，再接生产分类与helper 内真实 reviewer fixture。本卡实施预算小于 900 changed lines，并满足 R3 1000 changed lines / 60000 chars 硬上限；预估 550–780 行。
 
+## Reconcile note (2026-09-24)
 
-
-
-## Remote delivery authorization and provenance
-
-The user's 2026-09-08 instruction authorizes remote delivery through an independent worktree and PR. The remaining acceptance, forbid and non-goals stay in force. This todo registration does not represent local historical results as remote implementation or acceptance. Use task-loop with GPT-6 Astra, high effort and the configured independent GPT-5.6 Sol high R3. Establish current-source behavior evidence and preserve existing remote product changes.
-
-Local candidate a9506225 repaired strict JSON and exact status-only findings after two blocked R3 rounds. The user authorized one counter reset on 2026-09-08, and it has already been consumed. Preserve the findings and current counter for remote delivery; a new worktree grants no additional reset.
-
-## R5 closure by upstream adoption — 2026-09-11
-
-Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md), delivered in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc928c4dd36607cc19eace40ec3cc8c01dd1`). `status: merged` records closure through that merged replacement; it does not claim this original card's implementation, DoD, RED, mutation or performance plan was independently completed. The original worktree and evidence are preserved; its old execution queue is retired.
+The user ruled on 2026-09-24 to keep this card live, so the 2026-09 local/origin reconcile uses local master's latest card text (revisions `b817ea7e` and `410c7021` of 2026-09-24), including its non_goals. Origin had closed the card on 2026-09-11 as merged and superseded by `T0-SCAFFOLD-UPSTREAM-ADOPTION`; origin's sections recording the 2026-09-08 remote delivery authorization and that closure remain in history at `f0ce6d9f:specs/tasks/T0-REVIEW-LOW-RISK.md`, and the closure is superseded by the ruling.
