@@ -83,6 +83,7 @@
 
 | TD176 | 2026-09-14 | `scripts/check-licenses.ps1` 的 Gradle 许可扫描读 `~/.gradle/caches/modules-2/files-2.1` 里的 POM 文件（`T0-CI-SELFTEST-ADOPTION-REPAIR`，PR #299 首次 ship） | 扫描器把「缓存里没有 POM」判为 `[GRADLE-METADATA]` 阻断，而 Gradle 的 30 天缓存清理会删掉构建不再读取的 POM（构建从 `metadata-2.107` 二进制库取元数据，只保留被访问的 AAR/JAR）：2026-09-14 本机 150 个 GAV 有 144 个报缺 POM，正好是 T0-TOOLCHAIN 预热（08-15）后 30 天。修法是联网预热重取元数据（`gradlew --refresh-dependencies :app:dependencies --configuration <X>`，**一次调用只认最后一个 `--configuration`**，四张图要分四次跑），但这只是复位，30 天后再来。偿还：让扫描器在缺 POM 时给出「先预热」的精确命令并区分「从未下载」与「被 GC 删除」，或把预热命令做成脚本并写进 `docs/LICENSE-POLICY.md`；id 跳过 173–175 是因为本地未推送的 master 已占用。 | major | open | - |
 | TD177 | 2026-09-14 | `scripts/selftest.ps1` 的 `$fail` 是单调闩（`T0-CI-SELFTEST-ADOPTION-REPAIR` 官方 RED 实测） | `Fail` 只置位不复位，闸的 PASS/FAIL 按本闸新增失败数判（`Exit-Gate`），但 15b 等夹具体用 `if (-not $fail -and ...)` 守卫：多闸合跑（如 `-Only 8,14,15,...`）里首个红闸之后，这些夹具静默不跑、其闸仍报 PASS——RED 运行里 15b 的 ship 未执行而 `[GATE-RESULT] 15 PASS`。CI 分片单闸独跑故未暴露；本地合跑的「PASS」对这类夹具不成立。上游 harness 行为，宜连同 17ac(o)①/15e 一起回报。 | major | open | - |
+| TD180 | 2026-09-24 | 任务卡合同（`scripts/_cards.ps1`、`scripts/check-cards.ps1`、`.claude/workflows/decompose-cards.mjs`、`specs/README.md`） | 2026-09 local/origin reconcile 按 origin 整文件规则回退了本地 `T0-CARD-TEMPLATE-SLIM`（`c60a67ba`）：一条起的 acceptance、requirements 的 R-id 形态/重复/悬空引用校验与精简卡生成器不在 master；origin 仍要求 acceptance 至少 3 条，requirement 引用校验等待语料迁移卡（`docs/SCAFFOLD-UPSTREAM-ADOPTION-20260910.md`）。需决定是否在 origin 合同上重做 | major | open | — |
 
 <!-- 新债项追加到上表。偿还时改 status + 填指针；勿删行（保留还债轨迹）。 -->
 

@@ -78,8 +78,6 @@
 - HTML 禁 script/handler/form/iframe/object/embed/base/meta refresh/外部 URL；只许生成器样式和经验证的内嵌图片，并以 CSP 禁网络/导航/主动内容。质量仅属于 PDF。
 - 重开验证 artifact hash/MIME 后才可 Open/Save/Share；只授予临时只读 `content://`，并显示明文外移边界。
 
-`T3-REPORT-HTML-PRESENTATION` 已落地 responsive、A4 print、dark/forced-colors 规则与 class 双向核对；样式禁止任何 `url()` 和隐藏证据的规则，只用系统字体栈。固定 CSP 样式摘要通过独立 SHA-256 计算更新并保留字面量断言。
-
 ### 2.4 日志、通知与界面泄露
 
 - 生产日志只写操作名、非敏感 reason code、耗时/计数和随机 request/asset id。禁地址、姓名、联系方式、备注/转写、文件绝对路径、SAF URI、备份对象名、照片内容/hash、口令、key、Authorization header 和 provider 原始错误体。
