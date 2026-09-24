@@ -7,9 +7,9 @@ branch: T1-LOCAL-SECRET-BOX
 worktree: C:\wt\T1-LOCAL-SECRET-BOX
 allow_paths:
   - android/app/src/main/kotlin/nz/myinspection/app/platform/LocalSecretBox.kt
-  - android/app/src/main/kotlin/nz/myinspection/app/platform/SecretEnvelopeStore.kt
+  - android/app/src/main/kotlin/nz/myinspection/app/platform/LocalSecretEnvelopeStore.kt
   - android/app/src/test/kotlin/nz/myinspection/app/platform/LocalSecretBoxTest.kt
-  - android/app/src/test/kotlin/nz/myinspection/app/platform/SecretEnvelopeStoreTest.kt
+  - android/app/src/test/kotlin/nz/myinspection/app/platform/LocalSecretEnvelopeStoreTest.kt
 forbid:
   - Android Keystore, KeyguardManager or UserManager code and any android.* import in the new files (the Android adapters and the device probe belong to T1-LOCAL-DATA-SECURITY)
   - New Gradle or runtime dependencies, Robolectric or other Android JVM doubles, source-text assertions standing in for behavior
@@ -21,7 +21,7 @@ non_goals:
   - SafeLog events for box failures; key rotation or re-sealing beyond the readable-version set
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug
 dod_exit: 0
-dod_assert: The app JVM suite and assembleDebug pass, and build/test-results for testDebugUnitTest contains LocalSecretBoxTest and SecretEnvelopeStoreTest with every A1-A6 test present and passing. On the base the two test classes do not compile (the production types do not exist), so the command exits non-zero. The existing SafeLog, AppStoragePolicy, AndroidAppStorageEnvironment and StoragePathBoundary tests stay green.
+dod_assert: The app JVM suite and assembleDebug pass, and build/test-results for testDebugUnitTest contains LocalSecretBoxTest and LocalSecretEnvelopeStoreTest with every A1-A6 test present and passing. On the base the two test classes do not compile (the production types do not exist), so the command exits non-zero. The existing SafeLog, AppStoragePolicy, AndroidAppStorageEnvironment and StoragePathBoundary tests stay green.
 requirements:
   - "R1 When a secret is sealed, the box shall persist only a version byte, a 96-bit nonce produced by the cipher provider, and the ciphertext with its 128-bit tag, and a fresh nonce shall be used for every seal."
   - "R2 When an envelope is opened, the box shall return the secret only after GCM authentication of that envelope under its own alias and associated data, and shall never return plaintext for a modified, foreign or malformed envelope."
@@ -54,7 +54,7 @@ User ruling 2026-09-25: deliver `T1-LOCAL-DATA-SECURITY` in three PRs (card regi
 - `SecretPurpose`: `BACKUP_PASSPHRASE` (ADR-0006 background backup) and `REMEDIATION_API_KEY` (SECURITY.md and specs/android-module-boundaries.md).
 - Cipher `AES/GCM/NoPadding`, 128-bit tag. Encryption initialises without an IV and reads `cipher.iv`, so the same code path works with Android Keystore keys, which generate the nonce themselves.
 - `SecretOpenResult`: `Opened(SecretChars)`, `NeedsUnlock`, `NeedsPassphrase(reason)`; reasons `ENVELOPE_MISSING`, `ENVELOPE_UNREADABLE`, `ENVELOPE_CORRUPT`, `VERSION_UNSUPPORTED`, `KEY_MISSING`, `KEY_UNUSABLE`, `AUTHENTICATION_FAILED`. `SecretSealResult`: `STORED`, `NEEDS_UNLOCK`, `UNAVAILABLE`.
-- `SecretEnvelopeStore(policy: AppStoragePolicy)` implements `SecretEnvelopeFiles`; tests use JDK software AES keys and in-memory fakes for the ports.
+- `LocalSecretEnvelopeStore(policy: AppStoragePolicy)` implements `SecretEnvelopeFiles`; tests use JDK software AES keys and in-memory fakes for the ports.
 - The lock check is repeated after a key, cipher or read failure, so a device that locks during the operation reports the retryable state rather than asking for the passphrase.
 
 ## Budget
