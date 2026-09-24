@@ -2,12 +2,13 @@ package nz.myinspection.core.report.importing.docx.image
 
 data class DocxImageDimensions(val width: Int, val height: Int)
 
-enum class DocxImageDisposition { REVIEW_REQUIRED, SHIM_QUALIFIED }
+/** Neither disposition authorizes exclusion; every image remains subject to review. */
+enum class DocxImageDisposition { REVIEW_REQUIRED, VALIDATED_SMALL_CANDIDATE }
 
-/** Header dimensions are candidates, independent of the narrow exclusion qualification. */
+/** Proven header dimensions are independent of the bounded small-PNG validation result. */
 data class DocxImageQualification(
     val dimensions: DocxImageDimensions?,
     val disposition: DocxImageDisposition,
 )
 
-class DocxImagePixelLimitException internal constructor() : IllegalArgumentException("DOCX_IMAGE_PIXELS")
+class DocxImagePixelLimitException : RuntimeException("DOCX_IMAGE_PIXELS")

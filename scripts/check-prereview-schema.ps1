@@ -64,17 +64,17 @@ function Read-SchemaFile([string]$Path) {
 function Get-SchemaNodes($Node, [string]$Path = '#') {
   $acc = [System.Collections.Generic.List[object]]::new()
   $stack = [System.Collections.Generic.Stack[object]]::new()
-  $stack.Push(@($Path, $Node))
+  $stack.Push(@($Path, $Node, $false))
   while ($stack.Count) {
     $pair = $stack.Pop(); $p = $pair[0]; $n = $pair[1]
     if (-not ($n -is [System.Collections.IDictionary])) { continue }
-    $acc.Add([pscustomobject]@{ Path = $p; Node = $n })
+    $acc.Add([pscustomobject]@{ Path = $p; Node = $n; IsConditional = [bool]$pair[2] })
     foreach ($k in @('properties', 'patternProperties', 'dependentSchemas', '$defs')) {
-      if ($n.Contains($k) -and $n[$k] -is [System.Collections.IDictionary]) { foreach ($c in $n[$k].Keys) { $stack.Push(@("$p/$k/$c", $n[$k][$c])) } }
+      if ($n.Contains($k) -and $n[$k] -is [System.Collections.IDictionary]) { foreach ($c in $n[$k].Keys) { $stack.Push(@("$p/$k/$c", $n[$k][$c], $false)) } }
     }
-    foreach ($k in @('items', 'additionalProperties', 'propertyNames', 'unevaluatedProperties', 'unevaluatedItems', 'contentSchema', 'if', 'then', 'else', 'not', 'contains')) { if ($n.Contains($k)) { $stack.Push(@("$p/$k", $n[$k])) } }
+    foreach ($k in @('items', 'additionalProperties', 'propertyNames', 'unevaluatedProperties', 'unevaluatedItems', 'contentSchema', 'if', 'then', 'else', 'not', 'contains')) { if ($n.Contains($k)) { $stack.Push(@("$p/$k", $n[$k], ($k -cin @('if', 'then', 'else')))) } }
     foreach ($k in @('anyOf', 'oneOf', 'allOf', 'prefixItems')) {
-      if ($n.Contains($k)) { $i = 0; foreach ($c in @($n[$k])) { $stack.Push(@("$p/$k/$i", $c)); $i++ } }
+      if ($n.Contains($k)) { $i = 0; foreach ($c in @($n[$k])) { $stack.Push(@("$p/$k/$i", $c, $false)); $i++ } }
     }
   }
   return $acc
@@ -130,8 +130,9 @@ function Test-SchemaHygiene($Obj) {
   }
   foreach ($e in (Get-SchemaNodes $Obj)) {
     $n = $e.Node
-    # if/then/else 片段是叠加在同一对象上的约束，不能带 additionalProperties:false（会拒掉其它属性），故豁免。
-    $isObject = ($n.Contains('type') -and $n['type'] -ceq 'object') -or ($n.Contains('properties') -and $e.Path -notmatch '/(if|then|else)$')
+    # 条件关键字的直接片段叠加在同一对象上；同名属性或片段里的子对象并不享有这个豁免。
+    if ($e.IsConditional) { continue }
+    $isObject = ($n.Contains('type') -and $n['type'] -ceq 'object') -or $n.Contains('properties')
     if ($isObject -and -not ($n.Contains('additionalProperties') -and $n['additionalProperties'] -is [bool] -and -not $n['additionalProperties'])) {
       $reasons += "$($e.Path): object shape without additionalProperties:false"
     }
@@ -261,6 +262,22 @@ function Expect([string]$Label, $Result, [bool]$ShouldPass) {
   Write-Host "  $Label -> $(if ($Result.Ok) { 'pass' } else { 'fail' })$(if (-not $ShouldPass) { ' (expected)' })$(if (-not $good) { ' UNEXPECTED' })" -ForegroundColor $(if ($good) { 'DarkGray' } else { 'Red' })
   if ($good) { return }
   $script:all += if ($ShouldPass) { @($Result.Reasons | ForEach-Object { "${Label}: $_" }) } else { "${Label}: expected a failure, got pass" }
+}
+Write-Host '[conditional hygiene] typed fragments and same-named object properties' -ForegroundColor Cyan
+foreach ($keyword in @('if', 'then', 'else')) {
+  $conditional = @{ type = 'object'; additionalProperties = $false; properties = @{ flag = @{ type = 'boolean' } } }
+  $conditional[$keyword] = @{ type = 'object'; properties = @{ flag = @{ const = $true } } }
+  $issues = @(Test-SchemaHygiene $conditional)
+  Expect "typed conditional $keyword" @{ Ok = ($issues.Count -eq 0); Reasons = $issues; Lines = @() } $true
+  foreach ($container in @('properties', 'patternProperties', '$defs', 'dependentSchemas')) {
+    $openNamedObject = @{ type = 'object'; additionalProperties = $false }
+    $openNamedObject[$container] = @{ $keyword = @{ type = 'object'; properties = @{ flag = @{ type = 'boolean' } } } }
+    $issues = @(Test-SchemaHygiene $openNamedObject)
+    Expect "open object named $keyword under $container" @{ Ok = ($issues.Count -eq 0); Reasons = $issues; Lines = @() } $false
+  }
+  $conditional[$keyword].properties.child = @{ type = 'object' }
+  $issues = @(Test-SchemaHygiene $conditional)
+  Expect "open child inside $keyword" @{ Ok = ($issues.Count -eq 0); Reasons = $issues; Lines = @() } $false
 }
 Write-Host '[1/5] record schema: hygiene + contract' -ForegroundColor Cyan
 try {

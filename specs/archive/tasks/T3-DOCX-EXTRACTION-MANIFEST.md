@@ -10,7 +10,7 @@ allow_paths:
   - android/core/src/main/kotlin/nz/myinspection/core/report/importing/docx/extract/DocxExtractionManifest.kt
   - android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/extract/DocxExtractionManifestTest.kt
 forbid:
-  - Private samples, file or database writes, network, new runtime dependencies, or changes to the existing DOCX-EXTRACT-1 format
+  - Private samples, writes, network, new runtime dependencies, or deviation from the referenced DOCX-EXTRACT-1 contract
 non_goals:
   - XML parsing, package validation, extraction, image qualification, template mapping, persistence or UI
 plan_ref: docs/adr/0007-report-interchange.md
@@ -19,7 +19,7 @@ acceptance:
   - "A2 raw text, normalized suggestions, nullable fields, source coordinates and ordering survive without report interpretation or source mutation"
   - "A3 all eight input collections are copied and published read-only; caller mutation cannot change manifest contents or digest"
   - "A4 empty and representative nonempty digest vectors are independent of production serialization; every serialized field, collection order, null versus empty, and Unicode validity are pinned"
-  - "A5 the existing package, constructors and DOCX-EXTRACT-1 encoding remain byte-compatible with the approved extractor implementation"
+  - "A5 package, constructors, normalization and DOCX-EXTRACT-1 bytes match docs/references/docx-extraction-contract-llms.txt, including its independent 151/1472/230-byte vectors"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.report.importing.docx.extract.DocxExtractionManifestTest"
 dod_exit: 0
 dod_assert: direct-constructor tests prove immutable evidence collections and independently calculated deterministic DOCX-EXTRACT-1 digest vectors
@@ -32,12 +32,14 @@ doc_sync: ADR-0007 + TASK-BOARD
 
 ## Approved predecessor (2026-09-06)
 
-The user approved migrating the existing Manifest from T3-DOCX-REPORT-EXTRACTOR into an independently verified predecessor. Direct-constructor unit tests do not depend on the reader, extractor or image fixtures. The original extractor integration tests remain in their parent card. No version, public API or digest-format redesign is included.
+Implement [the contract](../../../docs/references/docx-extraction-contract-llms.txt). Constructor tests are independent of reader/extractor/image fixtures; parent integration stays as specified.
 
-## Compatibility correction found before first ship
+Pin NFC/trim/six-ASCII-whitespace normalization, raw preservation, interior nonbreaking whitespace and independent vectors. JVM tests do not prove ART behavior.
 
-Fresh preflight found that Android uses Unicode regex character classes while the JDK default whitespace class is ASCII. An interior nonbreaking space therefore has different normalized evidence and digest bytes under the original platform-default pattern. The one-line correction explicitly names the same six ASCII whitespace characters, preserving existing JDK behavior, NFC/trim, raw evidence, API and DOCX-EXTRACT-1 field encoding. An independent JDK Pattern probe verified identical matching sets across all 1,112,064 Unicode scalars; original digest vectors remain unchanged. Android behavior is derived from the installed official SDK source, not claimed as an ART execution result. New direct-constructor whitespace regressions, actual dependency-classpath verification and a fresh complete final-source R4 epoch cover the correction. The new regression is already GREEN on the old JDK behavior and is not represented as a reproduced Android RED. The initial official tests-first RED and all historical evidence remain preserved.
+## Remote delivery — 2026-09-08
 
-## Delivery evidence
+Squash-merged by [PR #262](https://github.com/Asun28/MyInspection/pull/262) as `11cf5899be81bb1511cde31bc34bfdceea5b31eb`; reviewed head `38c15858f31cdf9b72643414a7bbfe4f5d0d4f0a` received formal R3 pass with empty reasons and exact-candidate CI `verify` SUCCESS ([run](https://github.com/Asun28/MyInspection/actions/runs/34188053421)). Official non-local task-loop ship passed RED, DoD, project verify, scope, licence, secrets and complete-diff budget gates.
 
-2026-09-06: local master `2f03a166`, implementation `696329657f0ef708faa09e9faa958f1e2a116f43`; exact DoD 11 tests passed, 42 source mutations failed by assertion, and 1 physical candidate-test deletions were evaluated with source restoration hashes. Official RED, DoD, verify, scope, license, secrets, size and R3 pass completed. The existing immutable evidence API and DOCX-EXTRACT-1 byte encoding remain unchanged; independent constructor vectors, all eight copied/read-only collections, raw/normalized/source preservation and field/order/null/Unicode behavior are tested. No new technical debt was identified within this boundary; report extraction and original-package compatibility remain in the parent card.
+Fresh RED had 11 behavioral failures; final DoD passed all 10 retained tests without skips. Forty-five fresh mutations failed named assertions with exact restoration. After physically deleting the redundant length-prefix test, the missing-prefix mutation was still caught by four assertions; the complete core run confirmed those same four failures among 900 tests, with 0 errors and 4 existing skips. Source SHA-256 `595ea4ab7fc2de15214eee7bced403c846cf7ba46268873de829d9ba71d4e243`; final test SHA-256 `c3625ad79c7be51070a844cc42e65fd339ffbf38cb9b7ae901ff052eed18f84d`. All raw XML, mutation/deletion recipes, classifier-attribution correction and restoration receipts are preserved locally under `_local/projection-20260908/remote-manifest-evidence/`; remote verdict and merge proof are in `remote-manifest-delivery/`.
+
+Official cleanup completed after merge and evidence preservation. R5 debt scan found no new concrete divergence. R5.5 skips a duplicate lesson: L310 already covers this remote-recovery workflow. This delivery establishes immutable evidence and deterministic bytes; it does not claim ART acceptance, extraction, planning or complete import.

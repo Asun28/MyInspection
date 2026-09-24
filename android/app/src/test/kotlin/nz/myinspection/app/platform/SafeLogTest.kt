@@ -345,7 +345,10 @@ private class CapturingSink : SafeLogSink {
     }
 }
 /*
- * R4: 24 semantic mutations, each compiled separately (exit 0), failed a named assertion, and restored source SHA.
+ * R4 remote revalidation on base 1ce3f5ae (PR301), 2026-09-16 UTC: all 24 mutations independently rerun.
+ * New evidence: _local/safe-media-logging/mutations/<id>/{compile.log,test.log,tests.xml,result.json}; r4-summary.json.
+ * Each compiled separately (exit 0), failed the named assertion below, and restored source SHA.
+ * Local feature a5d4dd83 is provenance only; its old logs/XML are not the evidence for this remote candidate.
  * Gradle targets: :app:compileDebugUnitTestKotlin; :app:testDebugUnitTest --tests nz.myinspection.app.platform.SafeLogTest.
  * M11-M15 temporarily reflect into the same sink with actual caller paths/stacks, retaining best-effort sink isolation.
  * Original M19 exposed the injected Error, not an assertion; M19b rechecks explicit success. No redundant test removed.

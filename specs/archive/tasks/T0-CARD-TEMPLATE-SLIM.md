@@ -53,3 +53,7 @@ mutations (110.3 seconds after adding R0/R01 rejection fixtures). Deleting only 
 condition made both new fixtures fail; restoring it made both pass. Production code remained
 unchanged, so the full core run was not repeated for these test additions. Logs are retained
 under this worktree's `_local/` directory.
+
+## Reconcile note (2026-09-24)
+
+The 2026-09 local/origin reconcile took origin's whole file for every scaffold file changed on both sides, which reverted this card's local implementation (`c60a67ba`) in `scripts/_cards.ps1`, `scripts/check-cards.ps1`, `.claude/workflows/decompose-cards.mjs`, `specs/tasks/_TEMPLATE.md`, `specs/README.md`, `docs/PLAN-TEMPLATE.md` and `docs/DEVOPS-WORKFLOW.md`. Origin adopted upstream's template but keeps enforcing three or more acceptance items and defers requirement-citation validation to a corpus-migration card (`docs/SCAFFOLD-UPSTREAM-ADOPTION-20260910.md`). One-item acceptance lists, requirement R-id validation and the slimmer card generator are therefore not on master; TD180 tracks them. No other card supersedes this one.

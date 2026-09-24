@@ -1,7 +1,7 @@
 ---
 id: T1-STORAGE-PATH-BOUNDARY-REMOTE
 title: Remote delivery of verified storage path snapshots and checked child directories
-status: todo
+status: merged
 depends_on: [T1-SPIKE-PLATFORM]
 allow_paths:
   - android/app/src/main/kotlin/nz/myinspection/app/platform/StoragePathBoundary.kt
@@ -53,3 +53,132 @@ Local history: feature c201c793f6c1bb3bab7ad0ac7d0168be968daf9c, local merge 115
 Remote RED must use the preserved 390-line test body before adding production. Transfer the 86-line production implementation only after a valid new RED. Do not copy the old 138-line R4 comment receipt as evidence of the new branch: replace that tail only after freshly executing all 35 mutations and restored DoD, then run the full DoD again. Keep every named primary failure distinct, preserve secondary failures without counting them as kills, and rebuild each mutant from the final receipt against the exact final production pin.
 
 The functional PR remains exactly the two allow_paths; no build, dependency, Policy, Android adapter, schema, documentation or parent-card edits belong in it. Source resolution and fixture helpers depend only on existing JDK/Kotlin and test APIs. First complete candidate stays within615 changed lines/36000 LF diff characters; early stop820/48000 and hard R3 maximum1000/60000 remain unchanged. Stop for root scope disposition if new evidence cannot fit; do not remove tests or compress code to meet the budget. R5 records the actual remote PR/merge and links this alias to the original product card without claiming Android integration or later-I/O safety.
+
+## Remote delivery receipt
+
+PR310 merged after two wrapper attempts and the first actual Sol/high code-review PASS. The first attempt hit a quota limit and produced no code verdict. CI35174714509 used the reviewed head; guarded original-main cleanup completed. Runtime and final-source context below remains bound to original saved records. This functional merge is not completed R5 until the separate closure PR merges. POSIX, Android integration and later-I/O guarantees remain unclaimed.
+
+<!-- boundary-remote-lifecycle-receipt -->
+```json
+{
+  "schema": "boundary-remote-r5-observed-v1",
+  "id": "T1-STORAGE-PATH-BOUNDARY-REMOTE",
+  "productPr": {
+    "number": 310,
+    "url": "https://github.com/Asun28/MyInspection/pull/310",
+    "state": "MERGED",
+    "reviewedHead": "bfefc1057a0ecbdfde4f747193c68c0069bdb73c",
+    "mergeOid": "74aa9cb7ac6e70bbae30cb5d3a2024d8c95d6a0c",
+    "mergedAt": "2026-09-17T23:20:41Z"
+  },
+  "formalR3": {
+    "model": "gpt-5.6-sol",
+    "effort": "high",
+    "verdict": "pass",
+    "wrapperAttempts": 2,
+    "actualReviews": 1,
+    "firstAttempt": "R3-NO-OUTPUT:usage_limit:no_code_verdict",
+    "roundsFilePresent": true,
+    "reasons": [],
+    "rounds": 1,
+    "rawTxtExists": false,
+    "savedShipCommandsResetRounds": false
+  },
+  "candidateCI": {
+    "run": 35174714509,
+    "head": "bfefc1057a0ecbdfde4f747193c68c0069bdb73c",
+    "jobs": [
+      "verify",
+      "required"
+    ]
+  },
+  "cleanup": {
+    "exit": 0,
+    "worktreeAbsent": true,
+    "branchAbsent": true,
+    "endedUtc": "2026-09-17T23:34:57.6185122Z",
+    "mergeTokenVerified": true
+  },
+  "sources": [
+    {
+      "path": "android/app/src/main/kotlin/nz/myinspection/app/platform/StoragePathBoundary.kt",
+      "blob": "c4f29f5e6ed20a9813d6a3c9a59123c7f476e98e",
+      "sha256": "41DCC7DFA834D3C04AF6EB2CF925B70FE5EF700C32EC739D0CEC54509204F3DB"
+    },
+    {
+      "path": "android/app/src/test/kotlin/nz/myinspection/app/platform/StoragePathBoundaryTest.kt",
+      "blob": "6e1c83b9d64a2fe1b7ccda554e08648984e4d046",
+      "sha256": "46182BF6AD9B99260D432C988C83E7F03FB871E5B4E263CBCABEE1D831C67AC9"
+    }
+  ],
+  "runtime": {
+    "executionHead": "553d53382f3b663dac19ed1c607ffa35ee499d0c",
+    "executionIdentity": "197eae03-37ab-4364-9590-62550dfa9111",
+    "planSha256": "DF33D35DD04A71780378B2D29452F44D122AD50327866710D3E1687D9C8D9770",
+    "productionSha256": "41DCC7DFA834D3C04AF6EB2CF925B70FE5EF700C32EC739D0CEC54509204F3DB",
+    "preTailTestSha256": "6CDE4BE12DD76B26056E645F03EF5415DCDC04DE0A1F2DAE67997433F87B1202",
+    "finalTestSha256": "46182BF6AD9B99260D432C988C83E7F03FB871E5B4E263CBCABEE1D831C67AC9",
+    "stages": [
+      {
+        "name": "green",
+        "suites": 9,
+        "tests": 177,
+        "direct": 20,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "testSha256": "6CDE4BE12DD76B26056E645F03EF5415DCDC04DE0A1F2DAE67997433F87B1202"
+      },
+      {
+        "name": "restored-dod",
+        "suites": 9,
+        "tests": 177,
+        "direct": 20,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "testSha256": "6CDE4BE12DD76B26056E645F03EF5415DCDC04DE0A1F2DAE67997433F87B1202"
+      },
+      {
+        "name": "post-tail-dod",
+        "suites": 9,
+        "tests": 177,
+        "direct": 20,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "testSha256": "46182BF6AD9B99260D432C988C83E7F03FB871E5B4E263CBCABEE1D831C67AC9"
+      }
+    ],
+    "mutations": 35,
+    "distinctMutants": 35,
+    "primaryAssertionKills": 35,
+    "assertionFailures": 73,
+    "secondaryNonAssertionFailures": 4,
+    "secondaryErrors": 0,
+    "windowsJunctions": "EXECUTED_NO_SKIPS",
+    "posix": "NOT_EXECUTED"
+  },
+  "proof": {
+    "root": "_local/rotating-card-orchestrator/round2-r5-proof/boundary/original",
+    "manifestSha256": "7E5B140C0A69F1C5613823E6DBDFB51DF1D113D4786A0F48F65B333F8CBAAFD9"
+  },
+  "evidence": {
+    "cleanupAudit": "cleanup/audit.json",
+    "cleanupResult": "cleanup/cleanup-result.json",
+    "cleanupLog": "cleanup/cleanup.log",
+    "childManifests": [
+      {
+        "root": "delivery",
+        "path": "delivery/manifest.json",
+        "sha256": "A0A7E8DE6CA68061E5CA99C504FEF0333931BFC026BDFE1B25AFA500BC7A4BA8"
+      },
+      {
+        "root": "delivery/canonical-evidence/ship-attempt-01-preserved",
+        "path": "delivery/canonical-evidence/ship-attempt-01-preserved/manifest.json",
+        "sha256": "3D3FB6202E08F95B77747E0DA127D9D06D0F194C59D15807CB1B94D4857C6F8A"
+      }
+    ]
+  }
+}
+```

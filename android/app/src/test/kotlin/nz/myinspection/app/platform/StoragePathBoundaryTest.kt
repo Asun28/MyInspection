@@ -390,14 +390,14 @@ internal class StoragePathFixture : AutoCloseable {
 }
 
 /*
- * R4: 35/35 killed; c0/t1 = compile exit 0/test exit 1; each named primary is java.lang.AssertionError.
+ * Remote T1-STORAGE-PATH-BOUNDARY-REMOTE HEAD=553d53382f3b663dac19ed1c607ffa35ee499d0c run=197eae03-37ab-4364-9590-62550dfa9111; 35/35 killed; c0/t1=compile0/test1; each named primary is java.lang.AssertionError.
  * Production SHA-256: 41DCC7DFA834D3C04AF6EB2CF925B70FE5EF700C32EC739D0CEC54509204F3DB
  * Pre-receipt test SHA-256: 6CDE4BE12DD76B26056E645F03EF5415DCDC04DE0A1F2DAE67997433F87B1202
  * Commands: :app:compileDebugUnitTestKotlin; :app:testDebugUnitTest --tests nz.myinspection.app.platform.StoragePathBoundaryTest
  * Both use cmd /c android\gradlew.bat -p android --offline --no-daemon --no-build-cache -q.
- * Restored full DoD: exit 0,206 app/20 boundary,0 failures/errors/skips; post-tail same DoD required: :app:testDebugUnitTest :app:assembleDebug --rerun-tasks.
+ * Restored full DoD: exit 0,177 app/20 boundary,9 suites,0 failures/errors/skips; post-tail same DoD required: :app:testDebugUnitTest :app:assembleDebug --rerun-tasks.
  * Windows real Junctions: each run 20 cases/0 skips, cleanup empty; POSIX not run. Secondary exceptions are not kill evidence.
- * Evidence: _local/storage-path-boundary/r4/Nxx/{receipt.json,boundary.xml,compile-exit.json,test-exit.json,mutant.bytes}.
+ * Evidence: _local/storage-path-boundary/r4/Nxx/{receipt.json,boundary.xml,compile-exit.json,test-exit.json,mutant.bytes}; full DoD: runs/{green,restored-dod,post-tail-dod}/receipt.json.
  * Old Policy verdicts/pins remain historical; M34 stays with Policy integration, M07-11 with Android.
  * @@ -33 +33 @@ N01 test="real aliases resolve candidate app and DP roots" [M28] c0/t1 sha=E9F21C35C53EB6698E4AEC8CA3E5CBE26909B14D0F78B12C1AD3BE261988BFA4
  * -            val candidatePath = resolveStorageDirectory(candidate)

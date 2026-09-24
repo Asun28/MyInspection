@@ -264,7 +264,7 @@ class PdfRenderProgramBuilderTest {
      */
     @Test
     fun `every placed picture in a composed plan is drawn exactly once`() {
-        val plan = ReportComposer(ReportTestFixtures.measurer).compose(ReportTestFixtures.report(), Audience.LANDLORD)
+        val plan = ReportComposer(ReportTestFixtures.measurer, ReportTestFixtures.typography).compose(ReportTestFixtures.report(), Audience.LANDLORD)
         val drawn = builder.build(plan, "insp-0001", fingerprint, PdfExportQuality.MEDIUM)
             .imageOps().map { it.placement.photoId to it.placement.purpose }
 
@@ -288,7 +288,7 @@ class PdfRenderProgramBuilderTest {
     // --- fixtures -----------------------------------------------------------------------------------
 
     private fun goldenPlan(): DocumentPlan =
-        ReportComposer(ReportTestFixtures.measurer).compose(ReportTestFixtures.report(), Audience.LANDLORD)
+        ReportComposer(ReportTestFixtures.measurer, ReportTestFixtures.typography).compose(ReportTestFixtures.report(), Audience.LANDLORD)
 
     private fun placedText(
         text: String,

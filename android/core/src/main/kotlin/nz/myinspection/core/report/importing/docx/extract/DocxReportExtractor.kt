@@ -3,7 +3,6 @@ package nz.myinspection.core.report.importing.docx.extract
 import java.util.Locale
 import java.security.MessageDigest
 import nz.myinspection.core.report.importing.docx.image.DocxImageQualifier
-import nz.myinspection.core.report.importing.docx.image.DocxImageDisposition
 import nz.myinspection.core.report.importing.docx.`package`.DocxPackage
 import nz.myinspection.core.report.importing.docx.`package`.DocxPart
 import nz.myinspection.core.report.importing.docx.`package`.DocxPartKind
@@ -29,7 +28,6 @@ class DocxReportExtractor {
         val captions = ArrayList<CaptionCandidate>()
         val images = ArrayList<ExtractedImage>()
         val placements = ArrayList<DrawingPlacement>()
-        val shims = HashSet<String>()
         lateinit var parts: Map<String, DocxPart>
         var room: String? = null
         var column = FragmentRole.UNKNOWN
@@ -48,13 +46,8 @@ class DocxReportExtractor {
                 val qualification = DocxImageQualifier().qualify(bytes)
                 val size = qualification.dimensions
                 val at = SourceLocation(part.name, 0)
-                if (qualification.disposition == DocxImageDisposition.SHIM_QUALIFIED) {
-                    shims.add(part.name)
-                    warn(ExtractionWarningCode.LAYOUT_IMAGE_EXCLUDED, at)
-                } else {
-                    images.add(ExtractedImage(part.name, MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }, size?.width, size?.height))
-                    warn(ExtractionWarningCode.IMAGE_REVIEW_REQUIRED, at)
-                }
+                images.add(ExtractedImage(part.name, MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }, size?.width, size?.height))
+                warn(ExtractionWarningCode.IMAGE_REVIEW_REQUIRED, at)
             }
             val document = parts.getValue("word/document.xml")
             val documentRelations = relationships(document)
@@ -104,6 +97,7 @@ class DocxReportExtractor {
                 // ECMA-376-4 CT_Drawing permits repeated inline/anchor frames.
                 if (node.isWord("drawing")) require(node.children.isNotEmpty() && node.children.all { it.uri == WP && it.name in setOf("inline", "anchor") }) { "DOCX_DRAWING_STRUCTURE" }
                 if (node.isWord("pgNum")) {
+                    require(node.children.isEmpty()) { "DOCX_UNSUPPORTED_TEXT" }
                     warn(ExtractionWarningCode.PAGINATION_EXCLUDED, position)
                     return
                 }
@@ -188,7 +182,6 @@ class DocxReportExtractor {
                 val position = positions[drawing.ancestor("p")] ?: SourceLocation(part.name, ordinal)
                 drawing.descendants().filter { it.uri == A && it.name == "blip" }.toList().ifEmpty { listOf(null) }.forEach { blip ->
                     val target = blip?.attrs?.get("$R|embed")?.let { relations[it] }
-                    if (target in shims) return@forEach
                     val location = position.copy(occurrence = nextOccurrence(position.ordinal))
                     val imagePart = target?.takeIf { parts[it]?.kind == DocxPartKind.IMAGE }
                     if (imagePart == null) warn(ExtractionWarningCode.MISSING_IMAGE, location)
@@ -235,7 +228,7 @@ class DocxReportExtractor {
                 return FragmentRole.CAPTION
             }
             warn(ExtractionWarningCode.UNRESOLVED_TEXT, text.source)
-            return if (column == FragmentRole.COMMENT) FragmentRole.COMMENT else FragmentRole.UNKNOWN
+            return if (column in setOf(FragmentRole.COMMENT, FragmentRole.STATUS)) column else FragmentRole.UNKNOWN
         }
         fun identityBoundary(value: String): Boolean = value.uppercase(Locale.ROOT) in
             setOf("PROPERTY ADDRESS", "INSPECTION DATE", "IMAGES", "FEATURE", "STATUS") ||

@@ -34,9 +34,13 @@ doc_sync: requirements + SECURITY + ADR-0007 + TASK-BOARD
 
 # T3-REPORT-HTML-PRESENTATION
 
-## Delivery record — 2026-09-06
+## Remote delivery — 2026-09-08
 
-Locally merged as `2801e019`; reviewed tip `4508d29783d2578150eae8f00ee8488c746f0be5` received R3 pass in round 2. Exact DoD: 46 tests, zero failures/errors/skips. Final R4: 23 assertion kills bound to the final test SHA. Verify (core check and Golden Evidence E2E), scope, licences and secrets gates passed; actual diff 307 changed lines / 19997 characters. No remote push or PR was created. Browser URL policy rejected local-file visual inspection; CSS-rule and renderer-byte evidence do not certify browser layout or glyph rendering.
+GitHub PR #250 merged as `e792ea7594df925c4abae6b726ec28b66f2b0e9d` after formal R3 pass and successful candidate CI at `07dc6acdad91bf47a05bf7fe6069402ac6da4f51`. Metadata PR #243 first approved the third allowed test file. Fresh RED compiled and produced six assertion failures; final DoD ran 46 tests with zero failures, errors or skips. Standard remote ship passed verify (core check and Golden Evidence E2E), scope, licences, secrets and the 307-line diff budget.
+
+The three delivered source/test files are byte-identical to historical reviewed tip `4508d29783d2578150eae8f00ee8488c746f0be5`. Its 23 SHA-bound mutation results were reused, not rerun. Earlier local merge `2801e019` alone was not remote delivery. No full scaffold selftest rerun is claimed for this product-only recovery.
+
+Browser access to the local URL was denied; no alternate browser, server or route was used. Tests establish CSS rule shape, class parity and renderer/CSP bytes, not actual browser layout, pagination or glyph rendering. Font embedding and Android export integration remain outside this card.
 
 ## Deliverable
 

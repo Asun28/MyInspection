@@ -24,7 +24,9 @@ dod_assert: 三模板过引擎校验+完备性测试（双语/唯一/photoRule/�
 requirements:
   - "R1 当建 Exit 巡检时，系统应使用该租约显式选择且有效的 baseline；如果基线是 Routine，则系统应保留此来源并准确显示，不能当作缺失。"
 acceptance:
-  - "A1 [R1] Ingoing、显式 Routine、空指针和跨物业/租约无效指针分别验证；previous 与 baseline 不同的 fixture 证明不选最近 Routine。"
+  - "A1 [R1] 有效 Ingoing 与显式选定的已完成 Routine 均能作为该租约 baseline，Routine 来源被准确显示。"
+  - "A2 [R1] 空指针与跨物业/租约的无效指针分别测试，不能被当作有效 baseline 静默选用。"
+  - "A3 [R1] previous 与 baseline 不同的 fixture 证明 Exit 使用显式 baseline，不自动替换为最近 Routine。"
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: TASK-BOARD 备注（R5）

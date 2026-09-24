@@ -63,4 +63,4 @@ R4: 18/18 behavioral mutants were killed by named checks, without counting parse
 
 Mutation source SHA-256: `23A38171AAAF97303EDA973586041A07F8500EE7BF38275AA01CCFE156F7ACC2`. Independent fresh-context pre-review found no issues and reran all 31 checks. Formal R3 remains the acceptance verdict above.
 
-R5 follow-up: TD177 records the existing schema/protocol candidate-file and anchor wording for deleted paths, to resolve in a separate frozen-contract review before worker/prompt integration. This library follows its approved deleted-unit contract. L331 records the fixture helper/native Git name collision and its prevention.
+R5 follow-up: TD179 records the existing schema/protocol candidate-file and anchor wording for deleted paths, to resolve in a separate frozen-contract review before worker/prompt integration. This library follows its approved deleted-unit contract. L331 records the fixture helper/native Git name collision and its prevention.

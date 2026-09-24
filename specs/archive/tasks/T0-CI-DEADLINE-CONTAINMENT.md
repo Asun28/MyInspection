@@ -10,7 +10,7 @@ acceptance:
   - "A3 进程树容纳 fail-closed：容纳原语不可用（Add-Type 失败 / job 创建或并入失败 / 平台无此原语）时闸必须显式失败或以同等强度的替代机制兜住，不得静默降级成只沿活父子链走的 Kill(tree)"
   - "A4 子进程**先于**孙进程退出这一形态必须被容纳：孙进程继承重定向句柄并在其后写完成哨兵的夹具，须证明哨兵永不出现；另配失败路径夹具（并入失败时）同样证明无残留"
   - "A5 assign-before-execute 竞态要么被消除（挂起创建后并入再恢复），要么由机检证明其窗口内不可能派生后代；创建成功但并入失败时句柄必须被关闭，不得泄漏"
-status: todo
+status: merged
 branch: T0-CI-DEADLINE-CONTAINMENT
 worktree: C:\wt\T0-CI-DEADLINE-CONTAINMENT
 allow_paths:
@@ -77,3 +77,12 @@ $t = (& pwsh -NoProfile -File scripts/selftest.ps1 -Shard seeded-remote *>&1 | O
 
 - 期望退出码：0
 - 断言：见 `dod_assert`。DoD **执行**闸门而非搜索字符串：两闸被任何 reason 跳过即判失败。
+
+## 交付记录（2026-09-08）
+
+PR #265 以 reviewed head `f5a5bc7398398a8ebcca70b96f05cf2a2b031fd8` 通过 Sol R3 与候选 CI，随后
+squash-merged 为 `d9da183d0225aade383f7d581fb00c463667685a`。实现用 Windows suspended
+`CreateProcessW` + Job Object 在执行前完成进程树容纳，全部 `gh` / `git` 腿共享一个绝对 deadline，终止、
+根进程与流收尾共享一份 cleanup deadline；容纳、竞态、句柄、孤儿进程与共享预算负例均由
+`T37-CIGATE/DEADLINE` 实跑覆盖。冻结快照的 `seeded-remote`、`workflow`、DoD、verify 均 PASS；三路
+Sol 预审、Luna 5.6 Max 与 Terra 5.6 Max 独立终审均 PASS。

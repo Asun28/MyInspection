@@ -1,7 +1,7 @@
 ---
 id: T0-REMOTE-PREREVIEW-CARDS
 title: Register RECORDS and STATE publication contracts and record the schema review correction
-status: todo
+status: merged
 branch: T0-REMOTE-PREREVIEW-CARDS
 worktree: C:\wt\T0-REMOTE-PREREVIEW-CARDS
 depends_on: []
@@ -91,4 +91,77 @@ foreach ($row in $numstat) {
 if ($changedLines -ge 500) { throw "registration changed-line budget exceeded: $changedLines >= 500" }
 if ($diff.Length -ge 40000) { throw "registration diff-character budget exceeded: $($diff.Length) >= 40000" }
 Write-Host "[REMOTE-PREREVIEW-BUDGET-OK] A4 base=$base changedLines=$changedLines diffChars=$($diff.Length)"
+```
+
+## Remote delivery receipt (2026-09-17 NZ)
+
+PR [#303](https://github.com/Asun28/MyInspection/pull/303); reviewed head 0b474848973b348a6877da54d1ce2077a444e55e; squash merge 5d7fdc910561be463824690b4d4689335bbb0bd8. Formal Sol/high attempt 2 PASS, empty reasons; exact-candidate CI [35157398386](https://github.com/Asun28/MyInspection/actions/runs/35157398386) passed verify and required.
+
+The second formal Sol/high review passed after A4 gained executable full-diff budget enforcement. Eight actual current/boundary/staged/untracked/restoration cases and five payload corruption cases passed. The first BLOCK is preserved. RECORDS and STATE remain pending features; this registration is not a product delivery.
+
+Original-main task-loop cleanup exited 0 at 2026-09-16T22:27:37.5321703+00:00; canonical worktree and local branch are absent. The controller independently checked the copied evidence before cleanup. Evidence below is retained in the ignored local delivery ledger; these hashes identify the checked receipts and are not a claim that the files are published by this metadata PR.
+
+- `_local/rotating-card-orchestrator/remote-delivery/T0-REMOTE-PREREVIEW-CARDS/pre-cleanup-evidence-manifest.json` — SHA-256 `D10CFE5796724107CFA0328A7795D4F9BEE692EF0B98CAEA566474BE76620C93`.
+- `_local/rotating-card-orchestrator/remote-delivery/T0-REMOTE-PREREVIEW-CARDS/cleanup-result.json` — SHA-256 `E99B7E98091786362BFE53392D122027D33F5544C59A89559D6EFE32413361F3`.
+
+### Portable lifecycle evidence
+
+The JSON below contains selected observed PR/CI fields, the actual formal verdict and cleanup receipt, and the recorded evidence audit. Registration manifest counts were independently rechecked against the copied files; product audits retain their source and test context. It is a historical snapshot, not a live service assertion. Full original logs, XML and manifests remain at the referenced ignored paths and are available in the review worktree; this PR publishes the portable snapshot.
+
+<!-- remote-lifecycle-receipt -->
+```json
+{
+  "id": "T0-REMOTE-PREREVIEW-CARDS",
+  "pr": {
+    "number": 303,
+    "url": "https://github.com/Asun28/MyInspection/pull/303",
+    "state": "MERGED",
+    "headRefOid": "0b474848973b348a6877da54d1ce2077a444e55e",
+    "mergeCommit": {
+      "oid": "5d7fdc910561be463824690b4d4689335bbb0bd8"
+    },
+    "mergedAt": "2026-09-16T22:24:27Z"
+  },
+  "formalR3": {
+    "verdict": "pass",
+    "sha": "0b474848973b348a6877da54d1ce2077a444e55e",
+    "branch": "T0-REMOTE-PREREVIEW-CARDS",
+    "reasons": []
+  },
+  "candidateCI": {
+    "databaseId": 35157398386,
+    "headSha": "0b474848973b348a6877da54d1ce2077a444e55e",
+    "conclusion": "success",
+    "status": "completed",
+    "event": "pull_request",
+    "jobs": [
+      {
+        "name": "verify",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "required",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "cleanup": {
+    "exit": 0,
+    "worktreeAbsent": true,
+    "branchAbsent": true,
+    "head": "0b474848973b348a6877da54d1ce2077a444e55e",
+    "merge": "5d7fdc910561be463824690b4d4689335bbb0bd8",
+    "copiedEvidenceFiles": 21,
+    "endedUtc": "2026-09-16T22:27:37.5321703Z"
+  },
+  "evidenceAudit": {
+    "kind": "verifiedManifestProjection",
+    "manifestSha256": "D10CFE5796724107CFA0328A7795D4F9BEE692EF0B98CAEA566474BE76620C93",
+    "manifestEntries": 21,
+    "verifiedEntries": 21,
+    "copiedEvidenceFiles": 21
+  }
+}
 ```

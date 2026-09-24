@@ -2,7 +2,7 @@
 id: T1-APP-STORAGE-POLICY-REMOTE
 title: App-private storage routing over a verified path boundary
 depends_on: [T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING-REMOTE, T1-STORAGE-PATH-BOUNDARY-REMOTE]
-status: todo
+status: merged
 parallelizable_with: [T3-PDF-MEASUREMENT-REQUESTS]
 branch: T1-APP-STORAGE-POLICY-REMOTE
 worktree: C:\wt\T1-APP-STORAGE-POLICY-REMOTE
@@ -54,3 +54,7 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 
 This is product round 3, paired with T3-PDF-MEASUREMENT-REQUESTS, retaining the complete T1-APP-STORAGE-POLICY behavioral contract above. Dependency names in the front matter bind the remote deliveries. Start only after those functional PRs actually merge; registered metadata alone does not satisfy a dependency. Use the original D:/Projects/MyInspection/scripts/task.ps1 from the main checkout: start with -Base origin/master, then fresh RED and ship with -Base master, without -Local. Run the same candidate's full DoD, R4, verify, scope, licenses, secrets, complete-diff budget, independent R3 and exact-head CI before remote PR merge. Record PR/head/checks/merge and complete R5. This execution paragraph supersedes earlier local-only routing text, without reducing any acceptance or adding another card to the five-round count.
 Preserve the original fd1dd18c branch/worktree and all five BLOCK verdicts. This isolated alias must consume the remotely delivered StoragePathBoundary create/resolveChild API and repair the named integration defects; it does not restart or erase the original review history. The old inline canonicalFile boundary is not an implementation source for this alias.
+
+## Delivery (R5, 2026-09-24)
+
+Merged by [PR #316](https://github.com/Asun28/MyInspection/pull/316): reviewed head `afffd3836a2d47521bbec338d2a1a435983e9a47`, CI run `35318686041` (verify and required succeeded), merge `15f3931b77924f5d1ae3e55cb0c866bc36e85946`, Codex R3 pass. R5 was not recorded at the time; this note closes it. Test gaps later found on a twin implementation of this card are handled by `T1-APP-STORAGE-POLICY-TESTS`; production behaviour is not in question.

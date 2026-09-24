@@ -8,8 +8,9 @@ import kotlin.test.assertTrue
 /**
  * R4: M1-M5 changed default rows/roles; M6-M10 removed finite, positive-size, signed or edge guards;
  * M11-M12 rejected valid edge equality. All 12 compiled, ran five tests and failed the named assertion.
- * Each run restored all three source files by SHA-256. Restored report tests: 328; core e2e: 6;
- * no failures, errors or skips. The earlier source-inventory omission also failed its exact-list assertion.
+ * Each run restored all three source files by SHA-256. Remote restored report tests: 255; core e2e: 6;
+ * no failures, errors or skips. The historical local run had 328 report tests and detected the earlier
+ * source-inventory omission with its exact-list assertion; those are separate local-baseline evidence.
  * Production SHA-256: FFC986CA48FC2E7C19E7811484A9EDF639673754D356568AF9CFE3126B6E2F41.
  */
 class ReportTypographyTest {

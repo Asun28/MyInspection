@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 209 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 227 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -8,13 +8,17 @@
 | T0-CARD-ACCEPTANCE-FIELD | merged | 把 acceptance 作者声明的验收清单登记为正式卡片字段，并给它一道形态机检 |
 | T0-CARD-ACCEPTANCE-SETS | merged | 给两张 round-cap 卡补封闭 acceptance 清单，并记录「轮次通胀 ≠ 颗粒度」的判据 |
 | T0-CARD-TEMPLATE-SLIM | merged | Adopt concise upstream card templates with compatible acceptance and optional requirement links |
+| T0-CI-DEADLINE-CONTAINMENT | merged | 候选 CI 的单一 wall-clock deadline 扩面与 fail-closed 进程树容纳 |
 | T0-CI-DOCS-FAST-PATH | merged | 让纯文档 PR 保留轻量 verify 状态而跳过 Android 工具链 |
 | T0-CI-HARDENING-SPLIT-PLAN | merged | 将候选 CI 硬化卡拆为分页契约与身份/deadline 两张可读串行卡 |
 | T0-CI-IDENTITY-DEADLINE | merged | 候选 CI 的 run 身份绑定与最终 exact-head/base 快照 |
+| T0-CI-JOBS-DRIFT | merged | 候选 run 返回 job 集与 ci.yml 声明集的漂移判定（API 侧平面） |
 | T0-CI-LICENSE-GATE-HASH-SYNC | merged | 同步 docs-only License gate 的 8.2b2 规范块哈希 |
 | T0-CI-MERGE-GATE | merged | 在所有远端合并路径上等待候选分支 ci.yml 检查全绿 |
 | T0-CI-PAGED-CONTRACT | merged | 候选 CI 分页读取的形态、总数、稳定身份与跨页重放契约 |
+| T0-CI-SELFTEST-REPAIR | merged | Repair scanner inventory drift and Windows seeded-git CI timeout |
 | T0-CI-UNICODE-DEP-FIXTURE | merged | 补齐 license scanner 自检夹具的 Unicode helper 依赖并防假绿 |
+| T0-CODEX-ASTRA-GUIDANCE | merged | Add project-scoped Codex and GPT-6 Astra collaboration guidance |
 | T0-DEBT-ARCHIVE-CARDS-INDEX-GATE | merged | 让归档任务卡索引保持为可验证的真实投影（偿还 TD146） |
 | T0-DEBT-ARCHIVED-CARD-PATHS | merged | Repair inbound references to archived task cards (repay TD22) |
 | T0-DEBT-CASE-PROBE-CLOSURE-SCOPE | merged | Make 17cc case mutation probes host-independent (repay TD25) |
@@ -120,27 +124,34 @@
 | T0-RECONCILE-UI-COVERAGE | merged | 建立 UI Elements 覆盖索引 |
 | T0-RECONCILE-UI-NOTICE-SCHEDULE | merged | 对齐通知与日程实现卡的设计系统指针 |
 | T0-RECONCILE-UI-OFFLINE-OPERATIONS | merged | 对齐备份、媒体、remediation 与收官 smoke 的离线体验指针 |
+| T0-REMOTE-PREREVIEW-CARDS | merged | Register RECORDS and STATE publication contracts and record the schema review correction |
+| T0-REMOTE-PRODUCT-CARDS | merged | Register four isolated remote delivery aliases for locally verified product cards |
 | T0-SCAFFOLD-CI-HOTFIX | merged | 修复合并后 scaffold-selftest 的跨分支与跨 PowerShell 回归 |
 | T0-SCAFFOLD-FLEET-LOOP | merged | fleet 双向回路——逐版决定、回填 v0.44 账域修复并留账 |
 | T0-SCAFFOLD-LEAN-CI | merged | Stop launching scaffold-only CI shards for ordinary product pull requests |
+| T0-SCAFFOLD-REMOTE-CARDS | merged | Register the bounded remote scaffold adoption sequence |
 | T0-SCAFFOLD-SYNC-045 | merged | 区分 scaffold origin/current，并推进到 v0.45.0 |
 | T0-SCAFFOLD-SYNC-046 | merged | Evaluate upstream v0.46.0 and advance the scaffold high-water mark |
 | T0-SCAFFOLD-TRIGGER-ADOPTION | merged | Adopt product-only scaffold trigger exclusion with shared focused proof |
+| T0-SCAFFOLD-TRIGGER-REMOTE | merged | Publish scaffold-only selftest trigger on current upstream |
 | T0-SELFTEST-ALLOWLIST-BASELINE-CLOSURE | merged | 让动态 E2E 基线追踪完整敏感清单 |
 | T0-SELFTEST-META-EXPANSION | merged | Adapt v0.47 nightly meta coverage across selftest selection, receipts and operating contracts |
 | T0-SELFTEST-MIGRATION-CHECK-CONTINUE | merged | 让 seeded migration 负例在 core:test 失败后继续跑真实 verifyMigrations task |
 | T0-SELFTEST-NIGHTLY-META | merged | Run selftest aggregation stress checks nightly with explicit coverage receipts |
 | T0-SELFTEST-RISK-ROUTING | merged | Select existing scaffold selftest coverage from pinned task changes |
+| T0-SELFTEST-SCAFFOLD-ONLY | merged | Keep scaffold selftest off product-only changes |
 | T0-SELFTEST-SKILL-ROUTING | merged | Route skill-only changes through existing core and workflow coverage without seeded product-indepen… |
 | T0-TOOLCHAIN | merged | 本机 Android 工具链 + android/ Gradle 双模块骨架空编译绿 + verify/CI 收紧 |
 | T0-TRIAGE-EVIDENCE-CASE-REGISTER | merged | 登记 triage 裁决证据目录大小写语义修复卡 |
 | T0-TRIAGE-EVIDENCE-SCOPE-REGISTER | merged | 把 PR |
 | T1-CANON-HASH | merged | canonical JSON 序列化 + SHA-256 + 黄金向量（★冻结点） |
 | T1-DATABASE-LIFECYCLE-AUTHORITY | merged | 数据库生命周期写权限：活跃/历史读取分流 + 基线与清理终态守卫 |
+| T1-SAFE-MEDIA-LOGGING-REMOTE | merged | 安全日志底座与四处媒体接线的远端交付（原 T1-SAFE-MEDIA-LOGGING） |
 | T1-SAFE-MEDIA-LOGGING | merged | 安全日志底座与四处媒体接线（跨层日志断言同步） |
 | T1-SCHEMA-CORE | merged | SQLDelight 全量 schema + UUIDv7 + 基线迁移 + JVM 测试（★冻结点） |
 | T1-SKELETON-E2E | merged | 一次性走通骨架：建巡检 → 加一项 → 拍一张 → 导出一份 PDF（真机可见，用完即弃） |
 | T1-SPIKE-PLATFORM | merged | 真机平台可行性 spike ×3（overlay / SAF / PDF 压力）+ 结论报告 |
+| T1-STORAGE-PATH-BOUNDARY-REMOTE | merged | Remote delivery of verified storage path snapshots and checked child directories |
 | T1-TEMPLATE-ENGINE | merged | 模板 JSON schema + 加载器 + stable-id/版本对齐 + 按类型枚举校验（★冻结点） |
 | T2-CAPTURE-CORE | merged | 采集领域核：巡检生命周期状态机 + 房间粒度草稿自动保存仓储（:core） |
 | T2-FIELD-LEDGER-THEME-R3-CLOSURE | merged | Field Ledger Material 3 全角色显式映射（PR |
@@ -158,7 +169,7 @@
 | T2-ROUTINE-CONTEXT-V2 | merged | Routine template v2 with Hallway and hash-covered inspection summary |
 | T3-DOCX-CUSTOM-PROPERTIES | merged | Bounded custom document properties validation and discard (TD174) |
 | T3-DOCX-EXTRACTION-MANIFEST | merged | Immutable DOCX extraction manifest and deterministic evidence digest |
-| T3-DOCX-IMAGE-QUALIFICATION | merged | Bounded DOCX image qualification for safe layout-shim exclusion |
+| T3-DOCX-IMAGE-QUALIFICATION | merged | Bounded DOCX image validation with conservative review retention |
 | T3-DOCX-PACKAGE-READER | merged | Bounded no-write OOXML package reader for hostile legacy reports |
 | T3-DOCX-REPORT-EXTRACTOR | merged | Sample-shaped DOCX report extractor with explicit ambiguity |
 | T3-DOCX-XML-TREE | merged | Secure in-memory XML tree for validated DOCX parts |
@@ -170,8 +181,10 @@
 | T3-E2E-TENANT-REDACTION | merged | Golden Evidence tenant report landlord/private sentinel 防泄露 |
 | T3-FINALIZE | merged | finalize 事务：完备性校验 → canonical 哈希落库 → 只读强制 + Supplement 哈希链 |
 | T3-PDF-ARTIFACT-PATHS | merged | Report artifact path derivation and anchored shape predicate |
+| T3-PDF-PAGINATION-FIXTURES-REMOTE | merged | Publish the locally verified fixed-height pagination fixtures |
 | T3-PDF-PAGINATION-FIXTURES | merged | Fixed-height pagination fixtures before immutable measurement binding |
 | T3-PDF-RENDERER | merged | Pure JVM PDF render program, four export qualities, geometry and per-page sampling bounds |
+| T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE | merged | Remote delivery of pure-data typography profile and signed metric guard |
 | T3-PDF-TYPOGRAPHY-CONTRACT | merged | Pure-data typography profile and signed metric guard |
 | T3-REPORT-COMPOSER-R3-CLOSURE | merged | 报告布局 R3 收口：40mm 内联缩略图、不可拆图槽、可读时间与引用完整性 |
 | T3-REPORT-COMPOSER | merged | 纯 Kotlin 报告布局引擎：分页/缩略图排版/双语行配对/哈希页脚 + 黄金布局树（★冻结点级质量） |
@@ -188,6 +201,7 @@
 | T3-REPORT-INTERCHANGE-AUTHORITY | merged | Native Routine DOCX import and shared PDF/HTML product authority |
 | T3-REPORT-INTERCHANGE-SCHEMA | merged | Schema v6 for immutable import provenance and format-aware export receipts |
 | T4-COMPLIANCE-ENGINE | merged | 配置驱动 NZ 合规引擎：阻断校验 API + Pacific/Auckland DST 边界测试（★规则 schema 冻结） |
+| T4-COMPLIANCE-TRUST-REMOTE-RECORD | merged | 同步规则信任决策的远端任务记录 |
 | T4-COMPLIANCE-UPDATE-TRUST | merged | 规则更新的可信来源与版本决策 |
 | T4-DESIGN-NOT-APPLICABLE-COLOR | merged | NOT_APPLICABLE 的破折号没有声明前景色：evidence-rail 五个段态只有四个色 |
 | T4-DESIGN-STATUS-CARRIERS | merged | 状态载体收口的三处遗留：对比度绑定、两处边界行、capture Back 双名 |
@@ -207,6 +221,7 @@
 | T4-SCHEDULE-UI-PRESENTATION | merged | 排程界面的最小呈现契约（动作数与反馈 banner · 无空状态 · 日期与计数形态） |
 | T4-SCHEDULE-UI-REMINDER-ACTIONS | merged | 排程 presenter：权限时序、授权恢复、注册结果分支与显式重试 |
 | T4-SCHEDULE-UI | merged | 排程 reducer：行种类、屏幕状态、筛选与路由效果 |
+| T4-SYMBOL-MARKDOWN-PARSER | merged | Provide a visible top-level Markdown contract parser for symbol acceptance |
 | T5-BACKUP-FORMAT | merged | 加密备份归档格式：流式 ZIP+AES-GCM + manifest + 防篡改/错口令测试（★冻结点） |
 | T5-MEDIA-ARCHIVE-CONTRACT | merged | 媒体归档收口：重新打开逐字节核验、原子回执与 finalized 不变性 |
 | T5-MEDIA-ARCHIVE-ELIGIBILITY | merged | 媒体归档账本：本机状态、PDF 完成回执与 exact-content 资格判定 |
@@ -214,3 +229,6 @@
 | T5-RETENTION | merged | 租客数据保留期 + 一键清理（Privacy Act 2020） |
 | T7-AUDIT-CARDS-CLOSURE | merged | 需求审校交付一：卡片与安全模块接口 |
 | T7-AUDIT-DOCS-CLOSURE | merged | 需求审校交付二：需求与页面版本一致性 |
+| T7-AUDIT-REMOTE-CARDS | merged | 远端补交既有卡片与平台验收修订 |
+| T7-AUDIT-REMOTE-DOCS | merged | 远端补交需求与页面版本合同 |
+| T7-AUDIT-REMOTE-FOUNDATION | merged | 远端补交审校新增卡与模块边界 |

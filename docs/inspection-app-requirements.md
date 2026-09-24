@@ -176,6 +176,8 @@ source bytes 作为 `content_hash`，另用 staged digest 校验派生 JPEG，�
 
 ## 8. 报告输出
 
+HTML 呈现实施记录（2026-09-08，PR #250）：响应式、A4 打印、深色及强制颜色的 CSS 规则验收已通过；实际浏览器布局、打印分页与双语字形仍未验收，不改变本文件既定双语要求。
+
 **[定,2026-09-02]** 输出原生 PDF（默认/证据归档）与自包含 HTML（离线阅读/打印）。通过系统 viewer/browser/文件选择器阅读与保存——**app 负责采集与验证产物,阅读不必发生在 app 里**。
 
 **[定]** 平行双语一份(中英并列),而不是双份单语。理由:争议发生时,双方手上是同一份文件本身就有价值。
@@ -194,8 +196,6 @@ source bytes 作为 `content_hash`，另用 staged digest 校验派生 JPEG，�
 **[定,2026-09-02]** 两种格式只消费一次 `ReportContent`：它在序列化前完成受众/隐私过滤，并固定 identity、状态词表、房间/项目/状态/备注顺序、摘要回链、编号照片、supplements、免责声明、租客栏、remediation 可见性与完整性/来源标签。PDF/HTML 只可在分页、视觉布局和编码上不同；被排除的 bytes 不得靠 CSS 隐藏。
 
 HTML 是单个 UTF-8 文件：无 JavaScript、表单、外部 URL/资源或运行期网络；文本/属性按上下文转义，CSS/字体/经归一化且有界的 raster images 内嵌，具 semantic headings/tables/figures、meaningful alt/caption、responsive screen CSS 与 A4 print CSS。HTML 质量固定为 `NONE`；Low/Medium/High/Extra High 只属于 PDF。
-
-**实现记录（2026-09-06）**：`T3-REPORT-HTML-PRESENTATION` 已提供窄屏、相对字号、证据表溢出、A4 print 与 dark/forced-colors 规则，以及真实 renderer 夹具的 class 双向核对。当前按该卡裁决使用系统字体栈；字体内嵌与实际字形覆盖验收仍待承接。此次完成规则形态及输出字节验收，浏览器策略拒绝本地页面，未完成视觉验收。
 
 ### 照片排版
 
@@ -246,7 +246,7 @@ HTML 是单个 UTF-8 文件：无 JavaScript、表单、外部 URL/资源或运�
 
 ### 校验规则 **[定]**
 
-保存/发通知时阻断,不可关闭,不出现在设置里:
+保存/生成通知时执行阻断校验，不可关闭；设置不提供直接编辑校验阈值或绕过校验的入口。设置仅允许按下文“法规变更”的可信来源策略手动导入规则文件，经预检与确认后激活，以下校验仍强制执行：
 
 - 4 周内不得重复 Routine 巡检(**法律上限,不是节奏建议**)
 - 通知提前量 ≥ 48 小时且 ≤ 14 天

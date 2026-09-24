@@ -1,6 +1,7 @@
 # V1 Android 平台探针
 
-状态：2026-09-08 **实体手机验收完成，三项均判「成立」**；2026-09-06 的模拟器预检作为辅助证据保留在各表左栏。
+状态：2026-09-08 的历史受测 APK **实体手机验收完成，三项均判「成立」**；2026-09-06 模拟器预检保留在左栏。
+当前远端恢复候选已通过构建 DoD、相机拍存读回与用户回位验证、SAF 重启读取及 PDF 真机复验；R3 首轮通过，PR #286 已合并；完整提交身份见末节。历史结论与本轮结果分开记录。
 只包含 V1 相机叠图、SAF 和 PDF；V2 听写交专属任务卡。
 
 ## 设备与复现
@@ -13,23 +14,21 @@
 - 受测 debug APK：17,401,647 bytes，SHA-256 `593ff461c2ee56ac6b95bb6cfc245a8ef046db52ebf08251e936072122118cca`
   ——与下方模拟器栏的 APK **不是同一个构建**。
 
-**受测 APK 与候选树的等价性**（三处基线各构建一次，逐次核 SHA-256 与字节数，全部一致）：
+**历史受测 APK 与当时候选树的等价性**（仅限本地 feature `7851be96` 的交付记录；三处历史构建结果一致）：
 
 | 构建基线 | SHA-256 | 字节数 |
 |---|---|---|
 | master `6814df77` + 本卡 8 文件 | `593ff461…118cca` | 17,401,647 |
 | master `99a27657` + 本卡 8 文件 | `593ff461…118cca` | 17,401,647 |
-| **候选树本身**（本分支吸收 base 后，即实际待合并的树） | `593ff461…118cca` | 17,401,647 |
+| 历史候选树（feature `7851be96`，吸收当时 base 后） | `593ff461…118cca` | 17,401,647 |
 
-该值对 base 的移动不敏感，且这一点可机检而非靠巧合：`git log 6814df77..master -- android/ '*.gradle' '*.gradle.kts' 'gradle/' '*.toml' '*.properties'`
-**为空**（区间内全部提交只动 `CLAUDE.md`/`context/`/`docs/`/`specs/`），故这些 docs-only 提交无论以哪一个作合并基线都构不出不同的 APK。
+当时记录的基线移动只含文档变化；此事实只解释上表，不适用于当前远端恢复。当前远端与历史候选有 Android 业务源码差异，不能推定 APK 字节相同。
 
-**须如实记下的一处不等价**：若只在本分支的 RED 取证基线 `89ae7657` 上构建（不吸收 base），得到的是
+**须如实记下的一处不等价**：若只在历史分支的 RED 取证基线 `89ae7657` 上构建（不吸收 base），得到的是
 `f366b5a1…651539` / 17,213,270 bytes，与受测 APK **不同**——因为那个基线落后 master 168 个提交，其区间**确实**动过 `android/`。
-该树不是待合并物，真机结论也不依据它；此处点明，是为免后来者误以为「分支上任意一次构建」都等于受测 APK。
-- 取证通道：**验收全程经 MTP**，不经 adb。APK 复制进 `Download` 并核对机上 `System.Size` 与 PC 逐字节一致后手动点装；结果由机上截图承载，截图再经 MTP 取回。
-- 原因与**事后更正**：验收期间该机确实只暴露 MTP class 06 与 CDC-ACM class 02/02/01、**无** ADB 的 class FF/42/01 接口，`adb devices` 始终为空；修好网络共享模式、切 USB 模式、确认调试开关为开、重启 adb server 均无效。**但同晚稍后，一次为刷新 MTP 缓存而做的拔插后，ADB 接口以 MI_03 出现，`adb devices` 立即看到已授权设备**。故「该机 adb 不可用」是**错的**：那是一段可被拔插消除的瞬态（最可能是 Windows 缓存了复合设备的接口布局，**未经证实**）。本报告不因此重做验收：三项真机结论均在 MTP 通道下已取得且可复核。详见 L320。
-- 事后交叉核实：adb 恢复后用 `adb shell getprop ro.build.fingerprint` 独立读出的 fingerprint 与 `receipt.json` 内记录的**逐字一致**，sdk 亦为 33。
+该树不是当时的待合并物，真机结论也不依据它；此处点明，是为免后来者误以为「分支上任意一次构建」都等于受测 APK。
+- 历史取证经 MTP：APK 复制进 `Download`，仅核对机上 `System.Size` 与 PC 文件**大小相同**后手动安装；这不是传输后逐字节或 SHA 校验。结果由机上截图承载并经 MTP 取回。
+- 后续本地记录更正了“该机 adb 不可用”：验收期间未暴露 ADB 接口，但同晚拔插后接口以 MI_03 出现，ADB 立即看到已授权设备；随后读出的 fingerprint 与收据一致，SDK 为 33。原因是否为 Windows 接口缓存未经证实；本次报告修订未操作设备，也不把后续记录冒充当前恢复验收。
 
 **模拟器（2026-09-06 预检，各表左栏）**
 
@@ -115,21 +114,21 @@
 - 许可依据：同固定版本 [MODULE_LICENSE_APACHE2](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-15.0.0_r3/data/fonts/MODULE_LICENSE_APACHE2) 和 [NOTICE](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-15.0.0_r3/data/fonts/NOTICE)。NOTICE SHA-256 `38751245389e1e23f73e6f5384b5cbe7fa972cc4410c5adc9c04b082a0b9561a`。
 - 下载字节的 Git blob 均与官方目录 JSON 中 blob id 匹配。为通过仓库 whitespace 检查，打包 NOTICE 只移除末尾一个空行，许可正文完整；打包 SHA-256 为 `92d336191c9ec51cc39f0b2fc44e5153f685c661c3d1e44e088fad4e68358ab2`。没有加入 Gradle 运行时依赖。
 
-## 验证状态
+## 历史验证记录（不代表当前远端恢复结果）
 
-正式 RED 已记录：原始构建成功、报告缺失令 DoD exit1；模拟器入口断言因 Activity 不存在而失败。额外修复了授权成功后仍显示“权限被拒绝”的提示，并在最终APK复验。
+历史正式 RED 已记录：原始构建成功、报告缺失令 DoD exit1；模拟器入口断言因 Activity 不存在而失败。额外修复了授权成功后仍显示“权限被拒绝”的提示，并在最终APK复验。
 
 - 卡片 DoD 命令在快进到 master `6814df77` 的基线上重跑通过（`assembleDebug` exit 0、报告存在）；三节真机结论已补齐。
-- 真机证据留存 `_local/android-spike-physical/`：`shots/` 六张机上截图、`artifacts/` 的 `receipt.json`、
+- 真机证据留存 `_local/android-spike-physical/`：`shots/` 七张机上截图、`artifacts/` 的 `receipt.json`、
   `platform-stress.pdf`、渲染出的 `page-01/80/81.png` 与相机读回原图。
 - `verify.ps1` 通过 core check 与 Golden Evidence JVM Core E2E；未新增/运行仪器测试或 Robolectric。
 - Debug/release 构建通过；直接检查 release APK 的 manifest、DEX、assets：无探针入口、CAMERA 权限、探针类或字体。两次编译出现 Kotlin daemon 连接告警，Gradle 自动回退后 exit0；最终构建无该告警。
-- 三项UI预检 APK 为 `315c664507b9a2fccd29dbc732c87373bf3eef9816c2963ac317307fd99edca3`；随后仅规范 NOTICE 空行的 APK 为 `16050cb776c6c4ffccd2917b5c923e5e35f546b9fc846f34daa6881ab0fcf134`。本次交付 APK 在该版本上只增加 PDF 互斥，已实际安装并通过上述重叠与异常重试；相机/SAF 源码未改。
-- 已解析的未变更依赖图许可扫描通过；调试字体人工许可登记见上。独立子 Agent 复核已完成；R4 无候选冗余测试，删除0项、未执行源码变异（本卡未添加测试源）。正式 R3/ship 未运行；未合并、未归档，不解锁依赖真机结论的卡片。
-- 全量 `selftest.ps1 -TaskId T1-SPIKE-PLATFORM -Base master` **exit1**：core/workflow 分片通过；seeded 在 `17a3(migration-continue/mutant)` 与 `17` 失败。前者的缺迁移被 verifier 先检出，未满足夹具要求的 test 先失败；后者报告 `17ai` 的交付脚本断言枚举不一致。相关脚本/core/build 输入与基线相同；未把失败当作通过，也未在本探针卡修改脚手架。完整日志及诊断留存 `lifecycle-selftest-master.log` 与 `selftest-diagnosis-*`。
+- 三项UI预检 APK 为 `315c664507b9a2fccd29dbc732c87373bf3eef9816c2963ac317307fd99edca3`；随后仅规范 NOTICE 空行的 APK 为 `16050cb776c6c4ffccd2917b5c923e5e35f546b9fc846f34daa6881ab0fcf134`。该轮模拟器交付 APK 在该版本上只增加 PDF 互斥，已实际安装并通过上述重叠与异常重试；相机/SAF 源码未改。
+- 已解析的未变更依赖图许可扫描通过；调试字体人工许可登记见上。独立子 Agent 复核已完成；R4 无候选冗余测试，删除0项、未执行源码变异（本卡未添加测试源）。当时“尚未 R3/ship”的记录已被后续本地交付取代：正式 R3 第二轮通过，本地合并 `e8c2359a`；这不等于远端 PR 已交付。
+- 历史本地全量 `selftest.ps1 -TaskId T1-SPIKE-PLATFORM -Base master` **exit1**：core/workflow 分片通过；seeded 在 `17a3(migration-continue/mutant)` 与 `17` 失败。前者的缺迁移被 verifier 先检出，未满足夹具要求的 test 先失败；后者报告 `17ai` 的交付脚本断言枚举不一致。相关脚本/core/build 输入与基线相同；未把失败当作通过，也未在本探针卡修改脚手架。这些参数与结果仅属当时本地脚手架，不作为当前远端命令或验证证据。完整日志及诊断留存 `lifecycle-selftest-master.log` 与 `selftest-diagnosis-*`。
 - 原始日志、UI树、截图、PDF、收据与安装包保存在主检出 `_local/android-spike-2026-09-06/`，`checkpoint.md` 和 `final-verification.json` 记录恢复状态。
 
-## 三项结论（本卡交付物）
+## 三项历史真机结论（绑定 APK `593ff461…118cca`）
 
 | 风险 | 结论 | 归属承接卡 |
 |---|---|---|
@@ -137,5 +136,16 @@
 | ② SAF 持久授权 | **成立**，采纳 | `T5-BACKUP-IO` |
 | ③ PDF 压力与中英字形 | **成立**，采纳 | `T3-PDF-RENDERER`（体积须按机型实测，勿外推） |
 
-下一步：本卡三项验收已闭合，可进 R3/ship 与 R5 文档同步。已记录的脚手架 selftest 失败（`17a3`/`17ai`）
-经复现属既有问题、与本卡改动无关，不作本卡 DoD。
+## 当前远端恢复状态
+
+- 恢复基线：`b0e07ce5`。本轮真实 RED 已记录：`assembleDebug` exit 0，报告不存在，完整 DoD exit 1；未复用历史 RED 凭据。
+- 新候选 GREEN：`assembleDebug` exit 0，报告存在，完整 DoD exit 0。APK 为 **17,062,166 bytes**，SHA-256 `f85be189660fa190d68dff451d98f227eae421aa023ec486fba81369df1b5d5f`；与历史 APK 不同。
+- 构建源码为远端 `b0e07ce5` 加本卡七个 debug 文件（逐文件 SHA-256 与 `7851be96` 一致）；本报告只修正证据归属与过时表述，不参与 APK 构建。
+- 2026-09-09 已保持应用数据安装新候选；安装前后签名证书 SHA-256 均为 `9359bc3ace455fd6ce9bd511c2714fcb9ebc0cef24773e60a871772633be7ff7`。回读设备实际 `base.apk` 的完整 SHA-256 与候选 `f85be189…1b5d5f` 相同，设备为上述 SM-A346E / API 33。旧 APK 与 26 个探针产物先保存至 ignored 证据目录；未卸载、未清除数据、未读取巡检记录。
+- **本轮 SAF**：现有探针授权只读读取 60 bytes 通过；force-stop 后旧 PID 19183 消失，冷启动 PID 19350 后再次读取 60 bytes 通过。未新建或重写 SAF 文档；写入步骤仍只由历史 APK 的记录证明，本轮验证授权延续与重启读取。
+- **本轮 PDF**：新回执记录 81 页 / 80 图 / 回收 80 图，7,346 ms，243 个检查点的进程 PSS 最大值 237,093 KiB（非绝对峰值），文件 2,366,495 bytes。独立解析确认全部 A4、80 枚 512×384 图像、编号 1–80 与四行中英文完整；第 1/80/81 页渲染目检无缺字或拉伸。PDF SHA-256 为 `6c9702cb3feaf3de10159166419df27310f0d7056f4a58be2841d36a60f84cb0`，其字节与旧输出相同，但本轮耗时/内存来自新回执，未复用旧值。
+- **本轮相机**：用户把镜头朝向门框后拍摄，屏幕出现 `History ghost`；`ghost-1788915133829.jpg` 的存储像素为 1440×1080、EXIF orientation=6，读回画面转正且门框/把手无可见拉伸。用户按提示轻微移开并依据门框、把手和开关重影移回，明确回复“可以对齐”；这是用户物理操作的确认，不伪称代理移动过手机。保留拍摄、叠图与读回 UI XML/截图，结论仍为 ghost overlay 成立。界面固定提示 `Visual alignment pending` 不自动裁决；本条结论来自该人工验证。正式 R3 首轮已通过，PR #286 已合并（完整身份见下）。
+- 本轮证据：主检出 `_local/routine-remote-recovery/device-current/` 的 UI XML、截图、PDF、回执及 `pdf-inspection.json`；安装回读为同目录上一级 `installed-candidate.apk`。
+- 历史 `17a3`／`17ai` selftest 失败仍保留为失败记录，不冒充当前远端结果；本轮按实际远端卡与标准交付流程验收。
+
+- 远端交付：PR #286，reviewed head `a8cdd4d691c7860db7a9330e2454478e426da35f`，实际 merge `6ad05ec40b6bcfc7a1831cc36a1e71f856d335fb`；两树均为 `fead018c159bdede58f8501e994e9ff6c775baf1`。正式 R3 首轮 pass（reasons 为空）、CI `34298102514` 成功；native ship 与官方 cleanup exit 0。本条仅更新交付状态，不更改上述真机实测。

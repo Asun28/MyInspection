@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Prereview record schema v1 (worker_output envelope + candidate / coverage / facts / units $defs)",
-  "$comment": "Frozen contract of PR review v2; contract text and projection rule in specs/tasks/T0-PREREVIEW-SCHEMA.md, machine check scripts/check-prereview-schema.ps1. In-window patches bump schema_revision.",
+  "$comment": "Frozen contract of PR review v2; remote adoption lineage in docs/plans/PREREVIEW-REMOTE-ADOPTION.md, machine check scripts/check-prereview-schema.ps1. In-window patches bump schema_revision.",
   "description": "worker_output: what one prereview worker returns.",
   "type": "object",
   "additionalProperties": false,

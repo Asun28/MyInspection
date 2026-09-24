@@ -4,6 +4,7 @@ title: V2 原始录音证据、回放与归属
 status: todo
 depends_on: [T7-SMOKE-POLISH, T2-MEDIA-ACCESS-BOUNDARY]
 allow_paths:
+  - android/app/src/main/AndroidManifest.xml
   - android/core/src/main/kotlin/nz/myinspection/core/media/audio/
   - android/core/src/test/kotlin/nz/myinspection/core/media/audio/
   - android/app/src/main/kotlin/nz/myinspection/app/media/audio/

@@ -21,7 +21,9 @@ dod_assert: assembleDebug 绿；docs/spike/PLATFORM-SPIKE.md 存在且三节各�
 requirements:
   - "R1 当验证 V1 平台能力时，报告应分别记录 overlay、SAF 和 PDF 的真机结果及降级结论，听写不应成为 V1 前置。"
 acceptance:
-  - "A1 [R1] 三项均包含设备/build、操作、实测结果与证据；V2 录音/听写由专属卡另行验证。"
+  - "A1 [R1] overlay 记录设备/build、取景对位和拍存读回的真机证据及成立/拍完并排比对降级结论。"
+  - "A2 [R1] SAF 记录设备/build、持久授权、写入读回和重启后授权结果，附操作与实测证据。"
+  - "A3 [R1] PDF 记录设备/build、80图与中英混排的内存/耗时/字形实测及结论；V2录音/听写不计入三项V1验收。"
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: CLAUDE.md 当前阶段 + TASK-BOARD 备注 + 若降级须改 T3-HISTORY-COMPARE 卡上下文（R5）
@@ -59,3 +61,9 @@ doc_sync: CLAUDE.md 当前阶段 + TASK-BOARD 备注 + 若降级须改 T3-HISTOR
 
 ## 执行建议（TASK-BOARD）
 首选 Opus 5 · max（新颖平台单点）；备选 Sonnet 5 max。难度 H。真机环节需用户配合（约 15 分钟点按）。
+
+## Remote feature delivery receipt
+
+PR #286 merged 6ad05ec40b6bcfc7a1831cc36a1e71f856d335fb from reviewed head a8cdd4d691c7860db7a9330e2454478e426da35f; reviewed and merged tree fead018c159bdede58f8501e994e9ff6c775baf1 are identical. Formal R3 first round PASS had empty reasons, exact-head CI run 34298102514 succeeded, and native ship and official cleanup exited 0; the task worktree is absent.
+
+Historical APK and current candidate/device evidence remain distinct in docs/spike/PLATFORM-SPIKE.md. Formal JSON, RED and T35 were preserved; the attempted T24 backup was overwritten by T35 under the same filename, and cleanup consumed the original T24. Native ship/cleanup logs evidence minting and CAS deletion; no preserved original T24 is claimed. The ignored closeout manifest explicitly records missingOriginalT24 and SourceKind T35. This metadata closeout does not rerun device or runtime tests.
