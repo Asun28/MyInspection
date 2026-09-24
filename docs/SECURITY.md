@@ -70,6 +70,8 @@
 
 - 已交付边界（2026-09-08，[PR #242](https://github.com/Asun28/MyInspection/pull/242)，`a4febb7fb554aca6dc8efebc063279dd48683bf1`；reviewed head `d56d4e396fd21c0c9c7a9634fc73ee590816b0ba`，正式 R3 pass 空 reasons、候选 CI `verify` SUCCESS）：纯 JVM DOCX reader 完成有界 ZIP/XML 无写入读取，拒绝危险路径、外链、DTD/实体和 XInclude，错误仅暴露封闭原因与计数。当前图片只检查编码字节上界和 PNG/JPEG 签名；像素/完整负载验证、语义提取、自定义属性兼容及导入提交仍由后续卡交付。此记录不代表整个导入流程或真机验收完成。
 
+`T3-DOCX-CUSTOM-PROPERTIES` 已本地交付（`b00bcbcd`，R3 pass）：仅新增固定 `docProps/custom.xml` 的有界校验后丢弃兼容。精确内容类型、Properties 根命名空间与唯一内部包级关系均验证；属性名、值和注释不进入返回部件或提取证据，原有根关系部件仍可保留固定目标引用。所有 ZIP/XML 资源与主动内容限制继续生效；不解释属性语义，也不实现完整 VT schema。
+
 #### 自包含 HTML 报告
 
 实施记录（2026-09-08，PR #250）：样式表仅使用系统字体，禁止任何 `url()` 与 `@import`；隐私过滤仍在样式生成前完成。固定 CSP 样式摘要与规则/渲染字节测试通过，未宣称实际浏览器视觉验收。

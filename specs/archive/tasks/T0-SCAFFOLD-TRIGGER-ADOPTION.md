@@ -55,6 +55,43 @@ The focused DoD is an iteration check. Final acceptance still includes full self
 including real gate 17a3 and 17ai execution. Coordinate overlapping nightly work by merging
 its exact schedule and meta wiring; this card neither adds nor removes a nightly policy.
 
+## Focused evidence
+
+- Official RED at `18ad0627`: DoD exit 1, missing compliance exclusion, gate `8.2d`; the same focused fixture is now GREEN.
+- The actual `canary-harness` fixture passes with the existing continuation and source-contract mutations intact.
+- Actual gate 17ai inventory and ordered-site mutations: RED before the note/comment repair, PASS afterward.
+- Actual `Test-SelftestGateIdContract` on the final source: PASS, 110 headings / 110 failure owners / 710 explicit messages.
+- Full selftest, real gate 17a3 migration execution, verify and R3 remain required for final integrated acceptance.
+
+Validation (2026-09-06 NZ): the exact production 17a3 migration block passed (exit 0,
+224.24 seconds, no environment skip). Real TestNG output contains one intended
+Td4ContinueProbeTest AssertionError; the no-continue test-first case, continue/ADDED
+case, wrong-migration/REMOVED case and fixture cleanup all passed. Focused trigger,
+canary source-contract, actual 17ai inventory/mutations and gate-ID ownership also pass.
+Full integrated selftest remains the final delivery check; no full-suite result is claimed here.
+
+Combined validation update: `ee1ba6e7` passed core/workflow/scanner, the migration canary,
+inventory checks and project verify (32.10 seconds). Its sole 17ac mutation-setup failure
+from the review-policy integration was repaired; complete actual 17ac replay passed in
+574.42 seconds, then `e7b8f567` seeded-remote passed in1007.14 seconds. No prerequisite
+failure skips remain; nine existing environment/post-init skips are reported. Source
+identities and logs are in the main checkout's `_local/upstream-integration/`. These
+source-matched regression results do not claim a new single full-all run or idle timing.
+
+Final integration for the additional authorized review (2026-09-07): current main
+`e4f8a211` is merged, retaining its meta defaults, skill routing and audited product docs.
+The binding final acceptance receipt is `.review/trigger-final-20260907/full-selftest-result.json`
+and its sibling `full-selftest.log`: exact HEAD before/after, tracked-file hashes before/after,
+exit code, elapsed time and all-shard terminal output. This additional R3 is invoked only
+when that receipt proves a complete exit-0 run on this exact reviewed candidate. Historical
+`1e8986d0` and combined-shard results above are not substituted for this receipt.
+The sibling `focused.log` replays the actual 17ai inventory and all its ordered-site mutants,
+plus the shared trigger and canary fixtures, against the final integration.
+
+Official local delivery: exact feature `1672386367fe112e7c9cc47a719c2b6aa47dd097`, full selftest exit 0 / 1980.670s with all tracked bytes stable; R3 pass on the same SHA; local merge `9229141a189b83037fa33ac66c05e3e140957d0b`. Final evidence preserved in `_local/upstream-v047-implementation/evidence/T0-SCAFFOLD-TRIGGER-ADOPTION/` before cleanup.
+
+This delivery supersedes the [earlier preparation](./T0-SELFTEST-SCAFFOLD-ONLY.md). Its separate branch and uncommitted files remain preserved; none of its historical RED output is claimed as this card's official RED receipt.
+
 ## Reconcile note (2026-09-24)
 
 Origin delivered this card's items through its own PRs: A1, and a `-Fixture scaffold-trigger` entry that uses the same trigger-contract predicate as gate 8.2d (A2; the fixture repeats one product-exclusion mutation rather than sharing 8.2d's mutation list), through `T0-SCAFFOLD-TRIGGER-REMOTE` ([PR #245](https://github.com/Asun28/MyInspection/pull/245), `b4a72de9`); A3 through `T0-SELFTEST-SCAFFOLD-ONLY` ([PR #272](https://github.com/Asun28/MyInspection/pull/272), `75009925`); and A4 through `T0-CI-SELFTEST-REPAIR` ([PR #259](https://github.com/Asun28/MyInspection/pull/259), `a293b531`). `T0-SCAFFOLD-UPSTREAM-ADOPTION` ([PR #297](https://github.com/Asun28/MyInspection/pull/297), `d991cc92`) then ported upstream's `scripts/selftest.ps1` and `scripts/task.ps1` (upstream `96ebfcec`). The port kept project regressions including the gate 8.2d `configs/compliance/**` exclusion check and the gate 17a3 isolated migration fixture, but not the `-Fixture scaffold-trigger` entry, the gate 17ai inventory or the task.ps1 local-gate comment. On master A1 and A3 therefore hold, and A2 and A4 do not. A5 is an acceptance step for the local candidate and is not claimed for master. The local implementation (merged locally as `9229141a` on 2026-09-07) is replaced by origin's scaffold in the reconcile.

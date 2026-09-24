@@ -157,7 +157,7 @@
 - refs:
 
 ## L18
-- date: 2026-06-03 ｜ tags: codex,review,allow_paths,ship,card-meta,rebase ｜ tier: ondemand ｜ severity: major ｜ recurrence: 2
+- date: 2026-06-03 ｜ tags: codex,review,allow_paths,ship,card-meta,rebase ｜ tier: ondemand ｜ severity: major ｜ recurrence: 3
 - symptom: codex review.ps1 对必要的跨 allow_paths 改动误判 block；又：把任务卡自身 specs/tasks/<ID>.md 的 allow_paths/status 改动放进功能分支 → codex block「该路径不在本卡 allow_paths」。
 - root_cause: review.ps1 若不读卡片 allow_paths/边界例外，会按通用硬边界误判；卡 allow_paths 过窄未含必要附带改动。
 - rule: review.ps1 改卡片感知（读 specs/tasks/<branch>.md，honor 卡声明的 allow_paths/边界例外）；卡外必要改动单独提交 main 再 rebase 分支，使卡 diff 纯 allow_paths；卡自身的 allow_paths/status 改动属规划，走 main 的 docs 提交、勿入功能分支 PR。
@@ -647,7 +647,7 @@
 - refs: PR #94 (b2546d5 -> b3ecf70) 与 PR #95 (1703e23 -> febe0be) 现场；docs/HARNESS-REVIEW.md「评审者须在自改回路之外」；关联 L50（合并前独立评审）、L91（共享检出并发）
 
 ## L93
-- date: 2026-07-10 ｜ tags: powershell,exit-code,verification,false-green,truncation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: 一次误判，当场识破，未污染任何已声明结论
+- date: 2026-07-10 ｜ tags: powershell,exit-code,verification,false-green,truncation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3 ｜ cost: 一次误判，当场识破，未污染任何已声明结论
 - symptom: 在 pwsh 里把原生命令的输出管进 Select-Object -First N，之后再读 $LASTEXITCODE，读到的是上一条命令的退出码（陈旧值）：失败的命令被读成 exit 0，产生假绿。本会话现场——git apply --check 明明打印 patch does not apply，紧随其后的 $LASTEXITCODE 却是 0，那个 0 其实来自上一条 git worktree add。
 - root_cause: Select-Object -First N 取够 N 条就停掉上游管道（PipelineStopped），原生命令被提前终止，它的退出码从未写进 $LASTEXITCODE，于是变量仍保留上一条命令的旧值。-Last N 与 Select-String 会读完整个流，故退出码保真。实测：git nosuchsubcommand 2>&1 管进 Select-Object -First 1 时 $LASTEXITCODE=0，换成 -Last 1 或 Select-String 时为 1。
 - rule: 作判据用的退出码，绝不读在 Select-Object -First N 之后。三选一：① 先把命令跑完（必要时管到 Out-Null），立刻把 $LASTEXITCODE 存进变量，再去筛输出；② 需要截断输出就用 -Last N 或 Select-String，二者读完整流、退出码保真；③ 完全不接管道，直接取退出码。凡是以 exit 0/1 为判据的场景（verify.ps1 / selftest.ps1 / review.ps1 / 卡片 dod_command / CI 步骤）尤其致命——它产生的是假绿，不是假红。一行自检：git nosuchsubcommand 2>&1 管进 Select-Object -First 1 再管进 Out-Null，随后 $LASTEXITCODE 应为 1；若得 0 即中招。已核本仓 .ps1 脚本无此形态，坑主要出在 agent 临时敲的校验命令里。另：同一 cmdlet 还有第二个与退出码无关的坑——用 -First N 截断的诊断输出，不足以支撑「已穷尽」的结论。凡要据某段输出判断覆盖面（某工具改了哪些文件、装了哪些 agent、命中哪些路径），必须不截断地取全量：重定向到文件后整份读、Out-String 全量、或改用结构化查询。注意 -Last N 同样只发 N 条，它保真的是退出码、不是覆盖面——本条前半管退出码、后半管覆盖面，两者别互相借用（-Last 可解退出码，不可解「已穷尽」）。
@@ -1007,7 +1007,7 @@
 - refs: 
 
 ## L148
-- date: 2026-07-22 ｜ tags: tdd,red-evidence,ship,worktree,recovery ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
+- date: 2026-07-22 ｜ tags: tdd,red-evidence,ship,worktree,recovery ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 7
 - symptom: -Phase ship 在「RED 证据闸」失败：证据 sha 与当前 HEAD 不符（陈旧/伪造证据），saga 报告只完成「卡校验」腿。实现明明是对的、DoD 也绿。
 - root_cause: RED 证据把 -Phase red 当时的 HEAD 钉死；ship 要求证据 sha == 此刻 HEAD。而正常流程里实现应当**留在工作区不提交**，由 ship 自己的「提交」腿落盘——任何 post-RED 提交（含 git commit 实现、含按 L145 把 master merge 进分支）都会让 HEAD 前移、证据变陈旧。**L145 与本闸直接冲突**：L145 教你中途改卡就 merge master 进任务分支，照做即制造 post-RED 提交。
 - rule: 顺序反过来：**先** merge master / 改卡 / 对齐基线，**再**跑 -Phase red，然后实现但**不提交**，直接 -Phase ship。已经撞上了就按未推/已推分流恢复——未推分支（gh pr list 与 rev-parse origin/分支 均空）用**软**恢复、别用 reset --hard：git -C 该worktree reset --soft origin/master（HEAD 归位、改动全留在暂存区，此时 diff 恰好只剩本卡文件，merge 进来的 master 提交自动从 diff 里消失）→ git stash push → -Phase red 重铸证据（此刻 DoD 必须真红，故须先 stash 掉实现）→ git stash pop → -Phase ship。已推分支改走 TD85-RESUME 的 merge-safe 分流，勿 reset。**（复发 2，T48-TD88-W10 补）常见简化形态**：若实现一直**未提交**（正常流程本就如此），分支便没有自己的提交，`git merge origin/master` 是一次**快进**——此刻 HEAD 已等于 origin/master，`reset --soft origin/master` 是 no-op，恢复缩成 **stash → -Phase red → stash pop → ship** 三步。先 `git rev-parse HEAD` 与 `git rev-parse origin/master` 比一下再决定要不要 reset：相等就别 reset（省一步、也不会误伤）；不等才说明分支有自己的提交，照上面的软恢复走。**另注**：撞上这闸时别急着怀疑证据被伪造——最常见的成因就是照 L145 补了一次 master 合并，属流程顺序问题，不是证据问题。
@@ -1143,7 +1143,7 @@
 - refs: 
 
 ## L165
-- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 6
+- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 7
 - symptom: 同一张卡里「断言看起来在测 X、实际没测 X」连出四次：①断言写在**整份 stdout** 上，而被测命令在判定前先打印改动清单，那条路径无论判定如何都在输出里 ②断言匹配**中文结论行**，父进程 stdout 被重定向时解码成乱码，六个 case 在别人机器上齐红而我连跑六次全绿 ③断言只数文档里**关键词出现次数**，而周围散文本就含那些词，把真正的可执行守卫整段删掉照样绿 ④不符用例传**全零 OID**，于是停在「解析不出提交」那一支，根本走不到它声称要测的身份比对那句。**第 2 次（T56 r17 批，2026-08-05）：变异分类器自己犯②**——gate 锚带一个「闸」字、红面正则锚「闸17t(」，批改派 schtasks 后 OEM 码页把中文打成 '?'，六枚真红被误判 NOT-OK；改纯 ASCII 锚时又差点掉进③（裸 '17t(tXX)' 会把 t16 半覆盖信息行误计红面），红面行判别改锚 'WARNING: ' 前缀（L149）才闭合。
 - root_cause: 断言落在了**比被测契约更宽的表面**上：整份输出 ⊃ 判定行、中文文案 ⊃ 稳定标识、关键词出现 ⊃ 可执行命令、任一非零 ⊃ 该守卫拦下。宽表面在被测契约还成立时当然绿，于是看不出问题；一旦契约被摘掉，宽表面仍可能因别的原因满足，断言就静默失效。人写断言时脑子里想的是契约，手上写的却是「输出里有没有这个字符串」。
 - rule: 断言面必须**恰好等于**被测契约，且用一枚只删该契约那一句的变异来证明：①只比对**判定行**（先按稳定标识切出那一行再匹配），不比对整份输出 ②机检一律认 **ASCII 哨兵**，本地化文案只给人读（编码链一变中文断言就假红/假绿）③文档契约锚到**可执行命令行形态**（行首 + 真实命令），不数关键词出现次数 ④「不符/失败」用例必须让被测那一句**真的被执行到**（如身份比对要传可解析但不同的 OID，全零 OID 只测到解析失败那支），并断言输出里有该句独有的证据（如 judged=/expect= 两个值）。**每道守卫配一枚单句删除变异**——它红了才算这条断言真的在测它。⑤**判据提取器（变异分类器/红面正则/日志 grep）也是机检，锚同样纯 ASCII**——连锚里带一个中文字都会在换执行环境（schtasks OEM 码页）时整批失配；行判别锚 'WARNING: ' 前缀（L149），别锚中文前缀，也别裸锚标签（信息行会误计）。
@@ -1207,7 +1207,7 @@
 - refs: T55 变异 runner 恢复序列；L17/L165 同族
 
 ## L173
-- date: 2026-07-30 ｜ tags: git,stash,crlf,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: 一次证据恢复排查（约 1h）
+- date: 2026-07-30 ｜ tags: git,stash,crlf,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: 一次证据恢复排查（约 1h）
 - symptom: 为 merge master 而 stash/pop 被测文件，内容一字未改、git status 只见 modified，SHA256 却全变——29 枚变异证据的字节戳当场作废。
 - root_cause: stash/checkout/apply 走 git 内容规范化层（CRLF 到 LF），字节级证据绑定的是磁盘字节而非 git 语义内容；任何经过规范化层的往返都等于字节变更。
 - rule: 证据字节戳在场时不用 stash 搬运被测文件——用文件级备份/恢复（先按忽略行尾比对确认内容一致再覆盖，不重测）；凡「哈希/字节戳」类证据，把 stash/checkout/apply 一律当字节变更处理。
@@ -1239,7 +1239,7 @@
 - refs: T60-JNPROBE-ITEMVERIFY（PR #147）；根因实测 = ubuntu run 30511675074 红 + WSL 复现脚本；L165 同族（面=产物）
 
 ## L177
-- date: 2026-07-31 ｜ tags: powershell,mutation,evidence ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 2
+- date: 2026-07-31 ｜ tags: powershell,mutation,evidence ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 3
 - symptom: 变异 campaign 报告「跑完」且每枚都 OK，实际只跑了 1 枚；同一脚本把 16 枚的表打印成「3 mutations」。
 - root_cause: PowerShell 变量名**大小写不敏感**：foreach ($m in $M) 里的循环变量 $m 就是集合 $M 本身，第一轮迭代即把 $M 覆盖成末元素（一个哈希表）。此后 $M.Count 返回哈希表键数（3），下一个 foreach ($m in $M) 只迭代那一枚。
 - rule: 循环变量绝不能与集合变量同名（含仅大小写不同）：集合用 $MUTS/$items 之类复数名，循环用 $mut/$item。凡「批量证据」脚本，跑完必须核对**记录条数 == 计划条数**，别只看「每条都 OK」。
@@ -1391,7 +1391,7 @@
 - refs: 
 
 ## L196
-- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 11
+- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 12
 - symptom: 后台变异批被会话结束硬杀在「植入后、还原前」，finally 不执行，review.ps1 跨会话停在 D28 收窄变异态；git 只显示 M、注释仍宣称全区间覆盖，与真修复混在同一 diff 里肉眼难辨（r11 强杀后已发生过一次，本次复发；第三次 2026-08-05：r14 批被前会话超上下文拆除杀在 D23 植入后 1 秒，任务报 exit 4，本条 rule 的「续接第一步核 SHA」当场抓到并从 .bak 还原——per-mut 日志让续跑只补缺失 10 枚，不必全批重来；第四/五次同日晚：r17 批两连遭会话侧外杀（D14/D17 植入后），每次同一套「核 SHA → .bak 还原 → -Only 续跑」恢复、单次损失一枚——机制已把事故成本从「整批作废」压到「一枚」。两连杀后加固：**长批改派 OS 计划任务（schtasks）脱离会话进程树跑，会话侧只留可弃 watcher 轮询完成标记**——会话怎么死都杀不到批）
 - root_cause: 硬杀（会话终止/进程树 kill）不执行 finally/trap；变异批把还原动作只挂在 finally 上，批死在植入与还原之间就留下变异态文件
 - rule: 还原动作不得只依赖 finally：批启动先核基线 SHA、不符即中止（既有守卫）；**每次会话续接第一步核被测文件 SHA==上批基线**，不符先从 .bak 还原再谈 diff/证据；判干净以 SHA256 为准（L178），别信 git status 或文件注释。**扩展（T5-BACKUP-FORMAT 两次实证）：变异批进行中勿并行跑独立交叉复核/评审**——复核者读到瞬态变异文件会产出自信的假阳性；交叉复核排在批完成+SHA 还原核验之后
@@ -1623,7 +1623,7 @@
 - refs: 
 
 ## L225
-- date: 2026-08-16 ｜ tags: tests,mutation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-08-16 ｜ tags: tests,mutation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 给判据新增一条断言并配了变异，评审仍判「该断言无变异可达」——变异确实变红了，但红在更靠前的另一条断言上
 - root_cause: 同一判据里多条断言是短路顺序执行的，靠前的断言会掩护靠后的：删掉底层函数本体时，靠前的断言先失败并退出，靠后那条永远走不到，于是它并未被证明在测
 - rule: 每条断言都要一枚只打中它的变异：靶点选「只会让这条断言失败、不影响更靠前断言」的那一行（如只删遍历循环、保留比较本体）。并且每枚变异必须声明它的期望失败码，判据按码锚定匹配——[regex]::Escape 只转义元字符不锚定，裸子串会让 ABSENT-CANON 被 ABSENT-CANONICAL 白拿分
@@ -1639,7 +1639,7 @@
 - refs: 
 
 ## L227
-- date: 2026-08-17 ｜ tags: review,pr,evidence,codex ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-08-17 ｜ tags: review,pr,evidence,codex ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 卡片要求把独立第二模型复核记录/证据附进 PR（如 T2-PHRASELIB 的 deepseek-rescue 复核记录），写进 PR body 后 R3 仍以「未见证据」block——两轮均如此
 - root_cause: scripts/review.ps1 只把 git diff 喂给 codex 评审者（見 gh pr comment 用于回贴结果，全脚本无 gh pr view/--json body 读 PR 描述的调用），PR body/描述从未进入评审者的上下文；凡卡片要求「记录进 PR」的证据，只写 PR body 对 R3 不可见，等同没写
 - rule: 凡卡片/rubric 要求评审者能看到的证据（如独立复核记录），必须落进 diff 本身能读到的位置：改动文件的 KDoc/注释、或 commit message 正文（review.ps1 喂给评审者的是 diff，commit message 是否随 diff 一并喂入需按 review.ps1 实际实现核实，不确定时优先落文件内注释，最可靠）；PR body/描述只对人类可见，别指望它进 R3 评审上下文
@@ -1959,7 +1959,7 @@
 - refs: 
 
 ## L270
-- date: 2026-09-01 ｜ tags: mutation,evidence,budget,sequencing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- date: 2026-09-01 ｜ tags: mutation,evidence,budget,sequencing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 5
 - symptom: 变异收据把生产文件的 SHA-256 钉死，随后为压 diff 预算去修剪生产文件的注释散文，整批 18 枚变异证据当场作废，被迫重跑约 18 分钟。
 - root_cause: 把「压预算」和「跑变异批」当成两件独立的事，按「先写完→跑批→再收尾」的直觉排序；但收据是对某个确切字节状态的声明，任何生产文件改动（哪怕纯注释）都让它失效。
 - rule: 跑变异批之前，生产文件必须已经【终稿】——含为 diff 预算做的注释/散文修剪，跑一次 changed-lines 确认在闸内再开批。批之后唯一允许落地的改动是收据注释本身（它只能在批后写，且只钉生产文件的 SHA、不钉测试文件）。推论：R3 若要求改生产代码，重跑整批是该轮的固有成本，写进该轮预算，别当意外。
@@ -2055,7 +2055,7 @@
 - refs: 
 
 ## L282
-- date: 2026-09-02 ｜ tags: mutation,testing,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-02 ｜ tags: mutation,testing,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
 - symptom: 变异批只按退出码判生死，于是「测试变红」与「根本没编译过」共用同一个 exit=1；批跑完宣称「N/N 全杀、零编译型假击杀」时，手上其实没有任何证据支持后半句。
 - root_cause: 构建工具对编译失败与测试失败返回同一个非零码（Gradle 恒为 1），而变异脚本为了跑得快通常把输出丢弃（`*> $null`），连事后翻日志分辨都做不到。一枚编译不过的变异对「测试是否在测」零信息量——它只证明了编译器还在。
 - rule: 变异批之外再跑一遍**只编译**的探针（同一批锚点、同一份单点替换，命令换成 `:core:compileTestKotlin` 之类不跑测试的目标），逐枚要求 exit 0；收据里把两条结论分开写：「19 枚全部编译通过」+「19 枚全部被测试杀死」。两条都有机检输出才允许写「零编译型假击杀」。探针可复用变异定义文件，成本约为主批的三分之一。
@@ -2204,15 +2204,15 @@
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的**既有实例全部列出**（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。**同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞**（同 L189 的识别信号）。
 - enforced_by: 
-- refs: 
+- refs: same lesson as L309 (recorded separately on origin and on local master before the 2026-09 reconcile)
 
-## L310
+## L341
 - date: 2026-09-08 ｜ tags: task-loop,delivery,git ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
 - symptom: Routine v2 was reported complete after ship -Local although no GitHub feature PR existed.
 - root_cause: A local-only delivery mode was carried forward without checking the remote deliverable; successful local gates were mistaken for completion of the requested PR workflow.
 - rule: When the requested delivery includes a PR, use normal remote ship and verify the PR URL, exact reviewed head, successful candidate CI and remote merge before reporting completion. Report local-only completion explicitly; restore isolated card diffs from the current remote base when local master diverges, never push unrelated local history.
 - enforced_by: none（delivery-mode selection and completion wording still require operator verification; existing remote ship enforces R3 and candidate CI once selected）
-- refs: PR #238; PR #241; .claude/skills/task-loop/SKILL.md; docs/DEVOPS-WORKFLOW.md
+- refs: PR #238; PR #241; .claude/skills/task-loop/SKILL.md; docs/DEVOPS-WORKFLOW.md; renumbered from origin L310 by the 2026-09 local/origin reconcile (local L310 is cited by the prereview checklists and CLAUDE.md)
 
 ## L327
 - date: 2026-09-09 ｜ tags: task-loop,evidence,receipts ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
@@ -2309,3 +2309,131 @@
 - rule: 声明正文完整性前，明确字符值和 run 子元素的处理边界：支持的字符保留原始 Unicode，非正文分页带警告排除，未知非空白字符数据明确拒绝；文本和指令必须匹配受支持的命名空间与上下文，纯格式空白允许。用公开读取入口覆盖字段前后、段落内外及外来命名空间，并以单点故障确认每种分流受断言约束。
 - enforced_by: android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/extract/DocxReportExtractorTest.kt
 - refs: specs/archive/tasks/T3-DOCX-REPORT-EXTRACTOR.md; runTokensPreserveHyphensAndExcludeLegacyPages; unsupportedRunContentRejectsClosed; orphanWordTextCannotDisappearFromASuccessfulManifest
+
+## L308
+- date: 2026-09-07 ｜ tags: requirements,cards,integration,review ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: 需求审校卡的独立检查可全绿，但实际物业导出接线没有归属，权威需求仍保留过时单探针说明；两张收尾卡各在首轮R3被拦。
+- root_cause: 只核对模块卡与新增段落，没有沿用户入口到最终产物验证整条生产路径的负责卡，也未逐段对照权威文档的旧说明。
+- rule: 审校任务卡时逐条写出入口、跨模块接线、最终产物和重开验证的负责卡与验收；检查全部权威段落的时间、版本和验证范围，不能以模块单测或新段落覆盖代替完整路径。
+- enforced_by: none（跨卡语义与权威叙述一致性由审校判断，非机械守卫）
+- refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
+
+## L309
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
+- root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
+- rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
+- enforced_by: 
+- refs: specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md; specs/tasks/T4-DESIGN-SYMBOL-CHROME.md; L189; L311; L312; same lesson as L300 (recorded separately on origin and on local master before the 2026-09 reconcile)
+- addendum(2026-09-08, V2 交付后): 实例代入表按本条做了，仍连吃 8 轮 R3 / 13 条 finding，补三处覆盖缺口——① 只代入**中心规则**会漏掉**被改写的周边条款**，它们各自也带全称词、也在对整份文档做断言；② 表比对的是「新句 vs 旧实例」，**管不了「新句 vs 新句」自相矛盾**（本卡最重的一条即两条新句打架），新写的句子之间须交叉核对；③ 规则若有**两半**（如视觉线索 + 播报），**必须两半同时代入**——只判一半时，为满足另一半而新增的载体会系统性在另一半开新口子，本卡第 5 轮每加一个必带字形就在播报半漏一处，第 6 轮原样被拦。④ 改写任何一行前，先把**该行自己声明的 variants / states 清单**逐个代入新措辞（`state-badge` 的 SOURCE 变体即因此漏掉）。
+
+## L310
+- date: 2026-09-08 ｜ tags: tdd,worktree,ship,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- symptom: 卡片本身不在 allow_paths 内、须落 master，于是 ship 前把 master 快进进卡片 worktree——RED 收据当场作废：ship 的 RED 闸比对「证据里的 sha」与「worktree 当前 HEAD」，HEAD 一动即判陈旧/伪造并整条 ship 失败。
+- root_cause: RED 收据钉的是取证那一刻的 worktree HEAD，而不是被测文件内容。卡片元数据按 L18 走 master，两者的更新节奏天然不同步，我却把「同步 master」当成无害操作。
+- rule: 取 RED 之后不要再把 base 并进卡片 worktree。卡片元数据（dod_command / 记账）落 master 即可，ship 从主检出读卡、只在 worktree 跑 DoD，worktree 无须包含那些提交。若确实必须同步（如 DoD 依赖 base 的新脚本），同步后重取 RED：把实现改动 git stash push 掉、跑 -Phase red（此时基线真的红）、再 stash pop，并核对两侧文件 SHA 未变——这样重取的 RED 是真证据，不是为过闸而伪造。
+- enforced_by: 
+- refs: scripts/task.ps1 RED 闸; specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md; L18; L86
+
+## L311
+- date: 2026-09-08 ｜ tags: process,review,cards ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: R3 轮次到顶后按「拆卡」出路把下游工作拆给承接卡，撤回补齐、只在原卡留下规则声明——下一轮 R3 当场证伪：留下的声明「rail never carries state by color alone」与被撤回补齐后的组件规格直接矛盾，拆卡反而制造了新缺陷。
+- root_cause: 我按「主题」拆（规则归这卡、补齐归那卡），而不是按「声称与证据的依赖」拆。规则的真值由那些实例提供，把实例撤走、声称留下，声称立刻变成假话；而卡片的 forbid 又禁止把声称改弱。
+- rule: 拆卡前先问：留下的每一句声称，其为真所依赖的证据是否也留在同一张卡里？切口只能落在「声称与其证据不产生断裂」的地方。若一条规则的真值依赖若干实例的当前状态，规则与这些实例必须同卡交付；可以拆走的是**不影响该规则真值**的部分（如为放宽约束而新增的登记、边界读法、命名歧义）。拆完立刻自检：把拆走的部分想象成永不落地，留下的文本还全部成立吗？不成立就是切错了地方。
+- enforced_by: 
+- refs: specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md; specs/archive/tasks/T4-DESIGN-STATUS-CARRIERS.md
+
+## L312
+- date: 2026-09-08 ｜ tags: accessibility,design,review ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: 把「owner 播报该值」写成与可见文字并列的充分载体，等于允许状态只靠颜色被明眼用户感知——弱化了 WCAG 1.4.1 下限。六轮本地对抗复核逐行扫过全部合同都没抓到，只有第二模型评审拦下。
+- root_cause: 把两项不同义务合并成了一项：WCAG 1.4.1 管的是**明眼可见**的非颜色通道，无障碍播报管的是**屏幕阅读器可达**。二者服务不同人群、不能互相替代，而我用「或」把它们并列了。一致性检查抓不到这类错——规则在整份文档里是一致地、均匀地太弱。
+- rule: 写任何「状态/信息由什么承载」的规则时，视觉通道与播报通道分两句写，并明写播报只补充、永不替代。凡出现「以文字**或**播报」这种并列，先问：色觉障碍的明眼用户在这条分支下看得见吗？另：一致性/代入类自检只能证明规则与实例不矛盾，证明不了规则本身是否达到外部标准的下限——涉及外部标准（WCAG/法规）时须另找一次对着**标准本身**的检查，别指望内部一致性扫描替你把关。
+- enforced_by: 
+- refs: context/DESIGN.md#colors; specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md
+
+## L313
+- date: 2026-09-08 ｜ tags: process,scripts,r5 ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: R5 先跑 archive.ps1 再跑 task.ps1 -Phase cleanup，cleanup 立刻以「任务卡不存在」失败——它按 specs/tasks/<id>.md 定位，而卡已被归档搬走。
+- root_cause: 两个脚本对同一文件有相反的前置：cleanup 要求卡在活目录，archive 的作用正是把它搬出活目录。doc_sync 清单把二者并列，没写死先后。
+- rule: R5 顺序固定为：文档同步 → task.ps1 -Phase cleanup → archive.ps1。若已经先归档，别把卡挪回去，直接 git worktree remove <path> 拆除（先确认 worktree 无未提交改动、分支已并入 base），分支按本仓惯例保留。
+- enforced_by: 
+- refs: scripts/archive.ps1; scripts/task.ps1 cleanup
+
+## L314
+- date: 2026-09-08 ｜ tags: import,privacy,source-alias,identity ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 身份来源已在 narrative 路径排除，却可借同源 caption、summary 或 item comment 再写入原生备注。
+- root_cause: 守卫只覆盖一个输出分支，未按位置和原文建立跨类别证据归属。
+- rule: 需要排除的来源证据应先建立跨全部可写类别的统一索引，在公共决策入口校验；回归同时覆盖各类别的同源别名，并保留同文字不同位置的合法对照。
+- enforced_by: 
+- refs: 
+
+## L315
+- date: 2026-09-08 ｜ tags: sqlite,schema,validation,tdd ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 导入回执哈希 CHECK 仅用 64 字节长度与 GLOB 字符集时，绑定的 63 个十六进制字符加 NUL 仍能入库；仅保留文本长度时，合法 64 字符前缀加 NUL 后缀又会漏过。
+- root_cause: SQLite 的文本长度和模式匹配遇嵌入 NUL 有截断语义；文本亲和性也不保证实际存储值是 TEXT，单靠字符数与 GLOB 无法证明完整字节串合法。
+- rule: 固定 ASCII 摘要同时约束 typeof=TEXT、文本长度、CAST AS BLOB 字节长度和完整允许字符集；使用真实绑定参数验证 NUL 补位、合法前缀加 NUL 后缀和同形 BLOB，并同时覆盖新建数据库与迁移后数据库。
+- enforced_by: android/core/src/test/kotlin/nz/myinspection/core/report/interchange/ReportInterchangeSchemaTest.kt
+- refs: specs/archive/tasks/T3-REPORT-INTERCHANGE-SCHEMA.md; ReportInterchangeSchemaTest.kt
+
+## L316
+- date: 2026-09-08 ｜ tags: planning,scope,estimation,l266 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 开工前收口 11 条未决决策，其中两条各砍掉字形（11→6），据此判定「低于止损点、不必拆卡」；真正动手时体量反而回升到 990 行、越闸。
+- root_cause: 只算了决策**移除**的东西，没算它**加回**的东西：收口把两个此前漏列的动作槽显性化（CLEAR_FILTER 需自己的字形、空状态 NEXT 需一枚方向性字形，后者还是某条 RTL 需求唯一的非空实例）。决策收口既是减法也是加法。
+- rule: 每收口一批未决决策，就**重算一次体量**，并把「本次收口新增了什么」单列一栏，不要只记删减。L266 管「写 RED 之前量」，本条管「需求一变就得重量」——沿用建卡时的数字等于用过期需求估算。
+- enforced_by: 
+- refs: 
+
+## L317
+- date: 2026-09-08 ｜ tags: cards,acceptance,evidence,r3 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 卡片验收表把某条需求标为 automated，R3 指出 diff 里既无 typed 值、也无断言、也无变异收据——验收表本身在说假话。
+- root_cause: 验收表被当成计划意图来写、而非当成对已交付证据的陈述：写表时那条确实打算自动化，实现时改了做法，表没跟着改，而没有任何闸会拿表去对账 diff。
+- rule: ship 前把验收表当作一份**需要证据的声明**逐行复核：每个标 automated 的格子必须能点名到一个测试函数与一枚变异；点不出来就当场改标 manual 或补证据。同理适用于 dod_assert 与卡内任何「已覆盖/已验证」的措辞——**表格也是散文，散文会过期**。
+- enforced_by: 
+- refs: 
+
+## L318
+- date: 2026-09-08 ｜ tags: mutation,testing,r4,pruning ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- symptom: R4 剪枝按「无变异单独杀死它」删掉一条非空断言测试，R3 随后拦下：isNotEmpty 之下 Message("") 仍能通过，而删掉的正是唯一能拦住它的那条。
+- root_cause: 判据循环：没有变异杀死它，是因为变异集里从未有过「把消息置空」这一枚；缺失的那枚变异恰恰是这条测试看起来冗余的原因。用不完备的变异集去度量测试的必要性，度量出来的只是变异集自己的盲区。
+- rule: mutation-survivor 剪枝的可靠性不超过它所对照的变异集。删任何一条测试前先反问：什么样的变异会让它红？答得出来就检查该变异在不在集里——不在就补变异、留测试；答不出来才是真冗余。尤其危险的是「存在性断言 vs 合法性断言」这一对（isNotEmpty/isNotBlank、非 null/值正确）：它们几乎总要成对存在，而弱的那条常常没有专属变异，于是在剪枝时最先被误杀。
+- enforced_by: none（无机械守卫：剪枝是人的判断，闸门只能验变异全杀、验不出「本该存在却没写的变异」。靠本条 + 卡内 hygiene 字段在 R4 时自查）
+- refs: 
+
+## L319
+- date: 2026-09-08 ｜ tags: mutation,evidence,powershell ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- symptom: 变异批报告「27/27 全杀」，但其中若干枚植入的根本不是条目所写的那个改动：三枚把整行替换成了一个裸换行（看起来仍像「删掉该行」故不易察觉），一枚退化成 no-op、只因 runner 里有一句「植入后文本必须与基线不同」才当场抛错暴露。
+- root_cause: PowerShell 的逗号列表里，未加括号的字符串拼接会被折进列表本身：@(a, b, c, x + y + z) 解析成 6 个元素而非 4 个，于是 $m[3] 取到的是拼接的第一个操作数、不是拼接结果。批只校验了「选择器命中一次」与「DoD 变红」，两者在错误的变异下同样成立——变红的原因对不上条目声称造坏的东西。
+- rule: 变异批必须证明每个 mutant 就是条目所写的那一个，而不只是证明它让闸变红：① 条目表在 runner 里做元数自检（元素个数/字段齐全），② 植入后立刻断言 mutant != baseline，③ 数组字面量里每个 + 拼接与每个函数调用各自加括号（同 L267 的括号规矩，扩到 + 表达式）。判据：DoD 变红只证明「有东西坏了」，不证明「坏的是这条」——L318 说剪枝的可靠性不超过变异集的完整性，本条说批的可靠性不超过每个 mutant 与其描述的一致性。
+- enforced_by: none（变异 runner 是逐卡的 scratchpad 工具、从不入库，仓内没有它可以挂的闸；本条是 R4 编批时的写法纪律，其守卫必须写进那一份 runner——每条条目断言元素数 == 4，植入后断言 mutant != baseline，两处均 throw）
+- refs: 
+
+## L320
+- date: 2026-09-08 ｜ tags: android,device,adb,mtp,spike ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: Physical Android phone with USB debugging switched ON does not appear in adb devices, while Windows plainly sees the phone. On a Galaxy A34 5G (SM-A346E, Android 13/API 33) the composite device exposed only MTP (USB class 06) plus a CDC-ACM serial port (class 02/02/01), with no ADB interface (class FF, subclass 42, protocol 01) present at all. It stayed that way across a tethering-mode fix, a USB-mode switch, an Auto Blocker hunt, a confirmed-ON debugging toggle and an adb server restart, so the whole device acceptance was carried out over MTP instead. CORRECTION, same night: after an unrelated cable replug done only to refresh a stale MTP index, the ADB interface appeared as MI_03 and adb saw the device authorised immediately. The absence was therefore transient, not a property of the phone.
+- root_cause: Proven: a phone left in USB tethering mode enumerates as RNDIS (Samsung PID 6863) and hides every other function; and Android withholds USB data until the on-device Allow access to phone data prompt is accepted, which presents as an MTP device reporting zero storage volumes. NOT proven, and I must not pretend otherwise: why the ADB interface was missing afterwards, nor exactly what the replug changed. The plausible reading is that Windows was serving a cached composite-device interface layout and re-enumeration fixed it, which is precisely what pnputil /remove-device plus /scan-devices would have forced had it not needed admin rights. The real process error was mine: I concluded 'this phone never offers ADB' from a handful of failed checks, wrote that conclusion into a merged report, a board row and CLAUDE.md, and then requested a replug for an unrelated reason without ever re-checking adb afterwards.
+- rule: Read the USB interface classes before touching drivers or settings: ADB is class FF/42/01, MTP is class 06, and an RNDIS interface means the phone sits in tethering mode. That single check separates 'the phone is not offering ADB' from 'the PC cannot bind ADB'. Then, before concluding adb is unavailable, UNPLUG AND REPLUG THE CABLE and re-check both the interface list and adb devices: a stale Windows enumeration of a composite device survives adb kill-server and every on-phone toggle, and the replug is the one cheap action that clears it without admin rights. Re-run that check after any replug you performed for some other reason. Never write 'this device cannot do X' into a merged document on the strength of failed attempts alone: state the observation and the window it held for, because absence of a capability is far weaker evidence than its presence. When adb genuinely stays down, do not block the card and do not demand a Wi-Fi change: MTP alone is a complete evidence path. Copy the APK into Download through the Shell.Application COM namespace and verify System.Size byte for byte, install it by tapping on the phone, let the probe UI carry its results on screen, and pull the on-device screenshots back over MTP. Note MTP caches directory listings, so app-written files may be invisible until a replug.
+- enforced_by: 
+- refs: 
+
+## L321
+- date: 2026-09-08 ｜ tags: docs,claims,design,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 拦下一条：为把 light 调色板项与 dark 对应项对齐，我把它改成「essential card boundaries, evidence segments, and focus use outline」，而同一份 diff 里 evidence-rail 五个段态中的 complete/missing-required/blocked 分别用 primary/tertiary/error——diff 自己就推翻了这句。ship 前的全新上下文对抗复核判 PASS 也没抓到。
+- root_cause: 镜像 dark 侧那句时我只抄了名词（evidence segments），丢掉了它的限定尾巴「use dark.outline, a semantic container, or the focus token」——正是那条尾巴让 dark 句是有范围的；同样的名词没有它就成了全称句。两轮自查都漏，是因为两者都在问「这句相对整份文档是否为真」，而这句的假存在于它与**同一句里相邻分句**的关系。
+- rule: ① 镜像平行章节的句子时，限定语与名词一同旅行：要么整条谓语照抄，要么把范围显式重述；只抄名词等于把有范围的陈述改写成全称句。② 往一个枚举句里加/改一个分句时，要拿它与**同句的兄弟分句**对照，不只与文档其余部分对照——逐句真值检查看不见分句之间的矛盾。③ 便宜的机检：把**改动前的措辞**与**这句被驳回的过宽措辞**双双钉成 expected 0 反向断言，两个方向都回不去。
+- enforced_by: none（逐卡 DoD；本卡把两种措辞钉成 expected 0 锚点、由 M20/M21 各杀一个方向，仓内无通用闸可挂）
+- refs: 
+
+## L322
+- date: 2026-09-08 ｜ tags: git,concurrency,worktree,archive ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 为了让提交里只含我新增的那一行技术债，我对 specs/tech-debt-tracker.md 跑了 git checkout -- <file> 取干净基线——这条命令静默删掉了另一个并发会话在同一文件里未提交的 TD144 状态改动；只因几秒前刚复制过一份快照才救回来。同一轮里 scripts/archive.ps1 读的是**工作树**，于是把那条尚未提交的 paid 行当成已闭合项搬进了归档。
+- root_cause: 我把「把文件还原到 HEAD」当成塑造索引的手段，但它是**工作树**操作，而这棵工作树不只属于我。仓级维护脚本同理：它们作用于磁盘上的内容，不是已提交的内容。
+- rule: ① 当一个文件里有**不是你改的**未提交内容时，绝不用 git checkout -- <path>（或整文件覆写）来塑造提交。改用不碰工作树的暂存方式：把目标内容写进临时文件，再 git hash-object -w --path <path> <tmp> 取 sha、git update-index --cacheinfo 100644,<sha>,<path> 入索引。② 跑任何读工作树的仓级维护脚本（archive.ps1 之流）之前先 git status --porcelain，确认每一条脏路径都是你的；不是就先提交/寄存对方的改动，否则它的产物必然携带对方的在飞状态。③ 无论如何，动别人的脏文件之前先复制一份快照——本次能救回来靠的正是这个。
+- enforced_by: none（git 使用纪律；机械等价物是动手前的 git status --porcelain 与 hash-object/update-index 这条不碰工作树的暂存路径）
+- refs: 
+## L325
+- date: 2026-09-09 ｜ tags: gates,diagnosis,worktree,secrets ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: check-secrets -Strict 在卡片 worktree 里报致命「git 历史含敏感文件：…5.db」。我据此断言「这道闸没有白名单机制、会一直误报」，还向用户提议开卡去修它。实际上白名单机制早就存在、项目也早就正确用着（configs/secrets/tracked-sensitive-allowlist.json 五条齐全、各带 purpose），同一条命令在主检出里跑是 PASS。
+- root_cause: 闸的历史扫描是 git log --all（跨**全部 ref**，含本地 master），而白名单是从**当前检出的那棵树**读的配置文件。我在基于 origin/master 的 worktree 里跑它，那棵树的白名单只有 1-4.db，第 5 条在本地 master 上尚未推送。于是「作用域全局的扫描 + 作用域局部的配置」给出了一个**对那棵树完全正确**的致命报告，而我把它读成了工具缺陷——下结论前没问「这次运行读的是哪一份配置」。
+- rule: 闸报红时先确定**它这次读的是哪棵树的配置与输入**，再谈它对不对。判据是换一棵树重跑：同一条闸命令在主检出与被审 worktree 各跑一次并比对退出码，两处结论不同即说明红的是**作用域**而非缺陷。扫描作用域（git log --all 跨 ref）与配置作用域（当前检出树）不一致时，在落后的基线树上跑必然产出「对该树正确、对仓库整体错误」的结论。做完这一步之前，不得据一次红去断言工具有缺陷，更不得据此开卡——把误诊写进卡片比不开卡贵得多。
+- enforced_by: none（判定纪律；机械等价物 = 同一条闸命令在主检出与被审 worktree 各跑一遍、比对退出码，不同即先查作用域）
+- refs: L282

@@ -3,7 +3,7 @@ id: T3-REPORT-IMPORT-PLAN-PROJECTION
 title: Exhaustive source inventory and conservative Routine import candidates
 depends_on: [T2-ROUTINE-CONTEXT-V2, T3-DOCX-REPORT-EXTRACTOR, T3-REPORT-IMPORT-PLAN-SNAPSHOT]
 parallelizable_with: []
-status: todo
+status: merged
 branch: T3-REPORT-IMPORT-PLAN-PROJECTION
 worktree: C:\wt\T3-REPORT-IMPORT-PLAN-PROJECTION
 allow_paths:
@@ -31,10 +31,23 @@ doc_sync: ADR-0007 + TASK-BOARD
 
 # T3-REPORT-IMPORT-PLAN-PROJECTION
 
-Supply the PLANNER's immutable projection using delivered SNAPSHOT preflight and
-integrated context checks; never mark ready or authorize writes. Targets remain unrated
-until explicit review. Follow ADR-0007 matching/ownership rules. The caller obtains the
-current template/room configuration; commit must revalidate live DB state.
+This card is the source-projection predecessor of T3-REPORT-IMPORT-PLANNER.
+
+This predecessor supplies the pure immutable projection used by
+T3-REPORT-IMPORT-PLANNER. It never claims ready or authorizes a native write.
+Consume the independently delivered SNAPSHOT model and preflight; retain integrated
+context checks. Every target remains unrated until the later explicit review phase.
+Shared matching and source-ownership rules are defined in ADR-0007, Pure import planning contract.
+The calling workflow obtains current template and property room configuration;
+this pure snapshot does not prove live DB state and commit must revalidate it.
 
 User approved conservative legacy status handling on 2026-09-07. Original values
 remain review evidence; no Excellent/Average/Clean conversion is inferred.
+
+## Delivery record — 2026-09-08
+
+Locally merged as master `5b86137e` from `b01ab56e`; formal R3 pass.
+Card DoD: 35 plan tests, zero failures/errors/skips. Project verify: 1012 core tests, zero failures/errors, four existing Windows media skips; Golden Evidence JVM Core E2E passes.
+R4: 19 isolated source faults were caught by named behavior assertions or the high-cardinality timeout; exact source bytes restored, no tests pruned. Recipes and retained evidence: `_local/projection-20260908/`.
+Initial new-baseline RED captured three existing candidate defects; an independent precheck found duplicate image-part placement ownership, reproduced with a fourth failing test and repaired before R3. The first formal R3 required direct constructor collection coverage; one added test and five wrapper-bypass mutations close that gap without production changes. The second formal R3 found targetless status suggestions; a one-line fallback correction and a regression covering zero, multiple and roomless-unique targets close that defect. The third formal R3 found repeated scans and targetless status misclassification. Exact evidence, paragraph, image, source-owner and target indexes replace repeated scans; unresolved targets retain unvalidated source status. Warning blockers reference their own warning ID to avoid copying a growing owner inventory. The high-cardinality regression covers 90,000 manifest entries plus duplicate keys and 10,000 warnings on one owner. The final nineteen mutations were rerun against the repaired source; the repeated-scan fault triggers its timeout.
+The delivered projection retains all targets unrated and makes ambiguous caption/image ownership actionable; it does not implement explicit review or receipt creation and cannot authorize native writes.

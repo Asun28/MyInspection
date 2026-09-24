@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 207 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 216 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -159,6 +159,7 @@
 | T2-ROOM-REPEATABLE | merged | 房间 repeatable 契约与同窗口 schema 语义债收口（TD6/TD7/TD8） |
 | T2-ROUTINE-CONTENT | merged | Routine 双语模板内容（80–120 项）+ schema 校验绿 |
 | T2-ROUTINE-CONTEXT-V2 | merged | Routine template v2 with Hallway and hash-covered inspection summary |
+| T3-DOCX-CUSTOM-PROPERTIES | merged | Bounded custom document properties validation and discard (TD174) |
 | T3-DOCX-EXTRACTION-MANIFEST | merged | Immutable DOCX extraction manifest and deterministic evidence digest |
 | T3-DOCX-IMAGE-QUALIFICATION | merged | Bounded DOCX image validation with conservative review retention |
 | T3-DOCX-PACKAGE-READER | merged | Bounded no-write OOXML package reader for hostile legacy reports |
@@ -183,10 +184,17 @@
 | T3-REPORT-HTML-EVIDENCE-PORT | merged | The evidence byte port, what it may hand over, and the limits it is handed |
 | T3-REPORT-HTML-PRESENTATION | merged | Responsive, printable, dark and forced-colour stylesheet for the self-contained report |
 | T3-REPORT-HTML-RENDERER | merged | Self-contained accessible HTML document from shared report content |
+| T3-REPORT-IMPORT-PLAN-PROJECTION | merged | Exhaustive source inventory and conservative Routine import candidates |
+| T3-REPORT-IMPORT-PLAN-SNAPSHOT | merged | Immutable import plan model and selected-context preflight snapshot |
+| T3-REPORT-IMPORT-PLANNER | merged | Explicit import review and deterministic mapping receipt |
+| T3-REPORT-IMPORT-REVIEW-DECISIONS | merged | Explicit immutable import decisions and exhaustive source accounting |
 | T3-REPORT-INTERCHANGE-AUTHORITY | merged | Native Routine DOCX import and shared PDF/HTML product authority |
+| T3-REPORT-INTERCHANGE-SCHEMA | merged | Schema v6 for immutable import provenance and format-aware export receipts |
 | T4-COMPLIANCE-ENGINE | merged | 配置驱动 NZ 合规引擎：阻断校验 API + Pacific/Auckland DST 边界测试（★规则 schema 冻结） |
 | T4-COMPLIANCE-TRUST-REMOTE-RECORD | merged | 同步规则信任决策的远端任务记录 |
 | T4-COMPLIANCE-UPDATE-TRUST | merged | 规则更新的可信来源与版本决策 |
+| T4-DESIGN-NOT-APPLICABLE-COLOR | merged | NOT_APPLICABLE 的破折号没有声明前景色：evidence-rail 五个段态只有四个色 |
+| T4-DESIGN-STATUS-CARRIERS | merged | 状态载体收口的三处遗留：对比度绑定、两处边界行、capture Back 双名 |
 | T4-NOTICES | merged | 48h 通知：双语文本生成 + 一键复制 + 送达存档（全文快照/提前量/校验快照） |
 | T4-REMINDER-CORRESPONDS-TRIM | merged | 删掉 corresponds 中两个被 store 不变量蕴含的比较 |
 | T4-SCHEDULE-CADENCE | merged | 巡检类型的本地民历提醒节奏 |
@@ -199,6 +207,7 @@
 | T4-SCHEDULE-REMINDER-SCHEDULER | merged | WorkRequest 构造、注册预留与保留工作恢复 |
 | T4-SCHEDULE-REMINDER-SPLIT-PLAN | merged | 将超限提醒卡拆为 delivery 与 scheduler 两张可读串行卡 |
 | T4-SCHEDULE-SPLIT-PLAN | merged | 将 T4-SCHEDULE 拆成可读且可独立评审的三张串行卡 |
+| T4-SCHEDULE-UI-PRESENTATION | merged | 排程界面的最小呈现契约（动作数与反馈 banner · 无空状态 · 日期与计数形态） |
 | T4-SCHEDULE-UI-REMINDER-ACTIONS | merged | 排程 presenter：权限时序、授权恢复、注册结果分支与显式重试 |
 | T4-SCHEDULE-UI | merged | 排程 reducer：行种类、屏幕状态、筛选与路由效果 |
 | T4-SYMBOL-MARKDOWN-PARSER | merged | Provide a visible top-level Markdown contract parser for symbol acceptance |
