@@ -1,7 +1,8 @@
 ---
 id: T7-AUDIT-CARDS-CLOSURE
 title: 需求审校交付一：卡片与安全模块接口
-status: todo
+status: merged
+superseded_by: T7-AUDIT-REMOTE-CARDS
 depends_on: []
 allow_paths:
   - specs/android-module-boundaries.md
@@ -50,3 +51,7 @@ doc_sync: 仅将本收尾卡标为merged并归档；业务功能卡保持原状�
 交付已批准的11张新产品卡、尚未提交的原卡改善、安全接口规格，以及版本决定的最小索引。功能卡仍为todo，不实施产品功能。T1-SPIKE-PLATFORM 的原修订已由其他任务提交，不重复搬回。全量叙述同步由后继卡完成。
 
 用户2026-09-07要求 finish with task loop；本卡为该批已批准文档变更的交付包装。超过完整diff预算而拆两步；依赖顺序交付，不降低评审阈值。卡自身meta在main登记，实际交付在独立worktree；使用本地ship并保留正式R3，不把独立只读复核当成R3。
+
+## Reconcile note (2026-09-24)
+
+Origin delivered this audit's card and interface changes before the 2026-09 local/origin reconcile, as `T7-AUDIT-REMOTE-FOUNDATION` ([PR #240](https://github.com/Asun28/MyInspection/pull/240)) and `T7-AUDIT-REMOTE-CARDS` ([PR #247](https://github.com/Asun28/MyInspection/pull/247)); both are archived there as merged. `status: merged` records closure through those remote cards. Local master merged its own version of this card later, on 2026-09-07 (`d6e22084`), which the next reconcile slice carries.
