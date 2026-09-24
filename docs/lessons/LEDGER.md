@@ -2319,7 +2319,7 @@
 - refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
 
 ## L309
-- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 9
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 10
 - symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
@@ -2598,3 +2598,11 @@
 - rule: After resolving a merge of diverged records, sweep by entity, not by file or diff. Start from every entity named in any record the merge changed (card files, board rows, ADR paragraphs, CLAUDE.md lines), including cards the merge left at one side's version. ADR paragraphs often name deliverables rather than card IDs (ADR-0006 said LocalSecretBox gains a prerequisite): resolve each deliverable to its card and check every "gains X as a prerequisite" claim against that card's depends_on. For each entity, compare its card, board rows, ADR mentions and CLAUDE.md claims with each other at HEAD (dependencies, scope, size, status), and against both parents to separate introduced mismatches from pre-existing ones. Run the sweep before the first review round.
 - enforced_by:
 - refs: #338; 512a7dc4, ab5a4a1b, d6fa1df0 (the round 4-6 fixes)
+
+## L350
+- date: 2026-09-25 ｜ tags: config,selftest,cards,scoping ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: Carding a one-value config change (ReviewIntensityByTier tier 0 advisory to adversarial, T0-REVIEW-GOVERNING-DOCS), a grep for the literal assignment found only scripts/_config.ps1. While implementing it, gate 17ib failed: scripts/selftest.ps1 pins the live value through $map['0'] -ne 'advisory'. The card needed an amendment PR to add scripts/selftest.ps1 to allow_paths and to relax its own forbid entry.
+- root_cause: A config value is pinned through its accessor and key, not its literal spelling. The drift check calls Get-ScaffoldReviewIntensityByTier and indexes ['0'], so a search for the assignment text cannot find it.
+- rule: Before carding a change to a scripts/_config.ps1 value, grep every reader of that key (its Get-Scaffold<Key> accessor and $ScaffoldConfig.<Key>) across scripts/, selftest.ps1 included, and look for assertions that pin the current value. Put each pinning file in allow_paths when the card is written, not after RED.
+- enforced_by: 
+- refs: 
