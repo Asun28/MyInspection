@@ -1,10 +1,10 @@
 ---
 id: T0-LESSONS-COLD-RECALL-R3-CLOSURE
-title: 让 lesson 冷存选择器只信规范 meta 行
+title: 已退役：规范 meta 行解析已由原卡合并（TD144）
 depends_on: [T0-LESSONS-COLD-RECALL]
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
 parallelizable_with: []
-status: todo
+status: todo # 已退役，不再开工；沿用既有退役卡约定，不伪标 merged
 branch: T0-LESSONS-COLD-RECALL-R3-CLOSURE
 worktree: C:\wt\T0-LESSONS-COLD-RECALL-R3-CLOSURE
 allow_paths:
@@ -27,6 +27,26 @@ doc_sync: none；除非行为契约改变，否则不扩文档范围
 ---
 
 # T0-LESSONS-COLD-RECALL-R3-CLOSURE
+
+## 已退役（2026-09-08 核验收口）
+
+原卡 `specs/archive/tasks/T0-LESSONS-COLD-RECALL.md` 记录用户于 2026-08-23
+裁定在原卡修复并重置评审轮次。本卡范围随原卡 PR #51 / `1e302201` 合并，
+该提交已是当前分支祖先；本卡未独立实施或合并，**不再开工**。
+
+现有 `scripts/lessons.ps1` 的 `Get-LessonMeta` 只读取唯一、行首锚定的规范 meta 行，
+拒绝缺失、重复与非法字段。`scripts/selftest.ps1` 闸 2i（原卡历史文中的 2e 已改号）
+覆盖 tier/recurrence 正文诱饵、重复行/字段、非法值、缺失与缩进 meta 行，
+并验证非法项留热、check 非零退出、bump 拒绝且账本字节不变及合法项仍能归冷。
+TD144 的偿还产物指向原卡，不再指向本卡。
+
+2026-09-08 验证：原有 2i 测试块、真实 lessons check、卡片校验均 exit 0；
+完整 core 分片 exit 0，输出 `selftest(core): PASS` 与 `selftest: PASS`，
+含脚本声明的 11 项不适用或延后检查，不宣称执行全部分片或每日元测试。
+
+状态枚举没有 retired；沿用 `T4-DESIGN-SYMBOL-CHROME` 的退役表达，保留兼容字段，
+不将未独立合并的卡标为 merged。以下为历史任务定义，不代表当前待办或执行授权。
+此退役标记是文档约定，现有脚本仍将 status 解析为 todo，并不提供机器级取消闸。
 
 ## 来源与执行前置
 
