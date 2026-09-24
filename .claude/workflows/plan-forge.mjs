@@ -60,6 +60,7 @@ const FINDINGS_SCHEMA = {
           why_compounds: { type: 'string' },
           fix: { type: 'string' },
           novel_vs_prior_review: { type: 'boolean' },
+          confidence: { type: 'string', enum: ['high', 'med', 'low'] },
         },
         required: ['id', 'title', 'severity', 'where', 'claim', 'fix'],
       },
@@ -122,8 +123,8 @@ const COMMON =
     ? '1. 不要重报前次评审已发现的问题 —— 那是浪费。只找它【遗漏的】或【随契约/schema 即将冻结才变得 load-bearing 的】问题。每条都自评 novel_vs_prior_review。\n'
     : '1. 优先找【会随契约/schema 冻结而变得 load-bearing】、以及【前期错则后面白干】的问题。每条自评 novel_vs_prior_review(无前次评审时填 true)。\n') +
   '2. 按严重度分级: FATAL = 前期错则后面白干(冻结契约/schema 设计缺陷、拓扑/依赖错误、会逼迫返工的根本假设错误); HIGH = 开工早期必须修否则放大; MEDIUM = 应改但不阻塞。\n' +
-  '3. 宁缺毋滥: 只报你能具体定位(§N 或字段名/文件行)且能给出可执行修法的问题。不报文风/措辞类琐碎项。\n' +
-  '4. 最多返回 3 条最重要的 FATAL/HIGH 发现; MEDIUM 可另外列(不参与对抗核验)。\n' +
+  '3. 具体性门槛: 只报你能具体定位(§N 或字段名/文件行)且能给出可执行修法的问题。不报文风/措辞类琐碎项。\n' +
+  '4. 这一步只管覆盖、不管筛选: 过得了第 3 条门槛的 FATAL/HIGH/MEDIUM 全部报出，拿不准或觉得偏轻的也报，每条标 confidence(high/med/low)，按严重度从高到低排。筛选由后面的步骤做: 每个 lens 最重的 3 条 FATAL/HIGH 作为主发现(T2 档由裁判对抗核验，T1 档不核验)，超出的作为未核验项一并交汇总裁判; MEDIUM 不参与对抗核验。\n' +
   '5. 计划的真相源地位不可动摇; 你的产出是【对它的审计意见】，不是改写它。'
 
 // 8 个 lens（项目无关·概念普适；focus 文本不绑定任何具体项目领域）
@@ -231,6 +232,8 @@ if (TIER === 'T0') {
     confirmed: [],
     refuted: [],
     medium: [],
+    unverified_overflow: [],
+    skipped_lenses: [],
     decomp: null,
     cardAudit: null,
   }
@@ -247,14 +250,20 @@ const lensResults = await pipeline(
     agent(
       COMMON +
         '\n\n## 你的 lens: ' + d.title + '\n' + d.focus +
-        '\n\n返回结构化发现(每条含 id/title/severity/where/claim/why_compounds/fix/novel_vs_prior_review)。id 用 ' +
+        '\n\n返回结构化发现(每条含 id/title/severity/where/claim/why_compounds/fix/novel_vs_prior_review/confidence)。id 用 ' +
         d.key + '-1, ' + d.key + '-2 ...',
       { label: 'lens:' + d.key, phase: 'Lens-Audit', schema: FINDINGS_SCHEMA }
     ),
   (review, d) => {
-    // TD63 item8：prompt 只在文案里声明"最多返回 3 条最重要的 FATAL/HIGH 发现"，但 judge 是否遵守全凭
-    // 自觉——扇出到对抗核验的量从未被机械限住。.slice(0, 3) 把这条上限落成硬约束，两档共用。
-    const top = (((review && review.findings) || []).filter((f) => f.severity === 'FATAL' || f.severity === 'HIGH')).slice(0, 3)
+    // TD63 item8：.slice(0, 3) 把每个 lens 进主发现的条数落成硬约束，两档共用（T2 即扇出到对抗核验的量；T1 不核验）。
+    // T0-OPUS55-PROMPT-FIT：lens 按「发现与筛选分开」全报（Opus 5/5.5 评审提示的做法，见
+    // docs/references/claude-opus-5-prompting-llms.txt「代码评审 harness」），排序不交给模型：这里自己把 FATAL 排在
+    // HIGH 前再截 3（sort 是稳定的，同档保持 lens 给的顺序）。截下来的不丢，作为 overflow 交汇总裁判、标明未核验。
+    const allFindings = (review && review.findings) || []
+    const rank = (f) => (f.severity === 'FATAL' ? 0 : 1)
+    const ranked = allFindings.filter((f) => f.severity === 'FATAL' || f.severity === 'HIGH').sort((a, b) => rank(a) - rank(b))
+    const top = ranked.slice(0, 3)
+    const overflow = ranked.slice(3).map((f) => Object.assign({}, f, { lens: d.key }))
     // T1（TD180）没有对抗轮：3 lens + 1 汇总 = 4 个 agent。哪怕每条发现只派 1 个裁判也是 3 + 3x3 + 1 = 13，
     // 越过 TD180 定的 10 上限。发现照样带下去，只是 votes 为空——空 votes 意思是「没人投过票」而不是
     // 「没人反对」，靠返回里的 verify_mode 把这两件事分开。下游 confirmed/refuted/medium 与汇总调用两档同路。
@@ -262,8 +271,10 @@ const lensResults = await pipeline(
       return Promise.resolve({
         lens: d.key,
         title: d.title,
+        skipped: !review,
         verified: top.map((f) => Object.assign({}, f, { lens: d.key, refuted: false, votes: [] })),
-        allFindings: (review && review.findings) || [],
+        overflow: overflow,
+        allFindings: allFindings,
       })
     }
     return parallel(
@@ -289,28 +300,39 @@ const lensResults = await pipeline(
     ).then((verified) => ({
       lens: d.key,
       title: d.title,
+      skipped: !review,
       verified: verified.filter(Boolean),
-      allFindings: (review && review.findings) || [],
+      overflow: overflow,
+      allFindings: allFindings,
     }))
   }
 )
 
-const confirmed = lensResults.flatMap((r) => r.verified.filter((f) => !f.refuted))
-const refutedList = lensResults.flatMap((r) => r.verified.filter((f) => f.refuted))
-const medium = lensResults.flatMap((r) => (r.allFindings || []).filter((f) => f.severity === 'MEDIUM'))
+// agent() 对被跳过、被拒答（Opus 5.5 另加 bio / reasoning_extraction 分类器）或没交出结构化结果的 lens 返回 null，
+// pipeline 某阶段抛错则整项为 null。两种都等于「这个维度没人审」：记进 skipped_lenses，不当成「没发现问题」。
+const doneLenses = lensResults.filter(Boolean)
+const skippedLenses = ACTIVE_LENSES.map((d) => d.key).filter((k) => !doneLenses.some((r) => r.lens === k && !r.skipped))
+const confirmed = doneLenses.flatMap((r) => r.verified.filter((f) => !f.refuted))
+const refutedList = doneLenses.flatMap((r) => r.verified.filter((f) => f.refuted))
+const medium = doneLenses.flatMap((r) => (r.allFindings || []).filter((f) => f.severity === 'MEDIUM'))
+const overflow = doneLenses.flatMap((r) => r.overflow || [])
 log((VERIFY ? '对抗核验完成: 确认 ' : 'lens 审计完成(T1 无对抗轮): 带出 ') + confirmed.length + ' 条 FATAL/HIGH, 枪毙 ' + refutedList.length + ' 条, 另有 ' + medium.length + ' 条 MEDIUM 待人评')
+if (overflow.length) log(VERIFY ? '对抗核验只核每个 lens 最重的 3 条 FATAL/HIGH；另有 ' + overflow.length + ' 条未核验，交汇总裁判逐条核实' : 'T1 无对抗轮：每个 lens 最重的 3 条 FATAL/HIGH 之外，另有 ' + overflow.length + ' 条同样交汇总裁判逐条核实')
+if (skippedLenses.length) log('没有产出结果的 lens: ' + skippedLenses.join(', ') + ' —— 这些维度未被审计，裁决不会给 ready-to-decompose')
 
 const synth = await agent(
   (VERIFY
     ? '你是汇总裁判。下面是经过多裁判对抗核验后【存活】的 FATAL/HIGH 发现（每条已被 3 个裁判从不同角度尝试反驳、未达 2 票即保留），以及未核验的 MEDIUM 项。\n'
     : '你是汇总裁判，**也是本轮唯一的裁判**（tier ' + TIER + ' 不跑对抗轮）。下面的 FATAL/HIGH 发现【没有经过任何反驳核验】，votes 为空表示没人投过票，不表示没人反对——你必须逐条自己对着计划核实，核不实的直接丢弃。另附未核验的 MEDIUM 项。\n') +
     (VERIFY ? '存活发现:\n' : '未核验发现:\n') + JSON.stringify(confirmed, null, 1) + '\n\nMEDIUM:\n' + JSON.stringify(medium, null, 1) + '\n\n' +
+    (overflow.length ? (VERIFY ? '超出每 lens 3 条对抗核验上限、没有经过任何核验的 FATAL/HIGH' : '每个 lens 最重的 3 条之外的 FATAL/HIGH(同样没有经过核验)') + '(逐条对着计划核实，核不实的丢弃):\n' + JSON.stringify(overflow, null, 1) + '\n\n' : '') +
+    (skippedLenses.length ? '以下 lens 没有产出结果，这些维度未被审计: ' + skippedLenses.join(', ') + '。审计缺维度时 verdict 只能是 fix-first。\n\n' : '') +
     '动手前先 Read 计划 ' + PLAN + ' 核对每条。然后: 去重合并, 按"前期错后面白干"的杀伤力排序, 给出每条 correction(where/problem/fix/severity)。\n' +
     '裁决 verdict: 仅当【无 FATAL 且所有 HIGH 都能在开拆前修掉】才给 ready-to-decompose; 否则 fix-first。给出 fatal_count/high_count 与 rationale。',
   { phase: 'Synthesize', schema: SYNTH_SCHEMA }
 )
 if (!synth) {
-  log('裁决被跳过(汇总 agent 返回 null)——保留已核验发现，不虚构裁决')
+  log('裁决被跳过(汇总 agent 返回 null)——保留已有发现(' + (VERIFY ? '含对抗核验结果' : 'T1 档均未核验') + '，另附未核验的 overflow 与 skipped_lenses)，不虚构裁决')
   return {
     verdict: 'synthesis-skipped',
     tier: TIER,
@@ -322,9 +344,23 @@ if (!synth) {
     confirmed: confirmed,
     refuted: refutedList.map((f) => ({ id: f.id, lens: f.lens, title: f.title, severity: f.severity })),
     medium: medium,
+    unverified_overflow: overflow,
+    skipped_lenses: skippedLenses,
     decomp: null,
     cardAudit: null,
   }
+}
+// 缺维度的审计不能判「可拆」。上面的提示已告诉汇总裁判，但不指望它照做：这里确定性兜底（fail-closed），
+// 每个缺席的 lens 各补一条 HIGH correction，让人知道该补跑哪个。
+if (skippedLenses.length && synth.verdict === 'ready-to-decompose') {
+  synth.verdict = 'fix-first'
+  synth.high_count = (synth.high_count || 0) + skippedLenses.length
+  synth.corrections = (synth.corrections || []).concat(skippedLenses.map((k) => ({
+    where: 'lens:' + k,
+    problem: '该 lens 没有产出结果(被跳过、被拒答或没交出结构化结果)，这一维度未被审计',
+    fix: '重跑 plan-forge 补齐该 lens 后再裁决',
+    severity: 'HIGH',
+  })))
 }
 log('裁决: ' + synth.verdict + ' | FATAL ' + (synth.fatal_count || 0) + ' / HIGH ' + (synth.high_count || 0))
 
@@ -351,6 +387,8 @@ return {
   confirmed: confirmed,
   refuted: refutedList.map((f) => ({ id: f.id, lens: f.lens, title: f.title, severity: f.severity })),
   medium: medium,
+  unverified_overflow: overflow,
+  skipped_lenses: skippedLenses,
   decomp: null,
   cardAudit: null,
 }
