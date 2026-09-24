@@ -132,4 +132,4 @@ source review record.
 
 Eleven predecessor cards close as superseded replacements, not independently accepted original implementations. INPUT, TRIAGE and the removed RECEIPT mechanism remain outside this adoption. Evidence clones and original worktrees are retained. No new lessons rule is added: existing source-binding, whole-module integration and evidence-verification rules cover the issues encountered.
 
-> 2026-09 local/origin reconcile: of the predecessor cards closed above, `T0-REVIEW-LOW-RISK` was kept live by a user ruling on 2026-09-24; see the reconcile note on that card.
+> 2026-09 local/origin reconcile: of the predecessor cards closed above, `T0-REVIEW-LOW-RISK` was kept live by a user ruling on 2026-09-24, then retired again as superseded by this card the same day; see the notes on that card.

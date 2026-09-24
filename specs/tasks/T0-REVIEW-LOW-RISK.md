@@ -2,7 +2,8 @@
 id: T0-REVIEW-LOW-RISK
 title: 横切 R3 低风险文档建议模式与本地可信评审入口
 depends_on: []
-status: todo
+status: merged
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
 branch: T0-REVIEW-LOW-RISK
 worktree: C:\wt\T0-REVIEW-LOW-RISK
 allow_paths:
@@ -52,3 +53,9 @@ doc_sync: 同步 rubric/workflow/card template/task-loop/CLAUDE 的建议模式�
 ## Reconcile note (2026-09-24)
 
 The user ruled on 2026-09-24 to keep this card live, so the 2026-09 local/origin reconcile uses local master's latest card text (revisions `b817ea7e` and `410c7021` of 2026-09-24), including its non_goals. Origin had closed the card on 2026-09-11 as merged and superseded by `T0-SCAFFOLD-UPSTREAM-ADOPTION`; origin's sections recording the 2026-09-08 remote delivery authorization and that closure remain in history at `f0ce6d9f:specs/tasks/T0-REVIEW-LOW-RISK.md`, and the closure is superseded by the ruling.
+
+## Retired as superseded (2026-09-24)
+
+Later on 2026-09-24 the user reversed the keep-live ruling and retired this card as superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md). Two facts decided it. First, master already carries advisory review for low-risk changes: rubric §0 advisory-by-default and the T301 `ReviewIntensityByTier` dial (advisory for Tier 0 cards), both adopted in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc92`). Second, local branch `T0-REVIEW-LOW-RISK` (head `aabb6ce8`, merge base `ebe657a4`) conflicts with master in all ten of its files.
+
+`status: merged` with `superseded_by` is the closure form origin used on 2026-09-11. It records closure through the merged replacement and does not claim that this card's implementation, DoD, RED, mutation plan or R3 were completed. The last R3 on this card was an Opus 5.5 block on `a9506225`: its keyword denylist let security and workflow documents qualify as advisory. The fix on `aabb6ce8` (advisory only for Markdown under `docs/research/`) passed its SelfCheck, a 7/7 mutation batch and two DeepSeek pre-review rounds, but never received an R3 verdict. The branch, its worktree and the local evidence are kept for reference; the execution queue is retired.
