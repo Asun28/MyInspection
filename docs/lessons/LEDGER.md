@@ -2324,7 +2324,7 @@
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
 - enforced_by: 
-- refs: specs/archive/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md; specs/tasks/T4-DESIGN-SYMBOL-CHROME.md; L189; L311; L312; same lesson as L300 (recorded separately on origin and on local master before the 2026-09 reconcile)
+- refs: specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md; specs/tasks/T4-DESIGN-SYMBOL-CHROME.md; L189; L311; L312; same lesson as L300 (recorded separately on origin and on local master before the 2026-09 reconcile)
 - addendum(2026-09-08, V2 交付后): 实例代入表按本条做了，仍连吃 8 轮 R3 / 13 条 finding，补三处覆盖缺口——① 只代入**中心规则**会漏掉**被改写的周边条款**，它们各自也带全称词、也在对整份文档做断言；② 表比对的是「新句 vs 旧实例」，**管不了「新句 vs 新句」自相矛盾**（本卡最重的一条即两条新句打架），新写的句子之间须交叉核对；③ 规则若有**两半**（如视觉线索 + 播报），**必须两半同时代入**——只判一半时，为满足另一半而新增的载体会系统性在另一半开新口子，本卡第 5 轮每加一个必带字形就在播报半漏一处，第 6 轮原样被拦。④ 改写任何一行前，先把**该行自己声明的 variants / states 清单**逐个代入新措辞（`state-badge` 的 SOURCE 变体即因此漏掉）。
 
 ## L310
@@ -2333,7 +2333,7 @@
 - root_cause: RED 收据钉的是取证那一刻的 worktree HEAD，而不是被测文件内容。卡片元数据按 L18 走 master，两者的更新节奏天然不同步，我却把「同步 master」当成无害操作。
 - rule: 取 RED 之后不要再把 base 并进卡片 worktree。卡片元数据（dod_command / 记账）落 master 即可，ship 从主检出读卡、只在 worktree 跑 DoD，worktree 无须包含那些提交。若确实必须同步（如 DoD 依赖 base 的新脚本），同步后重取 RED：把实现改动 git stash push 掉、跑 -Phase red（此时基线真的红）、再 stash pop，并核对两侧文件 SHA 未变——这样重取的 RED 是真证据，不是为过闸而伪造。
 - enforced_by: 
-- refs: scripts/task.ps1 RED 闸; specs/archive/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md; L18; L86
+- refs: scripts/task.ps1 RED 闸; specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md; L18; L86
 
 ## L311
 - date: 2026-09-08 ｜ tags: process,review,cards ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
@@ -2341,7 +2341,7 @@
 - root_cause: 我按「主题」拆（规则归这卡、补齐归那卡），而不是按「声称与证据的依赖」拆。规则的真值由那些实例提供，把实例撤走、声称留下，声称立刻变成假话；而卡片的 forbid 又禁止把声称改弱。
 - rule: 拆卡前先问：留下的每一句声称，其为真所依赖的证据是否也留在同一张卡里？切口只能落在「声称与其证据不产生断裂」的地方。若一条规则的真值依赖若干实例的当前状态，规则与这些实例必须同卡交付；可以拆走的是**不影响该规则真值**的部分（如为放宽约束而新增的登记、边界读法、命名歧义）。拆完立刻自检：把拆走的部分想象成永不落地，留下的文本还全部成立吗？不成立就是切错了地方。
 - enforced_by: 
-- refs: specs/archive/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md; specs/tasks/T4-DESIGN-STATUS-CARRIERS.md
+- refs: specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md; specs/archive/tasks/T4-DESIGN-STATUS-CARRIERS.md
 
 ## L312
 - date: 2026-09-08 ｜ tags: accessibility,design,review ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
@@ -2349,7 +2349,7 @@
 - root_cause: 把两项不同义务合并成了一项：WCAG 1.4.1 管的是**明眼可见**的非颜色通道，无障碍播报管的是**屏幕阅读器可达**。二者服务不同人群、不能互相替代，而我用「或」把它们并列了。一致性检查抓不到这类错——规则在整份文档里是一致地、均匀地太弱。
 - rule: 写任何「状态/信息由什么承载」的规则时，视觉通道与播报通道分两句写，并明写播报只补充、永不替代。凡出现「以文字**或**播报」这种并列，先问：色觉障碍的明眼用户在这条分支下看得见吗？另：一致性/代入类自检只能证明规则与实例不矛盾，证明不了规则本身是否达到外部标准的下限——涉及外部标准（WCAG/法规）时须另找一次对着**标准本身**的检查，别指望内部一致性扫描替你把关。
 - enforced_by: 
-- refs: context/DESIGN.md#colors; specs/archive/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md
+- refs: context/DESIGN.md#colors; specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md
 
 ## L313
 - date: 2026-09-08 ｜ tags: process,scripts,r5 ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
