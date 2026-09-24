@@ -1404,8 +1404,9 @@ else {
 #     Negative controls, without which the whole gate is satisfiable by deletion: T2 must still request 8
 #     lenses AND 24 refutation judges (a router that always returns the small set fails here), and both
 #     verdict paths must still reach Lens-Audit and Synthesize and still return their findings keys.
-#     T0-OPUS55-PROMPT-FIT adds four fixture runs: `overflow` seeds 5 FATAL findings per lens (the cap of 3
-#     must hand the rest to synthesis and log them, not drop them); `mixed` seeds [HIGH, HIGH, HIGH, FATAL]
+#     T0-OPUS55-PROMPT-FIT adds five fixture runs: `overflow` seeds 5 FATAL findings per lens (the cap of 3
+#     must hand the rest to synthesis and log them, not drop them) and `t1Overflow` does the same at T1, where
+#     no judge runs and the log must not claim one; `mixed` seeds [HIGH, HIGH, HIGH, FATAL]
 #     (the script, not the lens, puts FATAL first); `nullLens` returns null for the boundary lens (an unaudited
 #     dimension must turn ready-to-decompose into fix-first); `nullSynth` adds a null synthesis to that, so the
 #     synthesis-skipped return is driven too. Every return carries skipped_lenses.
@@ -1474,6 +1475,7 @@ console.log(JSON.stringify({
   t1: await run('ready-to-decompose', 'T1'),
   absent: await run('ready-to-decompose', null),
   overflow: await run('ready-to-decompose', 'T2', { seedCount: 5 }),
+  t1Overflow: await run('ready-to-decompose', 'T1', { seedCount: 5 }),
   mixed: await run('ready-to-decompose', 'T2', { severities: ['HIGH', 'HIGH', 'HIGH', 'FATAL'] }),
   nullLens: await run('ready-to-decompose', 'T2', { nullLens: 'lens:boundary' }),
   nullSynth: await run('ready-to-decompose', 'T2', { nullLens: 'lens:boundary', nullSynth: true }),
@@ -1583,8 +1585,17 @@ console.log(JSON.stringify({
     if ($lostOverflow1i.Count) {
       $f1i += "[overflow] findings past the per-lens verification cap never reached the synthesis prompt: $($lostOverflow1i -join ', '). The cap bounds how many are VERIFIED; a finding past it goes to synthesis as unverified."
     }
-    if (-not @($parsed1i.overflow.logs | Where-Object { ([string]$_).Contains('FATAL/HIGH') -and ([string]$_).Contains(' 16 ') }).Count) {
-      $f1i += "[overflow] no log line reports the 16 findings past the cap (8 lenses x 2). A bounded workflow says what it did not verify; silence reads as full coverage."
+    if (-not @($parsed1i.overflow.logs | Where-Object { ([string]$_).Contains('FATAL/HIGH') -and ([string]$_).Contains(' 16 ') -and ([string]$_).Contains('对抗核验') }).Count) {
+      $f1i += "[overflow] no log line reports the 16 findings past the adversarial-verification cap (8 lenses x 2). A bounded workflow says what it did not verify; silence reads as full coverage."
+    }
+    if (-not ([string]$parsed1i.overflow.synthPrompt).Contains('核验上限')) {
+      $f1i += '[overflow] at T2 the synthesis prompt no longer tells the judge that the handed-over findings are the ones past the verification cap.'
+    }
+    # T1 runs no judges, so its overflow must still reach synthesis and its log must not describe an adversarial cap.
+    $t1Lost1i = @(@($parsed1i.t1Overflow.lensLabels) | ForEach-Object { foreach ($n1i in 4, 5) { "$_-$n1i" } } | Where-Object { -not ([string]$parsed1i.t1Overflow.synthPrompt).Contains('"' + $_ + '"') })
+    $t1Log1i = @($parsed1i.t1Overflow.logs | Where-Object { ([string]$_).Contains('FATAL/HIGH') -and ([string]$_).Contains(' 6 ') })
+    if ($t1Lost1i.Count -or ($t1Log1i.Count -ne 1) -or ([string]$t1Log1i[0]).Contains('核验') -or ([string]$parsed1i.t1Overflow.synthPrompt).Contains('核验上限')) {
+      $f1i += "[overflow] at T1 (no judges) the capped findings missing from synthesis were '$($t1Lost1i -join ', ')', and the overflow log lines counting 6 were '$($t1Log1i -join ' | ')'. Expected every 4th and 5th finding in the synthesis prompt, exactly one log line that mentions no verification, and a synthesis prompt that describes no verification cap."
     }
     if (-not ([string]$parsed1i.overflow.lensPrompt).Contains('confidence')) {
       $f1i += '[overflow] the lens prompt no longer asks for a confidence per finding, so the downstream steps cannot rank what discovery reported.'

@@ -2,6 +2,7 @@
 
 > 源：https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5
 > 辅源（API 行为差异）：https://platform.claude.com/docs/en/models/opus-5-5/whats-new-opus-5-5
+> 辅源（拒答与回退，四个带分类器的模型共用）：https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback
 > (c) Anthropic。本文件是**提炼非镜像**；所引提示语片段按**功能必要性最小引用**并标注出处——引用基准见本目录 `README.md`「来源与引用基准」。
 > 上次对照上游校核：2026-09-24。模型出新版/行为变了就刷新本文件（过时的 reference 比没有更糟）。
 > **这是差异层，要连同基线读**：官方 Opus 5.5 页是相对 Opus 5 的差异页，并写明既有 Opus 5 提示词不改也应表现良好、
@@ -10,8 +11,8 @@
 > 在本脚手架里：Opus 5.5（`claude-opus-5-5`）= 想 / 架构 / 评审（见 CLAUDE.md 模型分工节）。
 
 ## 强项（与写提示相关的部分）
-- **agentic 编码与代码评审**：真实仓库里的多步活最强（把一处改动推过大代码库直到测试绿）。官方测试：默认 `medium`
-  已追平或超过 Opus 5 的 `high`，步数与 token 更少；多小时审计/迁移这类长自主运行（并行子代理、少监督）比 Opus 5 更稳。
+- **agentic 编码与代码评审**：真实仓库里的多步活最强（把一处改动推过大代码库直到测试绿）。官方测试：在这类多步活上
+  默认 `medium` 已追平或超过 Opus 5 的 `high`，步数与 token 更少；多小时审计/迁移这类长自主运行（并行子代理、少监督）比 Opus 5 更稳。
   早期测试者报告代码评审更强：抓到的 bug 更多、误报更少，并能用平实语言解释改动。
 - **知识工作**：更少报错数字、引错来源；更易抓到大输入里的细节（日期落在错的星期几、图表与底层数字不符）。
 - **沟通**：工作中的进度更新与收尾总结都直说做了什么、发现什么、需要你什么。
@@ -29,9 +30,10 @@
 | 5 | 可强制工具调用 | `tool_choice` 的 `any`/`tool` 返回 400 | 用 `auto` + strict tool use 或 structured outputs；要它调工具就在提示里写明何时该用 |
 | 6 | 安全分类器含 cyber | 另加 bio 与 `reasoning_extraction` | 见「安全拒答」 |
 | 7 | — | 长多段任务中会以纯文字进度汇报结束回合 | 见「无人值守 agentic 运行」 |
+| 8 | thinking 块可在改过前缀的会话里回放 | thinking 块绑定产出它的模型与会话前缀：改了 system、tools 或早先消息后再回放，新账号默认 400 | 会话只追加，改指令用 mid-conversation system message，不编辑前缀 |
+| 9 | computer use 可用 `computer_toolset_20260801`，或带 beta 头用旧的 `computer_20251124` | Claude API 与 Google Cloud 上只收 toolset，声明 `computer_20251124` 返回 400（Amazon Bedrock 上旧工具照旧可用） | 换成 `computer_toolset_20260801` 并按官方迁移步骤改 agent 循环 |
 
-另：thinking 块绑定产出它的模型与会话前缀；改了 system、tools 或早先消息后再回放这些块，新账号默认返回 400。
-保持会话只追加，改指令用 mid-conversation system message，不编辑前缀。
+表中第 3、5、8、9 行是 whats-new 页列的四项破坏性变更（在各行所列条件下请求返回 400），其余是不报错的行为差异。
 
 ## effort 校准
 - 起点 `medium`（本模型默认），显式写出，再在自己的 eval 上测几档。官方测试：`medium` 在编码与知识工作 eval 上追平或超过
@@ -80,7 +82,8 @@
 - 分类器：biology（与 Fable 5.1 相同；从 Opus 5 迁来是新增；日常健康与教育问题不受影响）· cybersecurity（在源码里找漏洞
   允许，高风险两用网络安全活动不允许）· `reasoning_extraction`（推模型把内部推理复述进正文的请求会被拒；从 Opus 5 迁来是新增）。
 - 拒答是正常响应：`stop_reason: "refusal"` 加点名类目的 `stop_details`。可配服务端回退 `fallbacks: "default"`（beta），
-  改道到 Anthropic 为该类目推荐的模型——Opus 5.5 的页面没有点名是哪一个，别写死；也可用 SDK 中间件或自己重试。
+  改道到 Anthropic 为该类目推荐的模型；也可用 SDK 中间件或自己重试。Fable 5.1、Fable 5、Opus 5.5、Opus 5 共用同一个官方
+  refusals-and-fallback 页，其示例里的兜底模型是 `claude-opus-4-8`——示例非契约，读响应的 `fallback` 块判断接手者，别写死。
   **`reasoning_extraction` 的拒答，服务端回退不重试、原样交回。**
 - 判分支与中途拒答的处理见基线篇「拒答与回退」节（不复制）。
 - **本仓落点**：`plan-forge.mjs` 的 lens 被拒或被跳过时 `agent()` 返回 null——该维度记为未审计，裁决不得给 `ready-to-decompose`。

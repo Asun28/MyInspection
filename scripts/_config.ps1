@@ -448,9 +448,9 @@ $script:ScaffoldConfig = @{
   PrereviewRiskyModel = 'claude-opus-5-5'  # 改动命中 FrozenPaths ∪ PrereviewRiskyExtraPaths 时
   PrereviewRiskyExtraPaths = @('scripts/', '.claude/', '.github/', 'configs/compliance/')   # FACTS-LIB 路由时与 FrozenPaths 取并集，此处不复制冻结表
   PrereviewEffort = 'high'                 # 标准路由（PrereviewModel，Sonnet）的档位
-  # 风险路由（PrereviewRiskyModel，Opus 5.5）自己的档位：Opus 5.5 的 medium 在编码与代码评审上已追平 Opus 5 的 high、误报更少，
-  # 且同档比 Opus 5 想得多（docs/references/claude-opus-5-5-prompting-llms.txt「effort 校准」）。只是一个值：内置 claude
-  # 适配器落地时读它；在那之前没有代码读取本项。
+  # 风险路由（PrereviewRiskyModel，Opus 5.5）自己的档位：官方测试中 Opus 5.5 的 medium 在编码与知识工作 eval 上已追平或超过
+  # Opus 5 的 high，早期测试者另报告其评审抓 bug 更多、误报更少；且同档比 Opus 5 想得多（docs/references/
+  # claude-opus-5-5-prompting-llms.txt「强项」「effort 校准」）。只是一个值：内置 claude 适配器落地时读它；在那之前没有代码读取本项。
   PrereviewRiskyEffort = 'medium'
   PrereviewLensEnabled = $true             # $false = 透镜 skipped（[PRE-LENS-SKIPPED]），发现者照跑
   PrereviewLensModel = 'deepseek-v4-flash'

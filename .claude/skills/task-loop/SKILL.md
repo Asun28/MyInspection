@@ -57,7 +57,8 @@ Opus 5.5 在长的多段任务里会边做边汇报，其中一些汇报以纯�
   `guard-frozen`）时停下说明，不绕。
 - **后台没跑完不算完**：自己起的后台命令（ship、selftest、变异批）或子代理还在跑，该相位就没完成：等完成通知、读它的输出再往下走，
   别先报完成（被硬杀后的续接另见 L196）。
-- **Opus 5.5 做代码评审的 effort**：它的 `medium` 在编码与代码评审上已追平 Opus 5 的 `high`，误报更少，且同档比 Opus 5 想得多。
+- **Opus 5.5 做代码评审的 effort**：官方测试中它的 `medium` 在编码与知识工作 eval 上已追平或超过 Opus 5 的 `high`，早期测试者另报告
+  它评审抓到的 bug 更多、误报更少；且同档比 Opus 5 想得多。
   派 Opus 5.5 做评审或复核（4.7 的证据审计、Codex 不可用时经用户授权的 Opus R3 代席）从 `medium` 起；Tier-S 或安全面改动可用
   `high`；`xhigh`/`max` 只在测到收益后用。档位由 agent 定义（`.claude/agents/*.md` frontmatter）或工作流 `agent()` 的 `effort`
   选项决定；子代理提示里别写「仔细想」「再核一遍」，思考量由 effort 控。

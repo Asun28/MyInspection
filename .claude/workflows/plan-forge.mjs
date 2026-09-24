@@ -124,7 +124,7 @@ const COMMON =
     : '1. 优先找【会随契约/schema 冻结而变得 load-bearing】、以及【前期错则后面白干】的问题。每条自评 novel_vs_prior_review(无前次评审时填 true)。\n') +
   '2. 按严重度分级: FATAL = 前期错则后面白干(冻结契约/schema 设计缺陷、拓扑/依赖错误、会逼迫返工的根本假设错误); HIGH = 开工早期必须修否则放大; MEDIUM = 应改但不阻塞。\n' +
   '3. 具体性门槛: 只报你能具体定位(§N 或字段名/文件行)且能给出可执行修法的问题。不报文风/措辞类琐碎项。\n' +
-  '4. 这一步只管覆盖、不管筛选: 过得了第 3 条门槛的 FATAL/HIGH/MEDIUM 全部报出，拿不准或觉得偏轻的也报，每条标 confidence(high/med/low)，按严重度从高到低排。筛选由后面的步骤做: 每个 lens 最重的 3 条 FATAL/HIGH 送去核验，其余作为未核验项交汇总裁判; MEDIUM 不参与核验。\n' +
+  '4. 这一步只管覆盖、不管筛选: 过得了第 3 条门槛的 FATAL/HIGH/MEDIUM 全部报出，拿不准或觉得偏轻的也报，每条标 confidence(high/med/low)，按严重度从高到低排。筛选由后面的步骤做: 每个 lens 最重的 3 条 FATAL/HIGH 作为主发现(T2 档由裁判对抗核验，T1 档不核验)，超出的作为未核验项一并交汇总裁判; MEDIUM 不参与对抗核验。\n' +
   '5. 计划的真相源地位不可动摇; 你的产出是【对它的审计意见】，不是改写它。'
 
 // 8 个 lens（项目无关·概念普适；focus 文本不绑定任何具体项目领域）
@@ -255,7 +255,7 @@ const lensResults = await pipeline(
       { label: 'lens:' + d.key, phase: 'Lens-Audit', schema: FINDINGS_SCHEMA }
     ),
   (review, d) => {
-    // TD63 item8：.slice(0, 3) 把扇出到核验的量落成硬约束，两档共用。
+    // TD63 item8：.slice(0, 3) 把每个 lens 进主发现的条数落成硬约束，两档共用（T2 即扇出到对抗核验的量；T1 不核验）。
     // T0-OPUS55-PROMPT-FIT：lens 按「发现与筛选分开」全报（Opus 5/5.5 评审提示的做法，见
     // docs/references/claude-opus-5-prompting-llms.txt「代码评审 harness」），排序不交给模型：这里自己把 FATAL 排在
     // HIGH 前再截 3（sort 是稳定的，同档保持 lens 给的顺序）。截下来的不丢，作为 overflow 交汇总裁判、标明未核验。
@@ -317,7 +317,7 @@ const refutedList = doneLenses.flatMap((r) => r.verified.filter((f) => f.refuted
 const medium = doneLenses.flatMap((r) => (r.allFindings || []).filter((f) => f.severity === 'MEDIUM'))
 const overflow = doneLenses.flatMap((r) => r.overflow || [])
 log((VERIFY ? '对抗核验完成: 确认 ' : 'lens 审计完成(T1 无对抗轮): 带出 ') + confirmed.length + ' 条 FATAL/HIGH, 枪毙 ' + refutedList.length + ' 条, 另有 ' + medium.length + ' 条 MEDIUM 待人评')
-if (overflow.length) log('每个 lens 只核验最重的 3 条 FATAL/HIGH；另有 ' + overflow.length + ' 条未核验，交汇总裁判逐条核实')
+if (overflow.length) log(VERIFY ? '对抗核验只核每个 lens 最重的 3 条 FATAL/HIGH；另有 ' + overflow.length + ' 条未核验，交汇总裁判逐条核实' : 'T1 无对抗轮：每个 lens 最重的 3 条 FATAL/HIGH 之外，另有 ' + overflow.length + ' 条同样交汇总裁判逐条核实')
 if (skippedLenses.length) log('没有产出结果的 lens: ' + skippedLenses.join(', ') + ' —— 这些维度未被审计，裁决不会给 ready-to-decompose')
 
 const synth = await agent(
@@ -325,14 +325,14 @@ const synth = await agent(
     ? '你是汇总裁判。下面是经过多裁判对抗核验后【存活】的 FATAL/HIGH 发现（每条已被 3 个裁判从不同角度尝试反驳、未达 2 票即保留），以及未核验的 MEDIUM 项。\n'
     : '你是汇总裁判，**也是本轮唯一的裁判**（tier ' + TIER + ' 不跑对抗轮）。下面的 FATAL/HIGH 发现【没有经过任何反驳核验】，votes 为空表示没人投过票，不表示没人反对——你必须逐条自己对着计划核实，核不实的直接丢弃。另附未核验的 MEDIUM 项。\n') +
     (VERIFY ? '存活发现:\n' : '未核验发现:\n') + JSON.stringify(confirmed, null, 1) + '\n\nMEDIUM:\n' + JSON.stringify(medium, null, 1) + '\n\n' +
-    (overflow.length ? '超出每 lens 3 条核验上限、没有经过任何核验的 FATAL/HIGH(逐条对着计划核实，核不实的丢弃):\n' + JSON.stringify(overflow, null, 1) + '\n\n' : '') +
+    (overflow.length ? (VERIFY ? '超出每 lens 3 条对抗核验上限、没有经过任何核验的 FATAL/HIGH' : '每个 lens 最重的 3 条之外的 FATAL/HIGH(同样没有经过核验)') + '(逐条对着计划核实，核不实的丢弃):\n' + JSON.stringify(overflow, null, 1) + '\n\n' : '') +
     (skippedLenses.length ? '以下 lens 没有产出结果，这些维度未被审计: ' + skippedLenses.join(', ') + '。审计缺维度时 verdict 只能是 fix-first。\n\n' : '') +
     '动手前先 Read 计划 ' + PLAN + ' 核对每条。然后: 去重合并, 按"前期错后面白干"的杀伤力排序, 给出每条 correction(where/problem/fix/severity)。\n' +
     '裁决 verdict: 仅当【无 FATAL 且所有 HIGH 都能在开拆前修掉】才给 ready-to-decompose; 否则 fix-first。给出 fatal_count/high_count 与 rationale。',
   { phase: 'Synthesize', schema: SYNTH_SCHEMA }
 )
 if (!synth) {
-  log('裁决被跳过(汇总 agent 返回 null)——保留已核验发现，不虚构裁决')
+  log('裁决被跳过(汇总 agent 返回 null)——保留已有发现(' + (VERIFY ? '含对抗核验结果' : 'T1 档均未核验') + '，另附未核验的 overflow 与 skipped_lenses)，不虚构裁决')
   return {
     verdict: 'synthesis-skipped',
     tier: TIER,
