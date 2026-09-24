@@ -48,8 +48,9 @@ Claude Opus 5.5 does not need:
   best-practices reference says newer models respond more strongly to the system prompt, so CRITICAL/MUST-style
   emphasis overtriggers and plain wording is the fix.
 - **Pipeline mechanics in the lens prompt.** Rule 4 tells each lens that only its top 3 findings get verified,
-  and at which tier. The Opus 5 reference's review guidance tells the lens only that a separate step filters,
-  gives the reason to state, and warns that a filtering signal in a review prompt makes the model report less.
+  and at which tier. The Opus 5 reference's discovery prompt tells the lens that a separate step filters and
+  asks for a confidence and severity per finding, but says nothing about how the filter works. It gives the
+  reason to state, and warns that a filtering signal in a review prompt makes the model report less.
 - **Ticket ids** (T233/TD235) inside the decomposition lens. A colleague without the context cannot read them,
   so neither can the model (the best-practices golden rule). They move to a code comment.
 
@@ -68,10 +69,15 @@ specified tasks.
 A fresh-context pre-review of the first candidate found two cuts no reference entry backs: the prior-review
 rule had been rewritten without its exclusion and its reason (那是浪费), which also let an already-reported
 issue back in through the second branch, and rule 5 had lost "计划的真相源地位不可动摇". Both are restored,
-minus their markers. A2 and A3 now say exactly what changes and what stays. The dod_command's anchors were
-strengthened: each now occurs exactly once in the non-comment text, so each guards one rule. The earlier
-anchors "KANO", "具体性门槛", "novel_vs_prior_review" and "动手前先 Read" each appeared more than once or
-matched only a label.
+minus their markers. So are three smaller rewordings of the first candidate: the file-list note on the prior
+review (minus 你必须), 自己 and 直接 in the T1 synthesis sentence, and 计划/计划书. A2 and A3 now say exactly
+what changes and what stays. The dod_command's anchors were strengthened: each now occurs exactly once in the
+non-comment text, so each guards one rule. The earlier anchors "KANO", "具体性门槛", "novel_vs_prior_review"
+and "动手前先 Read" each appeared more than once or matched only a label.
+
+A second pre-review, of the fixes, found three lines that changed more than A3 allowed. The 铁律 heading had
+been renamed 审计规则 and is now removed outright, the dash before 仅当 is restored, and the judge prompt's
+angle takes a 的 instead of quotes.
 
 ## Sources
 
@@ -82,7 +88,7 @@ matched only a label.
 ## Evidence at registration
 
 A draft of the change (31 insertions, 25 deletions, 18 414 diff characters in one file) was checked against
-this dod_command before the card was registered:
+the dod_command as registered in #348, before the Amendment above replaced its anchor list:
 
 - base `8cc80f30`: exit 1, `[DOD-FAIL] still present 【`
 - draft: exit 0, `[DOD-PASS]`; `selftest.ps1 -Only 1,14` passed (`[SELFTEST-ONLY-PASS] gates=1,14`, 252 s).
