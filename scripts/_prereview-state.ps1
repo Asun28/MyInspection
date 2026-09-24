@@ -1,6 +1,15 @@
 #requires -Version 7.4
 [CmdletBinding()]
 param([switch]$AsLibrary, [switch]$SelfCheck)
+# Runnable self-check entry for scripts/selftest.ps1 gate 1h (the shared-core contract adopted from origin in
+# the 2026-09 local/origin reconcile). It runs this file's own -SelfCheck in a child process and returns one
+# finding when that run does not end on its pass sentinel, and nothing otherwise.
+function Test-ScaffoldPrereviewStateExamples {
+  $out = & pwsh -NoProfile -File $PSCommandPath -SelfCheck *>&1 | Out-String
+  $code = $LASTEXITCODE
+  if ($code -eq 0 -and $out.Contains('[PREREVIEW-STATE-SELFCHECK-PASS]')) { return @() }
+  return @("$(Split-Path -Leaf $PSCommandPath) -SelfCheck did not pass (exit $code): $(($out -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 3) -join ' | ')")
+}
 $stateLibrary = $AsLibrary; $stateCheck = $SelfCheck
 . (Join-Path $PSScriptRoot '_prereview-records.ps1') -AsLibrary
 . (Join-Path $PSScriptRoot '_prereview-facts.ps1') -AsLibrary

@@ -1240,6 +1240,15 @@ $coreExampleFindings = @(Test-ScaffoldCoreSelfCheckExamples)
 $coreExampleFindings += @(Test-ScaffoldSymbolMarkdownExamples)
 $coreExampleFindings += @(Test-ScaffoldUnicodeExamples)
 $coreExampleFindings += @(Test-ScaffoldValidationExamples)
+# The local prereview cores (records, facts, state) joined in the 2026-09 local/origin reconcile. Each runs
+# its own -SelfCheck through a child process, so none of their functions or StrictMode settings enter this
+# scope; a core whose self-check does not end on its pass sentinel returns one finding.
+foreach ($preCore in @(
+    @{ File = '_prereview-records.ps1'; Check = 'Test-ScaffoldPrereviewRecordsExamples' },
+    @{ File = '_prereview-facts.ps1'; Check = 'Test-ScaffoldPrereviewFactsExamples' },
+    @{ File = '_prereview-state.ps1'; Check = 'Test-ScaffoldPrereviewStateExamples' })) {
+  $coreExampleFindings += @(& pwsh -NoProfile -Command ". '$(Join-Path $PSScriptRoot $preCore.File)' -AsLibrary; $($preCore.Check)" 2>&1 | ForEach-Object { "$_" } | Where-Object { $_.Trim() })
+}
 if ($coreFiles.Count -lt 1) { Fail '1h: no scripts/_*.ps1 found at all - the gate would pass vacuously, so the discovery itself is the first assertion.' }
 elseif ($coreExampleFindings.Count) { $coreExampleFindings | ForEach-Object { Fail "1h: $_" } }
 elseif (@(Test-ScaffoldCoreSelfCheckExamples -Variant 'name-only').Count -lt 1) {
