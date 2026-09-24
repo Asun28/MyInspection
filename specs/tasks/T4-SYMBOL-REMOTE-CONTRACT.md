@@ -257,4 +257,4 @@ Write-Host "SYMBOL-METADATA PASS: exact25+15 tuples,12 final rows; $challenged m
 
 ## Reconcile note (2026-09-24)
 
-A1's "status remains todo" describes origin before the 2026-09 local/origin reconcile. The reconcile lands the local design merged as `53673571` and sets `T4-DESIGN-SYMBOL-CHROME-V2` to merged; that card's own reconcile note records how this contract's checks fare on the landed design.
+A1's "status remains todo" describes origin before the 2026-09 local/origin reconcile. The reconcile lands the local design merged as `53673571` and sets `T4-DESIGN-SYMBOL-CHROME-V2` to merged; that card's own reconcile note records how this contract's checks fare on the landed design. For the same reason this card's DoD now fails its SYMBOL-METADATA-STATUS check (target must remain todo) by design, since the target is merged.
