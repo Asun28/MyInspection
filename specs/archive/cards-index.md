@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 203 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 207 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -128,10 +128,12 @@
 | T0-SCAFFOLD-TRIGGER-ADOPTION | merged | Adopt product-only scaffold trigger exclusion with shared focused proof |
 | T0-SCAFFOLD-TRIGGER-REMOTE | merged | Publish scaffold-only selftest trigger on current upstream |
 | T0-SELFTEST-ALLOWLIST-BASELINE-CLOSURE | merged | 让动态 E2E 基线追踪完整敏感清单 |
+| T0-SELFTEST-META-EXPANSION | merged | Adapt v0.47 nightly meta coverage across selftest selection, receipts and operating contracts |
 | T0-SELFTEST-MIGRATION-CHECK-CONTINUE | merged | 让 seeded migration 负例在 core:test 失败后继续跑真实 verifyMigrations task |
 | T0-SELFTEST-NIGHTLY-META | merged | Run selftest aggregation stress checks nightly with explicit coverage receipts |
 | T0-SELFTEST-RISK-ROUTING | merged | Select existing scaffold selftest coverage from pinned task changes |
 | T0-SELFTEST-SCAFFOLD-ONLY | merged | Keep scaffold selftest off product-only changes |
+| T0-SELFTEST-SKILL-ROUTING | merged | Route skill-only changes through existing core and workflow coverage without seeded product-indepen… |
 | T0-TOOLCHAIN | merged | 本机 Android 工具链 + android/ Gradle 双模块骨架空编译绿 + verify/CI 收紧 |
 | T0-TRIAGE-EVIDENCE-CASE-REGISTER | merged | 登记 triage 裁决证据目录大小写语义修复卡 |
 | T0-TRIAGE-EVIDENCE-SCOPE-REGISTER | merged | 把 PR |
@@ -205,6 +207,8 @@
 | T5-MEDIA-ARCHIVE-ELIGIBILITY | merged | 媒体归档账本：本机状态、PDF 完成回执与 exact-content 资格判定 |
 | T5-MEDIA-ARCHIVE-SCHEMA | merged | 媒体归档 schema v5：四表形态、约束、索引与查询面 |
 | T5-RETENTION | merged | 租客数据保留期 + 一键清理（Privacy Act 2020） |
+| T7-AUDIT-CARDS-CLOSURE | merged | 需求审校交付一：卡片与安全模块接口 |
+| T7-AUDIT-DOCS-CLOSURE | merged | 需求审校交付二：需求与页面版本一致性 |
 | T7-AUDIT-REMOTE-CARDS | merged | 远端补交既有卡片与平台验收修订 |
 | T7-AUDIT-REMOTE-DOCS | merged | 远端补交需求与页面版本合同 |
 | T7-AUDIT-REMOTE-FOUNDATION | merged | 远端补交审校新增卡与模块边界 |
