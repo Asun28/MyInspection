@@ -2,7 +2,7 @@
 name: improve-prompt
 description: >-
   按目标 Claude 模型改写/优化一段提示词（prompt）。最少只需粘贴原 prompt：本卡先推断或确认目标模型
-  （规划/架构/评审 → Opus 5；规格清晰实现 → Sonnet 5；长自主/多卡运行 → Fable 5），再指名 Read
+  （规划/架构/评审 → Opus 5.5；规格清晰实现 → Sonnet 5；长自主/多卡运行 → Fable 5），再指名 Read
   docs/references/claude-<model>-prompting-llms.txt + 跨模型 claude-prompting-best-practices-llms.txt，
   **既加该加的、也删该删的**（为旧模型写的补偿性脚手架在新模型上常反过来伤你），
   输出可直接复制的改进版 prompt + 逐条「改了什么/为什么」（每条可溯源到 reference 条目）。
@@ -16,8 +16,8 @@ description: >-
 
 # improve-prompt — 按模型改写提示词（原创卡 · reference 驱动 · 辅助非闸）
 
-> 填的空白：`docs/references/` 已 vendor 六份提示词 reference（4 份模型专属：`opus-5` 日常 + `opus-4-8` 兜底
-> + `sonnet-5` + `fable-5`；2 份跨模型：最佳实践 + Console 工具），但只有
+> 填的空白：`docs/references/` 已 vendor 七份提示词 reference（5 份模型专属：`opus-5-5` 日常 + `opus-5` 基线
+> + `opus-4-8` 兜底 + `sonnet-5` + `fable-5`；2 份跨模型：最佳实践 + Console 工具），但只有
 > 「维护脚手架时按需 Read」的指针，没有「随手贴一段 prompt 就能改」的会话入口。本卡就是那个入口：
 > **输入随意（最少只要原 prompt），输出可复制的改进版 + 溯源解释**。改写质量的真相源永远是 reference
 > 文件本身——本卡只编排流程，不内联复制任何提示技巧正文（免双源漂移；reference 随模型出新版刷新）。
@@ -31,8 +31,10 @@ description: >-
 1. **定模型**（用户指明了就用；没指明按 prompt 的活推断）：路由映射（哪种活 → 哪个模型）的
    **单一真相源是 CLAUDE.md「模型分工与交接」节**——去读它、照它分，本卡不复述映射、不另维护会漂移的表。
    定了模型后，其专属 reference 按命名约定取：`docs/references/claude-<model>-prompting-llms.txt`
-   （`<model>` = 后缀值 `opus-5` / `sonnet-5` / `fable-5`，非完整模型 ID；另有 `opus-4-8` = **拒答回退的兜底档**，
+   （`<model>` = 后缀值 `opus-5-5` / `sonnet-5` / `fable-5`，非完整模型 ID；另有 `opus-4-8` = **拒答回退的兜底档**，
    用户在配回退链、或问「被拒改道后那一档怎么调」时才路由过去）。
+   **Opus 5.5 读两篇**：`opus-5-5` 是相对 Opus 5 的差异页，须连同基线 `opus-5` 一起读，两篇说法不同处以 `opus-5-5` 为准；
+   第 3 步删减面的依据两篇都算。目标明确是 Opus 5（旧集成）时只读 `opus-5`。
    真歧义 → **问一个带选项的问题**，别猜。三者之外（Haiku / 非 Claude 模型）→ 只走跨模型通用篇，
    并明说「无该模型专属 reference，以下为跨模型通用改进」。
 2. **指名 Read（不许凭训练记忆答）**：跨模型 `docs/references/claude-prompting-best-practices-llms.txt`
@@ -65,7 +67,9 @@ description: >-
 - 出了新模型没有专属 reference → 按 `docs/references/<name>-llms.txt` 命名新增 + 登记
   `docs/references/README.md` 索引，**别把提示技巧正文内联进本卡**（免双源漂移）。
   **换代 ≠ 旧篇作废**：动手删旧模型那份之前先查它是否仍在服役——尤其是不是**拒答回退的兜底档**
-  （Fable 5 与 Opus 5 都带安全分类器，官方默认路由按拒答类目把请求改道到推荐兜底模型，当前是 Opus 4.8）。
+  （Fable 5、Opus 5 与 Opus 5.5 都带安全分类器，官方默认路由按拒答类目把请求改道到推荐的兜底模型：Opus 5 页的官方示例
+  选中 Opus 4.8，Opus 5.5 页没有点名——读响应的 `fallback` 块，别写死），或是不是新篇的**基线层**（Opus 5.5 页是
+  相对 Opus 5 的差异页，故 `opus-5` 篇随 `opus-5-5` 篇一起服役）。
   仍在服役就**改写它的角色说明、保留文件**；确已停用才退休，并把指向它的交叉指针一并改掉。
   （这条是踩出来的：一次换代里旧篇被当废档删掉，同时把另一篇的回退目标改成了新模型——正好改反。）
 - 本仓维护场景（给某模型写 skill/hook/rubric）仍走 CLAUDE.md「模型专属提示词细则」直接 Read——

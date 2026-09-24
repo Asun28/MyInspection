@@ -1404,6 +1404,9 @@ else {
 #     Negative controls, without which the whole gate is satisfiable by deletion: T2 must still request 8
 #     lenses AND 24 refutation judges (a router that always returns the small set fails here), and both
 #     verdict paths must still reach Lens-Audit and Synthesize and still return their findings keys.
+#     T0-OPUS55-PROMPT-FIT adds two fixture runs: `overflow` seeds 5 FATAL findings per lens (the cap of 3
+#     must hand the rest to synthesis, not drop them) and `nullLens` returns null for the boundary lens (an
+#     unaudited dimension must turn ready-to-decompose into fix-first). Every return carries skipped_lenses.
 Step '1i/17 plan-forge tier routing + stop at the verdict (TD180, subsuming TD179)'
 $pfFlowPath = Join-Path $RepoRoot '.claude/workflows/plan-forge.mjs'
 if (-not (Test-Path $pfFlowPath)) {
@@ -1418,20 +1421,25 @@ const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
 const workflow = new AsyncFunction('args', 'log', 'pipeline', 'agent', 'parallel', src.replace('export const meta =', 'const meta ='))
 const PHASES = ['Lens-Audit', 'Adversarial-Verify', 'Synthesize', 'Decompose', 'Card-Audit']
 const nil = (v) => (v === undefined ? null : v)
-async function run(verdict, tier) {
+async function run(verdict, tier, fixture = {}) {
+  const seedCount = fixture.seedCount || 1
   const counts = {}
   for (const p of PHASES) counts[p] = 0
   let total = 0
+  let synthPrompt = ''
   const lensLabels = []
-  const agent = async (_prompt, opts = {}) => {
+  const agent = async (prompt, opts = {}) => {
     total += 1
     if (Object.prototype.hasOwnProperty.call(counts, opts.phase)) counts[opts.phase] += 1
     switch (opts.phase) {
       case 'Lens-Audit':
         lensLabels.push(opts.label || 'unlabelled')
-        return { lens: opts.label, findings: [{ id: (opts.label || 'x') + '-1', title: 'seed', severity: 'FATAL', where: 'stub', claim: 'stub', fix: 'stub' }] }
+        if (opts.label === fixture.nullLens) return null
+        return { lens: opts.label, findings: Array.from({ length: seedCount }, (_, i) => ({ id: (opts.label || 'x') + '-' + (i + 1), title: 'seed', severity: 'FATAL', where: 'stub', claim: 'stub', fix: 'stub' })) }
       case 'Adversarial-Verify': return { refuted: true, reasoning: 'stub' }
-      case 'Synthesize': return { verdict, fatal_count: verdict === 'fix-first' ? 1 : 0, high_count: 0, corrections: [], rationale: 'stub' }
+      case 'Synthesize':
+        synthPrompt = prompt
+        return { verdict, fatal_count: verdict === 'fix-first' ? 1 : 0, high_count: 0, corrections: [], rationale: 'stub' }
       case 'Decompose': return { cards: [], freeze_point: 'none', topo_valid: true, parallel_window: '' }
       case 'Card-Audit': return { graph_ok: true, issues: [], cycles: [], dod_not_machine_checkable: [], boundary_violations: [] }
       default: throw new Error('unexpected phase: ' + opts.phase)
@@ -1444,9 +1452,10 @@ async function run(verdict, tier) {
   }
   const result = await workflow(tier === null ? {} : { tier }, () => {}, pipeline, agent, parallel)
   return {
-    total, counts, lensLabels,
+    total, counts, lensLabels, synthPrompt,
     verdict: nil(result.verdict), tier: nil(result.tier), verifyMode: nil(result.verify_mode),
     decomp: nil(result.decomp), cardAudit: nil(result.cardAudit), keys: Object.keys(result),
+    skippedLenses: nil(result.skipped_lenses), corrections: nil(result.synth && result.synth.corrections),
   }
 }
 console.log(JSON.stringify({
@@ -1455,6 +1464,8 @@ console.log(JSON.stringify({
   t0: await run('ready-to-decompose', 'T0'),
   t1: await run('ready-to-decompose', 'T1'),
   absent: await run('ready-to-decompose', null),
+  overflow: await run('ready-to-decompose', 'T2', { seedCount: 5 }),
+  nullLens: await run('ready-to-decompose', 'T2', { nullLens: 'lens:boundary' }),
 }))
 '@
   $tmp1i = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-1i-$PID.mjs"
@@ -1551,11 +1562,39 @@ console.log(JSON.stringify({
     if ($missing1i.Count) {
       $f1i += "[anti-vacuous] the fix-first return dropped $($missing1i -join ', ') - the surviving findings and corrections a human needs in order to repair the plan are exactly what this path exists to deliver."
     }
+    # (h) T0-OPUS55-PROMPT-FIT: lenses now report everything they can locate (discovery is not filtering), so the
+    #     per-lens cap of 3 must stay a hand-off and never a silent drop. With 5 seeded FATAL findings per lens the
+    #     judges stay at 8 x 3 x 3 = 72, and every lens's 4th and 5th finding must reach the synthesis prompt.
+    if ($parsed1i.overflow.counts.'Adversarial-Verify' -ne 72) {
+      $f1i += "[overflow] a T2 run seeding 5 FATAL findings per lens requested $($parsed1i.overflow.counts.'Adversarial-Verify') Adversarial-Verify agents, expected 72 (8 lenses x the 3-finding cap x 3 angles). More means the cap is gone; fewer means findings were dropped before verification."
+    }
+    $lostOverflow1i = @(@($parsed1i.overflow.lensLabels) | ForEach-Object { foreach ($n1i in 4, 5) { "$_-$n1i" } } | Where-Object { -not ([string]$parsed1i.overflow.synthPrompt).Contains('"' + $_ + '"') })
+    if ($lostOverflow1i.Count) {
+      $f1i += "[overflow] findings past the per-lens verification cap never reached the synthesis prompt: $($lostOverflow1i -join ', '). The cap bounds how many are VERIFIED; a finding past it goes to synthesis as unverified."
+    }
+    # (i) A lens that returns nothing (skipped, refused, or no structured output: agent() gives null) is a dimension
+    #     nobody audited. The verdict must not read ready-to-decompose, whatever the synthesis agent said.
+    if ($parsed1i.nullLens.verdict -ne 'fix-first') {
+      $f1i += "[skipped-lens] a T2 run whose boundary lens returned null, with synthesis saying ready-to-decompose, returned verdict '$($parsed1i.nullLens.verdict)', expected 'fix-first'. An audit missing a dimension cannot clear a plan for decomposition."
+    }
+    if ((@($parsed1i.nullLens.skippedLenses) -join ',') -cne 'boundary') {
+      $f1i += "[skipped-lens] the null-lens run reported skipped_lenses '$(@($parsed1i.nullLens.skippedLenses) -join ',')', expected exactly 'boundary'."
+    }
+    if (@($parsed1i.nullLens.corrections | Where-Object { ($_.PSObject.Properties['where'].Value -ceq 'lens:boundary') -and ($_.PSObject.Properties['severity'].Value -ceq 'HIGH') }).Count -ne 1) {
+      $f1i += '[skipped-lens] the null-lens return carries no single HIGH correction naming lens:boundary, so the human learns the verdict but not which lens to re-run.'
+    }
+    foreach ($k1i in @($runs1i.Keys)) {
+      if (@($runs1i[$k1i].keys) -notcontains 'skipped_lenses') {
+        $f1i += "[skipped-lens] the '$k1i' return omits skipped_lenses; every return path carries it, empty when every lens reported."
+      } elseif (@($runs1i[$k1i].skippedLenses).Count -ne 0) {
+        $f1i += "[skipped-lens] the '$k1i' run reported skipped lenses $(@($runs1i[$k1i].skippedLenses) -join ', ') although every lens returned a result."
+      }
+    }
   }
   if ($f1i.Count) {
     foreach ($x1i in $f1i) { Fail "1i tier-depth: $x1i Re-check with: selftest.ps1 -Only 1" }
   } else {
-    Write-Host '  1i tier routing + no-projection OK (T0 0 agents; T1 3 lens / 0 verify / 1 synth; T2 8 lens / 24 verify / 1 synth; no tier reaches Decompose or Card-Audit)' -ForegroundColor Green
+    Write-Host '  1i tier routing + no-projection OK (T0 0 agents; T1 3 lens / 0 verify / 1 synth; T2 8 lens / 24 verify / 1 synth; no tier reaches Decompose or Card-Audit; capped findings reach synthesis; a null lens forces fix-first)' -ForegroundColor Green
   }
 }
 
