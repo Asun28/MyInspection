@@ -25,12 +25,12 @@ never accepts. Check names say which kind of fact they rest on: `pre` and the un
 | A3 controlled | `NameNotFoundException` and `SecurityException` from package-context creation become the fixed message without a cause; an `Error` propagates as the same instance |
 | cleanup | the external fixture is gone after the checks |
 
-The read-only raw state and a directory without write permission are covered only by the JVM tests: an ordinary APK
-cannot mount a read-only volume, and the probe does not change directory permissions. The unknown raw state is
-covered on the devices too, where the internal directory reads `unknown` and must map to UNMOUNTED, as well as by
-the JVM test. Device-protected default storage is not reproduced: this app does not
-request it and the card treats it as system-only, so the synthetic false-marker wrapper stands in for a context that
-claims CE while holding DP roots.
+The read-only raw state and a directory whose `canWrite()` is false are covered only by the JVM tests, the latter
+through a `File` subclass: an ordinary APK cannot mount a read-only volume, and the probe does not change directory
+permissions. The unknown raw state is covered on the devices too, where the internal directory reads `unknown` and
+must map to UNMOUNTED, as well as by the JVM test. Device-protected default storage is not reproduced: this app does
+not request it and the card treats it as system-only, so the synthetic false-marker wrapper stands in for a context
+that claims CE while holding DP roots.
 
 ## Receipt and leftovers
 
@@ -52,12 +52,12 @@ repository root once per device. It checks the APK's application id and, when th
 are signed by the same certificate; installs with `install -r` only (app data kept); starts only the probe activity
 with a fresh run id; reads and removes that run's receipt; force-stops the app and requires `pidof` to report no
 process. It prints the device model, API level, build type, emulator flag, the SHA-256 of the APK, the adapter
-source and the probe source, the Git tree id of the committed `android/` directory and the number of `android/`
-paths that differ from it (0 for the candidate itself, 1 for a mutant). It exits 0 only when the receipt has exactly
-the expected lines for this run id and APK: every check in order ending in `DONE`, or (`-Expect <check>`) the checks
-before `<check>` followed by that check failing with `java.lang.AssertionError`. Every line must equal its expected
-text except the `STATE` line, which must match the `STATE name=value …` pattern; its values are asserted inside the
-probe by `A2.pre.rawStates`.
+source and the probe source, the Git tree id of the committed `android/` directory of the checkout it runs in, and
+the number of `git status --porcelain` entries under `android/` (0 for the candidate itself, 1 for a mutant). It
+exits 0 only when the receipt has the expected number of lines, in order, for this run id and APK: every check in
+order ending in `DONE`, or (`-Expect <check>`) the checks before `<check>` followed by that check failing with
+`java.lang.AssertionError`. Every line must equal its expected text except the `STATE` line, which must match the
+`STATE name=value …` pattern; its values are constrained inside the probe by `A2.pre.rawStates`.
 
 ```powershell
 param([Parameter(Mandatory)][string]$Serial, [Parameter(Mandatory)][string]$Apk, [string]$Expect = 'pass',
@@ -90,7 +90,10 @@ function CertDigest([string]$path) {
 if (-not (Same $Expect 'pass') -and [array]::IndexOf($checks, $Expect) -lt 0) { Fail "unknown check $Expect" }
 $apkSha = Sha $Apk
 $tree = ((git -C $Repo rev-parse 'HEAD:android') -join '').Trim()
-$dirty = @(git -C $Repo status --porcelain -- android).Count
+if ($LASTEXITCODE -ne 0 -or -not $tree) { Fail 'android tree' }
+$status = @(git -C $Repo status --porcelain -- android)
+if ($LASTEXITCODE -ne 0) { Fail 'git status' }
+$dirty = $status.Count
 $identity = "model=$(Prop ro.product.model) sdk=$(Prop ro.build.version.sdk) type=$(Prop ro.build.type) " +
     "qemu=$(Prop ro.kernel.qemu) apk=$apkSha src=$(Sha "$Repo/$platform/AndroidAppStorageEnvironment.kt") " +
     "probe=$(Sha "$Repo/android/app/src/debug/kotlin/nz/myinspection/app/platform/AppStorageProbeActivity.kt") " +
@@ -179,12 +182,11 @@ the named test fails with an assertion.
 ## Evidence
 
 Run 2026-09-25 on a Samsung SM-A346E (API 33, `user` build) and an `sdk_gphone64_x86_64` emulator (API 35,
-`userdebug`, `ro.kernel.qemu=1`), every build from commit `37c235be` of this branch, whose `android/` tree id is
-`ca63349872091c21c0eb683f9bad1050a31145f6` (`git rev-parse 37c235be:android`). The script prints that tree id and
-`android-dirty` on every run, so a run can be matched to a candidate by comparing it with
-`git rev-parse <candidate>:android`; the whole `android/` tree, prerequisites included, is what it identifies. Source
-SHA-256 at that commit: adapter `54dd0218…72d965`, probe `7a1ad65f…c23d18`; host script as extracted from this file
-`cf12ee73…91a2ff`.
+`userdebug`, `ro.kernel.qemu=1`). Every APK run on the devices was built from commit `37c235be` of this branch, whose
+`android/` tree id is `ca63349872091c21c0eb683f9bad1050a31145f6` (`git rev-parse 37c235be:android`). The script
+prints the tree id of the checkout it runs in; the APK is tied to that checkout only because the recipe builds and
+runs from the same checkout, and the receipt's `apk=` line names the APK that ran. Source SHA-256 at that commit:
+adapter `54dd0218…72d965`, probe `7a1ad65f…c23d18`; host script as extracted from this file `78af6b9b…337aab`.
 
 | Step | Result |
 |---|---|
