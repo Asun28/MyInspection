@@ -49,6 +49,12 @@ cannot satisfy on the scaffold-selftest runner. Repaired locally with a post-ini
 and a bare-copy degraded-path fixture; reported upstream with `scripts/scaffold-sync.ps1 report`
 (issue links are recorded in the decision ledger row once filed).
 
+Delivery-efficiency feedback (2026-09-10) is tracked upstream in
+[#393](https://github.com/Asun28/claude-devops-scaffold/issues/393), linked to downstream
+[#298](https://github.com/Asun28/MyInspection/issues/298). It includes timed validation/review
+evidence and requests bounded Task Loop simplification: upstream owns reusable scaffold fixes;
+this downstream applies only necessary patches and prioritizes application delivery.
+
 ## Direction 2 — deciding whether to take an upstream release
 
 ```powershell
