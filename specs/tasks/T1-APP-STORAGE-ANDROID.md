@@ -2,7 +2,7 @@
 id: T1-APP-STORAGE-ANDROID
 title: Android app-private storage adapter and self-verifying device probe
 depends_on: [T1-APP-STORAGE-POLICY, T1-SPIKE-PLATFORM]
-status: todo
+status: merged
 branch: T1-APP-STORAGE-ANDROID
 worktree: C:\wt\T1-APP-STORAGE-ANDROID
 allow_paths:
@@ -41,3 +41,12 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD + probe recipe（R5）
 设备安装前核验 applicationId 与签名，既有 app 只允许 `install -r` 保留数据；仅启动本卡 debug Activity，结束时 force-stop 并核空 PID，只清理本次自有测试目录。编译 SDK 35 的平台 API 先按 pinned 源码/文档核验。既有双 diagnostic package 的旧证据保留，不替代新卡候选 APK。
 
 预计完整交付 300–450 changed lines / 18k–30k 字符，包含设备检查、JVM 测试、短复现说明、R4 收据与约 25% 修复空间；RED 前核实际方案，达到 650 行或 45k 先拆，不压缩断言。作者 GPT-6 Astra · high（平台测试设计与实现）；独立 GPT-5.6 Sol · high 正式 R3。R1–R5 及真实设备验收全部通过才闭环。
+
+## R5 交付（2026-09-25）
+
+经 [PR #351](https://github.com/Asun28/MyInspection/pull/351) squash 合并为 `0a89bbbf`（reviewed head `a98840d5`，CI run `36007644259` 的 `verify` 与 `required` success，合并树=评审树 `95409919`）。差异 527 行 / 33.5k 字符，超出正文 300–450 行的估计、低于 650/45k 提前拆分线；超出部分来自 R3 前预审补上的来源 pin、`controlled` 标注、DUMP 权限、清理检查与卷根状态检查。
+
+- 证据：所有设备运行的 APK 都由 `37c235be`（`android/` tree `ca633498`）构建；SM-A346E（API 33，user 构建）与 API 35 模拟器的基线与最终运行均 31/31，对照运行被拒，19/19 变异（D01–D14 双设备、J01–J05 JVM），详见 `docs/storage-android-probe.md` 的 Evidence 节。RED 在 base `68d38333` 上为编译失败（适配器尚不存在）。
+- R3：Codex 配额耗尽（探针确认至 2026-09-25 10:56），经用户裁定由全新 Opus 5.5（high）经临时、未提交的 `ReviewCommand` 以 `review.ps1 -PostStatus` 评审。ship 自身的 R3 腿从 base 取评审包并调用 Codex，两次 `[R3-NO-OUTPUT]` 均经探针确认为配额，轮次随后清零。Opus 第 1 轮 block 两条（设备证据未绑定 `android/` tree；三处措辞过宽）；修复后全新上下文复核又发现 7 处文档问题，一并修复并在 tree `ca633498` 上重跑全部设备证据；第 2 轮 pass，两轴无 finding。
+- 作者：正文指定 GPT-6 Astra，实际由 Claude Opus 5.5 会话实现。
+- selftest：tier-1 的 `selftest -TaskId` 因 `android/` 产品路径在 GATE-MAP 中无路由而升级为全量 17 闸，在 worktree 副本上于 `a96c3ab1` 通过（2594 s）；之后分支吸收的 origin 提交只改脚本与文档、不改 `android/`，未对新 base 重跑全量 selftest。

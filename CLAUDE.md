@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-25 远端交付**：`T1-APP-STORAGE-ANDROID` 经 [PR #351](https://github.com/Asun28/MyInspection/pull/351) 合并（`0a89bbbf`；reviewed head `a98840d5`，CI `36007644259` success，合并树=评审树 `95409919`）。`AndroidAppStorageEnvironment` 把 `AppStorageEnvironment` 端口接到 Android：标记与各根取自所包装 context 的 getter，DP→CE 转换用 `createPackageContext(包名, 0)`，普通异常转为固定消息且无 cause、Error 原样传播；原始卷状态仅 `mounted` 映为 MOUNTED、`mounted_ro` 映为只读、其余为 UNMOUNTED；可写要求 `isDirectory && canWrite`；空间直接转交 `usableSpace`。debug-only `AppStorageProbeActivity`（只有持 DUMP 权限的调用方能启动）在 SM-A346E（API 33，user 构建）与 API 35 模拟器上跑 31 项自验证，expected 取自探针直接调用的平台 getter；host 脚本在 `docs/storage-android-probe.md`，按 run id 与 APK 摘要逐行核对回执并打印 `android/` tree id。4 项 JVM 测试，19/19 变异（14 项双设备 + 5 项 JVM）。Codex 配额耗尽期间经用户同意由 Opus 5.5 作 R3：第 1 轮 block 两条（设备证据未绑定 `android/` tree；三处措辞过宽），修后全部设备证据在 tree `ca633498` 上重跑，第 2 轮 pass。`T1-LOCAL-DATA-SECURITY` 的前置由此全部合并。
+
 **2026-09-25 远端交付**：`T0-REVIEW-GOVERNING-DOCS` 经 [PR #347](https://github.com/Asun28/MyInspection/pull/347) 合并（`f970f741`；reviewed head `3b4ebfe8`，CI `35999775552` success）。`ReviewIntensityByTier` 的 tier 0 由 advisory 改为 adversarial：只改 `docs/QUALITY-RUBRIC.md`、`docs/SECURITY.md`、`CLAUDE.md` 等定义闸门、安全规则与代理边界文档的卡算出 tier 0，此前只得一次低 effort 评审；现与代码改动同一评审档，100 行以内的小 diff 仍经 `ReviewEffortBySize` 用 low。selftest 闸 17ib 的现网策略检查改为期待 adversarial，仍是漂移检查。全量 selftest 5 分片通过（1158 s），A4/A6 变异均检出。Codex 配额耗尽期间经用户同意由 Opus 5.5 经 `ReviewCommand` 作 R3：第 1 轮 block 两条记录措辞（声称的重跑多于实际；未写明小 diff 仍为 low），修后第 2 轮 pass。前一张 `T0-REVIEW-LOW-RISK` 已于 2026-09-24 按用户裁定退役为 superseded（PR #340）。
 
 **2026-09-24 origin 交付**：`T0-OPUS55-PROMPT-FIT`（PR #334，squash `ecdeb4b8`；卡片 #331）把提示词面对齐 Opus 5.5：新增 `docs/references/claude-opus-5-5-prompting-llms.txt`（相对 Opus 5 的差异层，九处变化含四项破坏性变更），Opus 5 篇重新对照上游并改作基线层；Opus 席位改为 `claude-opus-5-5`，improve-prompt 读差异层 + 基线；task-loop 新增「回合何时结束」（完成条件、不该停的四种、该停的、后台没跑完不算完、Opus 5.5 评审从 `medium` 起）；plan-forge 让 lens 全报并带 confidence，由脚本按 FATAL→HIGH 排序后截 3 核验、超出的交汇总并记日志，没产出结果的 lens 迫使裁决 `fix-first`（1i 新增 5 个夹具，16/16 变异）；prereview 风险路由改 `claude-opus-5-5` + `PrereviewRiskyEffort=medium`（尚无读取方，TD188）。Codex 配额耗尽期间经用户授权由全新 Opus 5.5（high）作 R3：第 1 轮 block 测试断言面（只种 FATAL，排序看不见）、第 2 轮 block 三处措辞（兜底示例出处、漏 `computer_20251124`、T1 文案不分档）、第 3、4 轮 pass；对账期间应请求暂缓合并，all-clear 后并入 origin/master 重跑 Tier-S 全量与 R3。
@@ -523,7 +525,7 @@ SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）�
 > **轮次上限三次经用户裁定 `ResetRounds`**：每轮都是互不相同的真缺陷、都被接受修复、都带来新的击杀变异，
 > 不属该闸要止住的「同一争点拉锯」；计数被清零，评审本身一次没跳过。
 
-**当前已解锁待做**（按 depends_on 核对，2026-09-24）：前置均已合并的产品卡包括 `T1-APP-STORAGE-ANDROID`、`T2-GHOST-EDGE-OVERLAY` 与 `T3-REPORT-IMPORT-COMMIT`。`T1-LOCAL-DATA-SECURITY` 仍待 `T1-APP-STORAGE-ANDROID`（ADR-0006 的 2026-09-17 拆分）。`T3-PDF-RENDER-DEVICE` 的 `T1-SPIKE-PLATFORM` 真机 spike（master `e8c2359a`）与图片 bridge（master `fee6451f`）前置已满足，但仍待 `T3-PDF-TEXT-METRICS-OPS` 与 `T3-PDF-ANDROID-TEXT-MEASURER`；
+**当前已解锁待做**（按 depends_on 核对，2026-09-25）：前置均已合并的产品卡包括 `T1-LOCAL-DATA-SECURITY`（最后一个前置 `T1-APP-STORAGE-ANDROID` 于 2026-09-25 合并）、`T2-GHOST-EDGE-OVERLAY` 与 `T3-REPORT-IMPORT-COMMIT`。`T3-PDF-RENDER-DEVICE` 的 `T1-SPIKE-PLATFORM` 真机 spike（master `e8c2359a`）与图片 bridge（master `fee6451f`）前置已满足，但仍待 `T3-PDF-TEXT-METRICS-OPS` 与 `T3-PDF-ANDROID-TEXT-MEASURER`；
 `T5-BACKUP-IO` 仍待 `T1-SHARE-SCREEN-PRIVACY`、`T1-LOCAL-DATA-SECURITY` 与 `T1-APP-BOUNDARY-ASSEMBLY`。
 
 **T0-GATE-HARDENING 的事后 R3 已结清**：其合并 `5ba3319` 未经 `task.ps1 ship`（`-SkipRed` ×2），post-hoc R3
