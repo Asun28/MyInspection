@@ -54,7 +54,11 @@ hard boundaries. A weakening edit to them is the change a single low-effort pass
 Opus 5.5 R3 on `T0-REVIEW-LOW-RISK` (`a9506225`) blocked the same class of rule in that card. Severity is
 moderate: the deterministic gates and a blocking R3 still apply.
 
-## OD-1: which fix (settle on master before RED)
+## OD-1: which fix (settled: C)
+
+**Decision (user, 2026-09-24): C.** The dod_command stays as written. The change is the tier `0` value of
+`ReviewIntensityByTier` in `scripts/_config.ps1`, plus the comment above it, which currently says the values
+are T301's decision and must name this card for tier `0` instead. A and B are not taken.
 
 - **C (recommended):** set `ReviewIntensityByTier` tier `0` to `adversarial`. One config line. Tiers and
   selftest acceptance stay as they are, and small doc diffs stay at effort `low` through `ReviewEffortBySize`.
