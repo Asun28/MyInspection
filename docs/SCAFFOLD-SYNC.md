@@ -83,9 +83,11 @@ v0.30 made R3 advisory and v0.31 removed mandatory-gate hardening. This project 
 R3 blocking—with round cap, diff budget, and head binding—so advisory-only follow-ons are declined.
 
 v0.47.0 adopted tier-keyed review intensity (#387, PR #297) with tier 0 as `advisory`. This project
-sets tier 0 to `adversarial` instead (`T0-REVIEW-GOVERNING-DOCS`, 2026-09-24): its tier-0 paths include
-the docs that define the gates, the security and license rules and the agents' boundaries, and a
-single low-effort pass is the read most likely to miss a weakening edit to them.
+sets tier 0 to `adversarial` instead (`T0-REVIEW-GOVERNING-DOCS`, 2026-09-24), because its tier-0
+paths include the docs that define the gates, the security and license rules and the agents'
+boundaries. The effect: a doc-only diff of more than 100 changed lines now draws effort `high` and no
+longer gets the one-pass guidance; a diff of 100 changed lines or fewer is still read at `low` through
+`ReviewEffortBySize`.
 
 ## Decision ledger
 
