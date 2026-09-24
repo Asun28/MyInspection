@@ -2,7 +2,7 @@
 id: T0-POST-MERGE-LESSONS
 title: Automate the post-merge lessons PR, with lessons.ps1 bump able to target the current checkout
 status: todo
-depends_on: [T0-POST-MERGE-DOCS-PR]
+depends_on: [T0-POST-MERGE-DOCS-PR, T0-POST-MERGE-R5-GUARDS]
 parallelizable_with: []
 allow_paths:
   - scripts/lessons.ps1
