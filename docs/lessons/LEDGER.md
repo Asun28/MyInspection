@@ -2245,3 +2245,12 @@
 - rule: For hidden-tool PATH tests, check sibling executables removed with the target tool; provide fixture-local dependencies and assert unrelated controls still execute on both operating systems.
 - enforced_by: scripts/selftest.ps1 gates 8.2j, 15f and 15x
 - refs: PR #300; T0-SELFTEST-HIDDEN-GIT
+
+## L340
+- date: 2026-09-06 ｜ tags: xml,security,tests ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: DOCX 读取器已禁用外部实体，但仍接收 XInclude；仅靠 XML 字节上限也未实现独立节点预算。
+- root_cause: 将不执行的惰性数据与合同要求的显式拒绝混为一谈，并把间接上界当成独立上界。
+- rule: 写 XML 边界测试前逐项对照安全合同：按命名空间构造 XInclude 真实失败夹具；元素预算在全包累计，并测试多个 XML part 各自未超但合计超限。禁扩展不等于已拒绝。
+- enforced_by:
+- refs: specs/archive/tasks/T3-DOCX-PACKAGE-READER.md; android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/package/DocxPackageReaderTest.kt; renumbered from local L300 by the 2026-09 local/origin reconcile (origin already used L300)
+
