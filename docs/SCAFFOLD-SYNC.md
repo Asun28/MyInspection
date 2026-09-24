@@ -55,6 +55,12 @@ Delivery-efficiency feedback (2026-09-10) is tracked upstream in
 evidence and requests bounded Task Loop simplification: upstream owns reusable scaffold fixes;
 this downstream applies only necessary patches and prioritizes application delivery.
 
+The plan-forge prompt wording written for older models (emphasis markers, internal ticket ids in a lens, and a
+discovery-stage cap in lens rule 4) is tracked upstream as
+[#399](https://github.com/Asun28/claude-devops-scaffold/issues/399), filed 2026-09-25 after downstream PR #334
+(`T0-OPUS55-PROMPT-FIT`) and PR #360 (`T0-PLAN-FORGE-PROMPT-TRIM`) fixed it here. `decompose-cards.mjs` carries
+the same class and is carded downstream as `T0-PLAN-FORGE-FOLLOWUP`.
+
 ## Direction 2 — deciding whether to take an upstream release
 
 ```powershell
