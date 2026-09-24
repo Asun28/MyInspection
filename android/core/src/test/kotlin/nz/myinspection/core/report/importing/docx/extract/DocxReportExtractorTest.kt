@@ -20,7 +20,7 @@ class DocxReportExtractorTest {
     private fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     @Test fun customPropertiesNeverBecomeExtractionEvidence() {
-        val source = fixture.sample()
+        val source = sample()
         val expected = extract(source)
         val markers = listOf("PRIVATE_PROPERTY_NAME", "PRIVATE_PROPERTY_VALUE", "PRIVATE_PROPERTY_COMMENT")
         source["docProps/custom.xml"] = ("<Properties xmlns='http://schemas.openxmlformats.org/officeDocument/2006/custom-properties' " +
@@ -29,9 +29,9 @@ class DocxReportExtractorTest {
             "<vt:lpwstr>${markers[1]}</vt:lpwstr></property></Properties>").toByteArray()
         source["[Content_Types].xml"] = source.getValue("[Content_Types].xml").toString(Charsets.UTF_8).replace("</Types>",
             "<Override PartName='/docProps/custom.xml' ContentType='application/vnd.openxmlformats-officedocument.custom-properties+xml'/></Types>").toByteArray()
-        source["_rels/.rels"] = fixture.relationships(fixture.relationship("office", "word/document.xml", "officeDocument") +
-            fixture.relationship("custom", "docProps/custom.xml", "custom-properties")).toByteArray()
-        val read = fixture.read(source)
+        source["_rels/.rels"] = relationships(relationship("office", "word/document.xml", "officeDocument") +
+            relationship("custom", "docProps/custom.xml", "custom-properties")).toByteArray()
+        val read = read(source)
         assertFalse(read.parts.any { it.name == "docprops/custom.xml" })
         for (part in read.parts) for (marker in markers) assertFalse(part.copyBytes().toString(Charsets.UTF_8).contains(marker))
         val actual = DocxReportExtractor().extract(read)
