@@ -607,7 +607,7 @@
 - refs: 
 
 ## L87
-- date: 2026-07-08 ｜ tags: powershell,encoding ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- date: 2026-07-08 ｜ tags: powershell,encoding ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
 - symptom: git show <rev>:<path> | Out-File -FilePath $f -NoNewline（或 Set-Content -NoNewline）写多行内容时，整个文件被压成一行——不止省略末尾换行，管道输入的每个对象之间的换行也被一并吞掉。
 - root_cause: PowerShell 的 -NoNewline 语义是「写多个管道对象时对象之间也不插换行」，不是仅「文件末尾不加换行」；git show 的多行 stdout 经管道会被当成一串独立字符串对象逐个写入，故内部换行全部消失。
 - rule: 先用 Out-String 把多行输出收成单个字符串（换行保真），再用 Set-Content -NoNewline 写它（此时只有一个对象、-NoNewline 只影响末尾）；不要把外部命令的多行管道输出直接接 -NoNewline。
@@ -647,7 +647,7 @@
 - refs: PR #94 (b2546d5 -> b3ecf70) 与 PR #95 (1703e23 -> febe0be) 现场；docs/HARNESS-REVIEW.md「评审者须在自改回路之外」；关联 L50（合并前独立评审）、L91（共享检出并发）
 
 ## L93
-- date: 2026-07-10 ｜ tags: powershell,exit-code,verification,false-green,truncation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3 ｜ cost: 一次误判，当场识破，未污染任何已声明结论
+- date: 2026-07-10 ｜ tags: powershell,exit-code,verification,false-green,truncation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4 ｜ cost: 一次误判，当场识破，未污染任何已声明结论
 - symptom: 在 pwsh 里把原生命令的输出管进 Select-Object -First N，之后再读 $LASTEXITCODE，读到的是上一条命令的退出码（陈旧值）：失败的命令被读成 exit 0，产生假绿。本会话现场——git apply --check 明明打印 patch does not apply，紧随其后的 $LASTEXITCODE 却是 0，那个 0 其实来自上一条 git worktree add。
 - root_cause: Select-Object -First N 取够 N 条就停掉上游管道（PipelineStopped），原生命令被提前终止，它的退出码从未写进 $LASTEXITCODE，于是变量仍保留上一条命令的旧值。-Last N 与 Select-String 会读完整个流，故退出码保真。实测：git nosuchsubcommand 2>&1 管进 Select-Object -First 1 时 $LASTEXITCODE=0，换成 -Last 1 或 Select-String 时为 1。
 - rule: 作判据用的退出码，绝不读在 Select-Object -First N 之后。三选一：① 先把命令跑完（必要时管到 Out-Null），立刻把 $LASTEXITCODE 存进变量，再去筛输出；② 需要截断输出就用 -Last N 或 Select-String，二者读完整流、退出码保真；③ 完全不接管道，直接取退出码。凡是以 exit 0/1 为判据的场景（verify.ps1 / selftest.ps1 / review.ps1 / 卡片 dod_command / CI 步骤）尤其致命——它产生的是假绿，不是假红。一行自检：git nosuchsubcommand 2>&1 管进 Select-Object -First 1 再管进 Out-Null，随后 $LASTEXITCODE 应为 1；若得 0 即中招。已核本仓 .ps1 脚本无此形态，坑主要出在 agent 临时敲的校验命令里。另：同一 cmdlet 还有第二个与退出码无关的坑——用 -First N 截断的诊断输出，不足以支撑「已穷尽」的结论。凡要据某段输出判断覆盖面（某工具改了哪些文件、装了哪些 agent、命中哪些路径），必须不截断地取全量：重定向到文件后整份读、Out-String 全量、或改用结构化查询。注意 -Last N 同样只发 N 条，它保真的是退出码、不是覆盖面——本条前半管退出码、后半管覆盖面，两者别互相借用（-Last 可解退出码，不可解「已穷尽」）。
@@ -775,7 +775,7 @@
 - refs: 本会话 T11→T12/T14/T15/T16/T18 谱系（PR #102 及其拆卡，TD83/T14 是本条判据的原始证据）；关联 L97（R3 逐轮单点外溢）、L101（不同点：L101 讲首轮评审前必须先有卡，本条讲评审**过程中**新发现该修/该回退还是该拆）
 
 ## L114
-- date: 2026-07-12 ｜ tags: git,ship,concurrency,scope-gate,red-evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 5
+- date: 2026-07-12 ｜ tags: git,ship,concurrency,scope-gate,red-evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
 - symptom: ship 范围闸把大量本卡未改的文件（其他已合并卡的产物/文档）报成越界：origin/master 在本卡 worktree 分支好之后被其他并发会话的真实 PR 合并推进了多次，ship 的范围/评审基线解析到 origin/master，diff 的 merge-base 落在旧共同祖先上，中间所有'本地曾经领先但从未推送'的提交（含另一会话半途合并又撤销的卡）全部混入本卡 diff。
 - root_cause: 多会话共享同一主检出时，本地 master 与 origin/master 会各自独立前移又不同步（他人 gh pr merge --squash 只更新 origin、不回写本地；本地又有会话直接在共享 master 上 commit/revert，即 L112 场景）——本卡的 worktree 分支是从这条已经该会话专属又混乱的本地 master 分出的，其真实 fork point 相对 origin 早已过期。
 - rule: **预防（首选，成本最低）**：多会话共享主检出、本地 master 又脏（他会话未提交改动）又与 origin/master 发散（本地有未推送提交、且缺 origin 新提交）时，`-Phase start` 直接把 worktree 基在 origin 最新 tip——`pwsh -File scripts\task.ps1 -TaskId <id> -Phase start -Base origin/master`（ship 亦传 `-Base origin/master`）——分支从 origin/master 分出，PR diff 天然只含本卡改动、不含本地未推送的中间提交，范围闸/评审基线自始干净；R5 的 doc_sync/lesson 提交同理，在**从 origin/master 新开的干净临时 worktree**（`git worktree add --detach <path> origin/master`）里编辑→只 add 目标文件→push HEAD:master→删该 worktree，全程不 `git add -A`、不 stash、不 rebase 脏主检出（守 L112）。T29-LICENSE-FRONTEND-DIR 实测：主检出 62 个他会话脏文件 + 本地 master 1 ahead/1 behind 时，`-Base origin/master` 全程零污染、PR #113 diff 恰为 3 个 allow_paths 文件、doc_sync 提交只动 2 文件。**补救（已中招时）**：ship 报出大片无关越界文件时，先 git fetch origin 比对 origin/master 与本地 master/本卡分支的 ahead/behind；若已真发散，不要在混乱的中间历史上做多提交 rebase（会牵连他人已合并又走开的分支，冲突面不可控）——改用 git checkout -B <branch> origin/master 把分支基点重置到 origin 最新 tip，再把本卡的最终文件内容重新落到这个干净分支上（内容已知时直接重写比逐条 cherry-pick/rebase 更快更可靠）；RED 证据的 sha 会随之失效，须 git stash 退回改动前状态、在新 HEAD 上重新跑 -Phase red、再 git stash pop 续接 GREEN，否则 ship 会因 RED sha 不等于 HEAD 而拒收。 **（复发 2026-08-23，T0-LESSONS-BUMP-PLANE / PR #129，两处各中一次）** ㊀ 本条讲的「基线要干净」还有一个**此前没写的后果**：R3 评审读的是 `branch-vs-origin/master`，所以分支只要落后 master 一个提交，评审就会把「master 领先的那个提交」读成「**本分支在撤销它**」，报出一串「删除了某某卡 / 回退了 TASK-BOARD」式的越界 finding——全是假象，却照样占掉一轮（本次 3 条 finding、白烧第 1 轮，合上 origin/master 后三条同时消失）。故**每次 ship 之前**都先 `git fetch origin master` 并把它合上来，不只是开卡时基一次：并行会话多时 master 每十几分钟就动一次。㊁ 本条明写的「不 `git add -A`」当天又被我违反一次：R5 doc_sync 在干净临时 worktree 里用了 `git add -A`，把刚写的 `.msg.tmp` 一并提交（未推送，`git rm --cached` + `--amend` 修掉）。规矩不变：**只 add 目标文件**，临时文件写到 worktree 之外或立刻删。
@@ -1167,12 +1167,12 @@
 - refs: 
 
 ## L168
-- date: 2026-07-27 ｜ tags: tracker,id-allocation,concurrency,handoff ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-07-27 ｜ tags: tracker,id-allocation,concurrency,handoff ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 并发会话各自登记新 TD 号：一方在在飞卡 worktree 的未提交 tracker 里占了 TD114/TD115，另一方在主检出按「已提交面最大号+1」也取 TD114 并已推 master——同号两义（improve-prompt eval 覆盖 vs 运行期 verdict schema），且 T56 卡已在 master 引用后者，交叉引用开始发散
 - root_cause: TD/L 这类 append-only 序号的分配只看自己检出的已提交状态；登记面实际分布在多个检出（master 工作树、在飞 worktree 未提交 diff、未合并分支），max+1 在并发下不唯一，先来后到无仲裁
-- rule: 登记新 TD/L 号前先扫全部在飞面取真实最大号：git worktree list 逐棵 grep 其未提交 tracker/LEDGER，未合并分支用 git show 分支:文件 看新增行；撞号裁定按「已被 master 引用者保号、未提交面改号」，改号必须在原行留改号记录（id 变、内容与发现日不变），并在 handoff 里点名通知占号方
+- rule: 登记新 TD/L 号前先扫全部在飞面取真实最大号：git worktree list 逐棵 grep 其未提交 tracker/LEDGER，未合并分支用 git show 分支:文件 看新增行；撞号裁定按「已被 master 引用者保号、未提交面改号」，改号必须在原行留改号记录（id 变、内容与发现日不变），并在 handoff 里点名通知占号方。**分叉历史合并时同理（2026-09 reconcile）**：新号取两侧与所有未提交账本都没用过的号（最简单是高于它们全部的最大号；只看两侧已提交的最大号会撞上主检出未提交的 L333–L339）。默认已发布的一侧（origin）保号、未发布的一侧改号（本地 L300→L340、本地 TD177→TD183、未提交的 L327–L330→L342–L345）。例外只有一种：某一侧的号出现在一个仍由在役检查（活卡的 DoD、selftest 闸）按字节核对、且在合并点仍然成立的钉住里，改号会让该检查变红——这时它保号、另一侧改号（origin L310→L341：本地 L310 出现在活卡 T0-PREREVIEW-POLICY-SOURCE 的 DoD 所钉的 prereview policy-source 原始夹具里）。归档卡里的 SHA 收据、已经失效的钉住（T0-RECEIPT-ARCHIVE-LESSON 的账本前缀钉在对账前的 origin（f0ce6d9f）上已不成立；本地 TD176 所在的 _prereview-records.ps1 的收据已被闸 1h 的改动打破）都不算，归档卡等可编辑记录随改号一起更新引用。一侧的号只存在于未提交的行（本地 TD176）时，已提交的一侧保号，另一侧的引用应逐处标明是哪一个号，仍开放的事项移到新号（TD187）；本次只在 CLAUDE.md 与 tracker 段标明，_prereview-records.ps1 与四张归档 PREREVIEW 卡里的 5 处引用尚未标明。每条映射写进合并 PR 与被改号的条目。
 - enforced_by: 
-- refs: 
+- refs: #335（L300→L340）；#337 与 fe98aff6（L310→L341）；8d68782a（TD177→TD183）；13735e06、d8b4cd3c（TD176 消歧与 TD187）；#339（L327–L330→L342–L345）
 
 ## L169
 - date: 2026-07-27 ｜ tags: tracker,archive,status-enum,markdown ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
@@ -2469,7 +2469,7 @@
 - root_cause: review.ps1 的两条预算里字符数对「多小文件」的卡先到顶：diff 头（---/+++/@@/index 四行）按文件计，pretty-print 的换行与缩进按行计，散文只按字符计；按行数估体量看不到这两项
 - rule: 多夹具卡在 RED 前用 review.ps1 -SizeOnly 的同一口径（diff 头 + unified=3 上下文）量字符数：夹具 JSON 一律紧凑单行、能合并的负例合并进一个 valid 样本、负例文件只放最小违规体；字符数超 55K 就先拆文件数、再谈删散文
 - enforced_by: 
-- refs: 
+- refs: renumbered from the uncommitted L327 by the 2026-09 reconcile (#339)
 
 ## L343
 - date: 2026-09-15 ｜ tags: powershell,here-string,cards ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
@@ -2477,7 +2477,7 @@
 - root_cause: 双引号 here-string 对 $name 做变量展开，未定义变量静默变空；JSON schema 词汇（$defs/$ref/$schema/$comment）恰好都是 $ 开头
 - rule: 含 $ 词汇的散文一律用单引号 here-string @'…'@ 写，需要内插的值用 __PLACEHOLDER__ 再 .Replace()；写完 grep 一次「``$」确认 $ 词还在
 - enforced_by: 
-- refs: 
+- refs: renumbered from the uncommitted L328 by the 2026-09 reconcile (#339)
 
 ## L344
 - date: 2026-09-15 ｜ tags: selftest,worktree,routing,task-card ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
@@ -2485,7 +2485,7 @@
 - root_cause: For mode all and core the -TaskId route only selects shards; every shard runs on $RepoRoot, which selftest.ps1 derives from its own location. Only the skills mode targets the task worktree (Invoke-SelftestAll -SourceRoot WorktreePath). Invoking the main checkout copy therefore tests the main checkout.
 - rule: Routed selftest evidence for a card must come from the worktree copy: pwsh -File <WorktreeRoot>\<id>\scripts\selftest.ps1 -TaskId <id> -Base master. Also check that the invoked root has no stray top-level entries before a full run (gate 8.1 whitelist), and that every L<n> the card cites exists at base (git show master:docs/lessons/LEDGER.md), not only in the dirty working ledger (gate 16).
 - enforced_by: 
-- refs: 
+- refs: renumbered from the uncommitted L329 by the 2026-09 reconcile (#339)
 
 ## L345
 - date: 2026-09-16 ｜ tags: powershell,ordinal,comparison,r3 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
@@ -2493,7 +2493,7 @@
 - root_cause: PowerShell string operators (-eq -ceq -ne -contains -in -like) plus Sort-Object, Select-Object -Unique and Compare-Object are culture comparisons: default-ignorable code points and canonical equivalents compare equal and -ceq only adds case sensitivity; @{} and [ordered]@{} are case-insensitive while ConvertFrom-Json -AsHashtable (7.3+) is case-sensitive
 - rule: Identity of external data (ids, keys, worker names, canonical JSON) is compared with [string]::Equals(a, b, [StringComparison]::Ordinal), ordinal HashSet / Hashtable / OrderedDictionary and [Array]::Sort(arr, [StringComparer]::Ordinal); the test harness uses the same ordinal helpers and carries a soft-hyphen / ZWSP / case regression so the assertions themselves cannot pass on a culture tie
 - enforced_by: 
-- refs: 
+- refs: renumbered from the uncommitted L330 by the 2026-09 reconcile (#339)
 
 ## L331
 - date: 2026-09-16 ｜ tags: powershell,git,fixtures,native-command ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
@@ -2574,3 +2574,27 @@
 - rule: When resetting after a diagnosed external failure, count the real review rounds yourself; once they reach ReviewRoundCap, ask the user before the next reviewer run even though the counter reads low
 - enforced_by: 
 - refs: 
+
+## L347
+- date: 2026-09-24 ｜ tags: git,bisect,checkout,exit-code,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: one void bisect, redone
+- symptom: A path-level bisect for the reconcile (restore a few files from older commits, re-run a contract check, compare) restored files with `git checkout --detach <sha> -- <paths>`. Every step ran against the unchanged tree, so the first bisect result was void. Git had refused each restore with "fatal: git checkout: --detach does not take a path argument '<path>'" (exit 128), and the script never looked at the exit code.
+- root_cause: `--detach` moves HEAD and accepts no pathspec; with paths the command fails before touching any file. A bisect that trusts the restore command instead of the resulting file state measures the same tree at every step.
+- rule: Restore files with `git checkout <rev> -- <paths>` (no --detach) and stop on a non-zero exit. Before each probe, assert `git hash-object <path>` equals `git rev-parse <rev>:<path>` for every restored file; a bisect step without that check is not evidence. For a directory, `git checkout <rev> -- <dir>` keeps files added after <rev> (overlay mode): use `git restore --source=<rev> --staged --worktree -- <dir>` then compare the mode, object id and path fields of `git ls-files -s -- <dir>` with those of `git ls-tree -r <rev> -- <dir>` (the raw lines differ in layout), and check `git status --porcelain -- <dir>` for untracked files, which neither listing shows.
+- enforced_by:
+- refs: reconcile 2026-09, bisect of the T4-DESIGN-SYMBOL-CHROME-V2 check 07 failure (TD185)
+
+## L348
+- date: 2026-09-24 ｜ tags: powershell,wildcard,like,markdown,backtick ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: two silent misses in one reconcile
+- symptom: Sweeps that matched a Markdown code span with -like, such as ``$line -like '*`T1-FOO`*'``, returned False on lines that plainly contained the span, twice during the reconcile. The sweep looked clean because nothing matched.
+- root_cause: In -like and other wildcard patterns the backtick is the escape character: a backtick before T means a literal T, and the closing backtick before the asterisk makes that asterisk literal, so the pattern demands a line that ends with *. Single quotes do not help; the string keeps the backtick and the wildcard parser consumes it.
+- rule: To match a literal backtick (Markdown code spans), use .Contains() or .StartsWith() with [char]96, or build the pattern with [WildcardPattern]::Escape(...). When a sweep reports zero matches, first show that its pattern matches one known-positive line.
+- enforced_by:
+- refs: reconcile 2026-09, card and board sweeps
+
+## L349
+- date: 2026-09-24 ｜ tags: reconcile,merge,cards,task-board,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: three extra R3 rounds on reconcile slice 4
+- symptom: Reconcile slice 4 (PR #338) passed R3 only on round 7. Rounds 4-6 each found one record taken from one side while another record carried by the same PR said otherwise: CLAUDE.md called T3-PDF-RENDER-DEVICE unlocked although the carried re-plan made it wait; T1-LOCAL-DATA-SECURITY kept origin's depends_on although the carried ADR-0006 added T1-APP-STORAGE-ANDROID; the T1-SHARE-SCREEN-PRIVACY board row stayed origin's pre-split row while its card was local's split. The author's sweep started from the rows the PR had changed, so it never checked an untouched origin row next to a changed card, or a card kept at origin's version while a changed ADR paragraph added a prerequisite to it.
+- root_cause: Conflicts are resolved file by file, but a card, its board rows, ADR paragraphs and CLAUDE.md lines describe the same entity; choosing a side per file can pair one side's card with the other side's row. A review that starts from the diff sees only changed lines.
+- rule: After resolving a merge of diverged records, sweep by entity, not by file or diff. Start from every entity named in any record the merge changed (card files, board rows, ADR paragraphs, CLAUDE.md lines), including cards the merge left at one side's version. ADR paragraphs often name deliverables rather than card IDs (ADR-0006 said LocalSecretBox gains a prerequisite): resolve each deliverable to its card and check every "gains X as a prerequisite" claim against that card's depends_on. For each entity, compare its card, board rows, ADR mentions and CLAUDE.md claims with each other at HEAD (dependencies, scope, size, status), and against both parents to separate introduced mismatches from pre-existing ones. Run the sweep before the first review round.
+- enforced_by:
+- refs: #338; 512a7dc4, ab5a4a1b, d6fa1df0 (the round 4-6 fixes)
