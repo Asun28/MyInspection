@@ -1167,12 +1167,12 @@
 - refs: 
 
 ## L168
-- date: 2026-07-27 ｜ tags: tracker,id-allocation,concurrency,handoff ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-07-27 ｜ tags: tracker,id-allocation,concurrency,handoff ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 并发会话各自登记新 TD 号：一方在在飞卡 worktree 的未提交 tracker 里占了 TD114/TD115，另一方在主检出按「已提交面最大号+1」也取 TD114 并已推 master——同号两义（improve-prompt eval 覆盖 vs 运行期 verdict schema），且 T56 卡已在 master 引用后者，交叉引用开始发散
 - root_cause: TD/L 这类 append-only 序号的分配只看自己检出的已提交状态；登记面实际分布在多个检出（master 工作树、在飞 worktree 未提交 diff、未合并分支），max+1 在并发下不唯一，先来后到无仲裁
-- rule: 登记新 TD/L 号前先扫全部在飞面取真实最大号：git worktree list 逐棵 grep 其未提交 tracker/LEDGER，未合并分支用 git show 分支:文件 看新增行；撞号裁定按「已被 master 引用者保号、未提交面改号」，改号必须在原行留改号记录（id 变、内容与发现日不变），并在 handoff 里点名通知占号方
+- rule: 登记新 TD/L 号前先扫全部在飞面取真实最大号：git worktree list 逐棵 grep 其未提交 tracker/LEDGER，未合并分支用 git show 分支:文件 看新增行；撞号裁定按「已被 master 引用者保号、未提交面改号」，改号必须在原行留改号记录（id 变、内容与发现日不变），并在 handoff 里点名通知占号方。**分叉历史合并时同理（2026-09 reconcile：L300、L310、TD176、TD177 与主检出未提交的 L327–L330 互撞）**：新号取两侧与所有未提交账本都没用过的号（最简单是高于它们全部的最大号；只看两侧已提交的最大号会撞上主检出未提交的 L333–L339）；保号方看不可变引用（钉住的夹具、哈希、归档卡），无人引用的一方改号；两侧的号都被不可变记录引用时（TD176）两号都保留、在每处引用处消歧，仍开放的事项移到新号（TD187）；每条映射写进合并 PR 与被改号的条目。
 - enforced_by: 
-- refs: 
+- refs: #338（reconcile）；8d68782a（TD177→TD183）；13735e06、d8b4cd3c（TD176 消歧与 TD187）
 
 ## L169
 - date: 2026-07-27 ｜ tags: tracker,archive,status-enum,markdown ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
@@ -2569,32 +2569,24 @@
 
 ## L346
 - date: 2026-09-24 ｜ tags: git,bisect,checkout,exit-code,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: one void bisect, redone
-- symptom: A path-level bisect for the reconcile (restore a few files from older commits, re-run a contract check, compare) restored files with `git checkout --detach <sha> -- <paths>`. Every step ran against the unchanged tree, so the first bisect result was void. Git had refused each restore with "fatal: git checkout: --detach does not take a path argument" (exit 128), and the script never looked at the exit code.
+- symptom: A path-level bisect for the reconcile (restore a few files from older commits, re-run a contract check, compare) restored files with `git checkout --detach <sha> -- <paths>`. Every step ran against the unchanged tree, so the first bisect result was void. Git had refused each restore with "fatal: git checkout: --detach does not take a path argument '<path>'" (exit 128), and the script never looked at the exit code.
 - root_cause: `--detach` moves HEAD and accepts no pathspec; with paths the command fails before touching any file. A bisect that trusts the restore command instead of the resulting file state measures the same tree at every step.
-- rule: Restore paths with `git checkout <rev> -- <paths>` (no --detach) and stop on a non-zero exit. Before each probe, assert `git hash-object <path>` equals `git rev-parse <rev>:<path>` for every restored path; a bisect step without that check is not evidence.
-- enforced_by: 
-- refs: 
+- rule: Restore files with `git checkout <rev> -- <paths>` (no --detach) and stop on a non-zero exit. Before each probe, assert `git hash-object <path>` equals `git rev-parse <rev>:<path>` for every restored file; a bisect step without that check is not evidence. For a directory, `git checkout <rev> -- <dir>` keeps files added after <rev> (overlay mode): use `git restore --source=<rev> --staged --worktree -- <dir>` and compare `git ls-files -s -- <dir>` with `git ls-tree -r <rev> -- <dir>`.
+- enforced_by:
+- refs: reconcile 2026-09, bisect of the T4-DESIGN-SYMBOL-CHROME-V2 check 07 failure (TD185)
 
 ## L347
 - date: 2026-09-24 ｜ tags: powershell,wildcard,like,markdown,backtick ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: two silent misses in one reconcile
-- symptom: Sweeps such as `$line -like '*`T1-FOO`*'` (a Markdown code span) returned False on lines that plainly contained the span, twice during the reconcile. The sweep looked clean because nothing matched.
-- root_cause: In -like and other wildcard patterns the backtick is the escape character: `T means a literal T, and the closing `* turns the final asterisk into a literal *, which the line does not end with. Single quotes do not help; the string keeps the backtick and the wildcard parser consumes it.
+- symptom: Sweeps that matched a Markdown code span with -like, such as ``$line -like '*`T1-FOO`*'``, returned False on lines that plainly contained the span, twice during the reconcile. The sweep looked clean because nothing matched.
+- root_cause: In -like and other wildcard patterns the backtick is the escape character: a backtick before T means a literal T, and the closing backtick before the asterisk makes that asterisk literal, so the pattern demands a line that ends with *. Single quotes do not help; the string keeps the backtick and the wildcard parser consumes it.
 - rule: To match a literal backtick (Markdown code spans), use .Contains() or .StartsWith() with [char]96, or build the pattern with [WildcardPattern]::Escape(...). When a sweep reports zero matches, first show that its pattern matches one known-positive line.
-- enforced_by: 
-- refs: 
+- enforced_by:
+- refs: reconcile 2026-09, card and board sweeps
 
 ## L348
-- date: 2026-09-24 ｜ tags: reconcile,ids,lessons,tech-debt,git ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
-- symptom: Local master and origin diverged for 19 days (from e9f261ce, 2026-09-05) and both allocated the same global IDs: L300, L310, TD177, and L327-L330 (the last four only as uncommitted ledger entries in the main checkout). Renumbering by side or by date would have broken citations: pinned prereview fixtures cite local L310.
-- root_cause: Lesson and tech-debt IDs are global and never reused, but each checkout allocates the next ID from its own ledger (max + 1), so diverged histories and uncommitted ledgers in other checkouts collide without any warning.
-- rule: Before merging diverged histories, list every ID defined on both sides and in uncommitted ledgers of other checkouts. For each collision, grep citations on both sides (including pinned fixtures, hashes and archived cards), and move the ID that nothing immutable cites to a fresh number above both maxima. Record each mapping in the merge PR and the moved entry, and tell the other sessions which uncommitted IDs moved.
-- enforced_by: 
-- refs: 
-
-## L349
 - date: 2026-09-24 ｜ tags: reconcile,merge,cards,task-board,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: three extra R3 rounds on reconcile slice 4
-- symptom: Reconcile slice 4 (PR #338) passed R3 only on round 7. Rounds 4-6 each found one record taken from one side while another record carried by the same PR said otherwise: CLAUDE.md called T3-PDF-RENDER-DEVICE unlocked although the carried re-plan made it wait; T1-LOCAL-DATA-SECURITY kept origin's depends_on although the carried ADR-0006 added T1-APP-STORAGE-ANDROID; the T1-SHARE-SCREEN-PRIVACY board row stayed origin's pre-split row while its card was local's split. The author's sweep compared only board rows the PR had changed, so an untouched row next to a changed card was never checked.
-- root_cause: Conflicts are resolved file by file, but a card, its board rows, ADR paragraphs and CLAUDE.md lines describe the same entity; choosing a side per file can pair one side's card with the other side's row. A diff-only review sees only changed lines.
-- rule: After resolving a merge of diverged records, sweep by entity, not by file: for every card the merge changed, compare the card, its board rows, ADR mentions and CLAUDE.md claims with each other at HEAD (dependencies, scope, size, status), and against both parents to separate introduced mismatches from pre-existing ones. Run the sweep before the first review round.
-- enforced_by: 
-- refs: 
+- symptom: Reconcile slice 4 (PR #338) passed R3 only on round 7. Rounds 4-6 each found one record taken from one side while another record carried by the same PR said otherwise: CLAUDE.md called T3-PDF-RENDER-DEVICE unlocked although the carried re-plan made it wait; T1-LOCAL-DATA-SECURITY kept origin's depends_on although the carried ADR-0006 added T1-APP-STORAGE-ANDROID; the T1-SHARE-SCREEN-PRIVACY board row stayed origin's pre-split row while its card was local's split. The author's sweep started from the rows the PR had changed, so it never checked an untouched origin row next to a changed card, or a card kept at origin's version while a changed ADR paragraph added a prerequisite to it.
+- root_cause: Conflicts are resolved file by file, but a card, its board rows, ADR paragraphs and CLAUDE.md lines describe the same entity; choosing a side per file can pair one side's card with the other side's row. A review that starts from the diff sees only changed lines.
+- rule: After resolving a merge of diverged records, sweep by entity, not by file or diff. Start from every entity named in any record the merge changed (card files, board rows, ADR paragraphs, CLAUDE.md lines), including cards the merge left at one side's version. For each, compare its card, board rows, ADR mentions and CLAUDE.md claims with each other at HEAD (dependencies, scope, size, status), and against both parents to separate introduced mismatches from pre-existing ones. Run the sweep before the first review round.
+- enforced_by:
+- refs: #338; 512a7dc4, ab5a4a1b, d6fa1df0 (the round 4-6 fixes)
