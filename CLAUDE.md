@@ -69,6 +69,48 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-18 第二轮远端收口**：`T3-PDF-PAGINATION-FIXTURES-REMOTE` 经 [PR #309](https://github.com/Asun28/MyInspection/pull/309)，reviewed head `09dfa20cf8e75d095b8535a1473b17acdf581628`，CI `35171143884`，merge `553d53382f3b663dac19ed1c607ffa35ee499d0c`；正式 R3 pass。只迁移两处固定 4mm 行高分页夹具；生产源码字节不变。基线、迁移、恢复、尾注后各 255 项报告测试与 6 项 E2E 通过，两枚具名预算变异被断言检出。完整证据及守卫清理已复核，合同和收据已归档。Boundary 已完成 R5；Pagination 的产品证据已归档，但本 metadata closure 仍待本 PR 通过并合并。该 PR 合并后，五轮十张产品卡进度为 4/10，已完成 2/5 轮。测量绑定、平台字形和设备渲染仍由后继卡验收。
+
+**2026-09-18 第二轮存储路径交付（Pagination metadata closure 前的历史状态）**：`T1-STORAGE-PATH-BOUNDARY-REMOTE` 经 [PR #310](https://github.com/Asun28/MyInspection/pull/310)，reviewed head `bfefc1057a0ecbdfde4f747193c68c0069bdb73c`，CI `35174714509`，merge `74aa9cb7ac6e70bbae30cb5d3a2024d8c95d6a0c`；正式 R3 pass。20 项直接测试、35 枚具名可编译变异及 GREEN、恢复后、尾注后三次各 177 项应用回归通过；Windows 真实 Junction 已执行，POSIX 未执行。逐段解析保存已验证根，逐次检查子目录；只保证检查时路径归属。原始证据与清理错误日志均已保留；2026-09-18T01:16:43Z 补证确认路径、Git 登记及分支当时均不存在，不倒推原删除命令成功。完整合同及收据见归档卡。本卡完成 R5 后，五轮十张产品卡进度 3/10；第 2 轮的分页卡仍待 R5 收尾。第 3 轮 Policy 与 Requests 仅在原窗口准备，尚未完成验收；不新增任务窗口或另选产品卡。
+
+**2026-09-17 第一轮远端交付**：两张产品卡已完成远端 R5 收口，五轮十张产品卡进度 2/10；PR #301/#303 只登记任务与契约，不计产品数。`T1-SAFE-MEDIA-LOGGING-REMOTE` 经 [PR #304](https://github.com/Asun28/MyInspection/pull/304) 合并（reviewed head `6216e9d16f93cac6b4a62a1edb93de09c9746330`；merge `cd7e20160a093817c9a4245cfafe9e393e9a6e49`；CI `35158547855`，正式 R3 pass）。封闭字段 SafeLog 及四处媒体失败日志接线已交付；不包含存储分层、Keystore、调度或删除语义。
+
+`T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE` 经 [PR #305](https://github.com/Asun28/MyInspection/pull/305) 合并（reviewed head `9f06217c8c521e72ce9faca2513bad0d18a46fa2`；merge `3351c06c99ba8d85e3e008b7a89cdac43bb2470d`；CI `35159732680`，正式 R3 pass）。远端纯数据字体配置、角色映射、只承载数据的有符号测量快照与 line-box guard 已交付；报告组合、测量绑定、平台字形、裁剪与设备验收仍属后继工作。两张产品卡的远端验收和原本地历史分别见归档卡。
+
+**2026-09-17 远端交付**：`T3-DOCX-REPORT-EXTRACTOR` 经 [PR #288](https://github.com/Asun28/MyInspection/pull/288) 合并（`34d88e26`；reviewed head `69ba6c1d`）。多 story 提取保留 STATUS 原文、规范化文本与顺序；合成夹具 82 图/83 placements 全部待审、0布局排除。DoD 59项通过，4项当前定向变异全杀，verify 971项（4项既有 Windows symlink skip）及6项 E2E 通过；正式 R3 双轴 pass 空 reasons，CI `35095926100/1` required PASS。90项旧变异仅保留历史证据；映射、确认、持久化与渲染仍属后续卡。
+
+**2026-09-16 隐藏 git 自检修复**：`T0-SELFTEST-HIDDEN-GIT` 经 [PR #300](https://github.com/Asun28/MyInspection/pull/300) squash 合并为 `ef6290ee`（精确被审提交 `2c8739c7`）。Ubuntu 上 8.2j 隐藏 git 时也移除了 `sh`，使闸 15f(a)/15x(b) 误红；现由夹具临时提供 `sh`，并要求非 git 控制仍实际执行。Windows 全量 17 闸、Ubuntu 隐藏与正常 git 的 8/15、两项回退测试通过；正式 ship 的 DoD、verify、范围、许可、密钥、R3 双轴及 [精确候选 CI `35068704320/1`](https://github.com/Asun28/MyInspection/actions/runs/35068704320) 均通过。合并后 nightly 尚待观察；#217 Windows PSGallery 安装故障是独立问题。
+
+**2026-09-14 远端交付**：`T0-CI-SELFTEST-ADOPTION-REPAIR` 经 [PR #299](https://github.com/Asun28/MyInspection/pull/299) 合并（`8d673edb`；reviewed head `77a639e8`，R3 第 2 轮双轴 pass、`[CI-GATE-PASS]` 钉 run `34796936991/1`）。修掉 #297 采纳留在 `scaffold-selftest.yml` 上的四处回归：push 面 e2e 分片（15b 夹具 ship 真跑产品 Gradle 许可扫描；15e 在 `$RepoRoot` 干跑真 verify），nightly 面（`-IncludeMeta`）另红 light（post-init `14e` 块的头形式逃出 14m 投影，8.2j 子跑随之红）与 seed-b（17ac(o)① 断言只有元仓才有的 T63 结果 TSV）。修法均是恢复/补齐下游形态：许可闸 stub 进 e2e 基线并加守卫、产品 verify 的降级用例改在裸拷贝上 fail-closed、`# 14e(post-init continuation)` + 连续声明、`[SELFTEST-POSTINIT-MUT-TSV-SKIP]`。证据：官方 RED `failed=8,14,17t+17ac`；GREEN 四闸全 PASS；R4 5/5 变异全杀；Tier S 两次 `-Parallel -IncludeMeta` 全绿（1033 s / 979 s）；两次 dispatch 在真 runner 上 e2e 分片双 OS 绿。两处上游缺陷（17ac(o)① 的 post-init、15e 的 `$RepoRoot` 假设）按 `docs/SCAFFOLD-SYNC.md` 回报；TD176（许可扫描器读的 POM 会被 Gradle 30 天缓存清理删掉）、TD177（`$fail` 单调闩让多闸合跑里首红之后的 `-not $fail` 夹具静默跳过）登记。
+
+**2026-09-11 脚手架采纳交付**：[PR #297](https://github.com/Asun28/MyInspection/pull/297) 已合并 `d991cc92`，落地树与被审 `31d2b8c4` 一致。3 位 DeepSeek 预审无阻塞、获授权的 Codex 第 6 轮 PASS、完整自检 5/5 与当前 CI 通过。11 张旧卡由此次已合并采纳替代，原卡独立验收不作完成声明；INPUT、TRIAGE、RECEIPT 保持排除。来源与验收见 [采纳记录](docs/SCAFFOLD-UPSTREAM-ADOPTION-20260910.md)。
+
+**2026-09-09 远端交付**：`T0-SELFTEST-SCAFFOLD-ONLY` 经 PR #272 合并（`7500992541d15cc7a53b06efe4560dc62123dcff`；reviewed head `d3a206a979468888b208569a2701a9dd3b67fcf6`，merged tree `a1ef3cd8f724583fff2e0b75a46464c6403e2350`），正式 R3 `pass`，exact-head CI `34314990805` success；full selftest 已运行于 parent HEAD `5bff8a` 的未提交 canary 修复源码；该完整源码与 reviewed/merged Git blob `5b05aac083d260978a4c5987902d6bb9ebc4dd0d` 字节一致（归档卡 Delivery receipt 详列来源），source SHA-256 `BFACF8485F7255DDF0C7E39B6671AB50C8071E933B6AF4F00DBB48D06DD29376` native exit 0/2629.0102968s，17a3 real17a3PASS，explicit skips 21；normal ship/official cleanup exits 0/0。官方 cleanup 后归档。
+
+**SPIKE 远端交付**：PR #286 已合并 `6ad05ec40b6bcfc7a1831cc36a1e71f856d335fb`，R3 首轮 pass、CI 成功、官方 cleanup 完成。历史与当前候选 APK／真机证据分列于 [平台报告](docs/spike/PLATFORM-SPIKE.md)；本轮 SAF 仅验证已有授权延续与重启读取，不声称重跑写入。
+
+**2026-09-09 远端交付**：`T4-SYMBOL-MARKDOWN-PARSER` 经 [PR274](https://github.com/Asun28/MyInspection/pull/274) 合并（`18741ac29a20da426ffe99c02c924f2d1b3b29f5`；reviewed head `3b7d51f1519f4b4817289edf2d14c2a68173474e`），正式 R3 PASS、精确候选 CI `34291612516` 成功，117 项行为测试 / 35 项定向变异及项目 verify 通过。原工作树已按正式流程清理，完整历史与最终凭据见 [归档卡](specs/archive/tasks/T4-SYMBOL-MARKDOWN-PARSER.md)。仅交付 Markdown 前置解析能力；PR263 的实际消费者接入、符号设计发布仍待各自交付。
+
+**2026-09-08 远端交付**：`T0-SELFTEST-RISK-ROUTING` 经 PR #273 合并（`fcdb4d8ca5f4d76c2fe73fc6177bc828e239ce6c`；reviewed head `9af2af3a4d4a4abc93549d82da2350b186954cd2`），真实 focused DoD、verify、正式 Sol high R3 与精确候选 CI 通过。真实入口及默认 all→core hook 有界回归、11 枚当前定点变异和 14 枚历史同源函数复用核验完成；不声明 all-shards full selftest。显式任务路由与独立 product verify 约定见本文件工作流入口及 `docs/DEVOPS-WORKFLOW.md`；官方 cleanup 后归档。
+
+**2026-09-08 远端交付**：`T3-DOCX-IMAGE-QUALIFICATION` 经 [PR #269](https://github.com/Asun28/MyInspection/pull/269) 合并（`b43a8d41`；首轮正式 R3、候选 CI 通过）。22 项测试、35 项新变异及完整 core 剪枝验证完成；有界 PNG 验证只提供候选，两种结果均保留人工复核，不授权自动排除。提取器与导入规划仍由后续卡交付。
+
+**2026-09-08 远端交付**：`T3-DOCX-EXTRACTION-MANIFEST` 经 [PR #262](https://github.com/Asun28/MyInspection/pull/262) 合并（`11cf5899`；正式 R3、候选 CI 通过）。八组证据集合不可变，DOCX-EXTRACT-1 三组独立向量一致；10 项测试、45 项新变异和完整 core 剪枝验证完成。提取器与导入规划仍由后续卡交付。
+
+**2026-09-08 远端交付**：`T3-DOCX-XML-TREE` 经 [PR #261](https://github.com/Asun28/MyInspection/pull/261) 合并（`94dfbe58`；正式 R3、候选 CI 通过）。6 项测试、13 项新变异及祖先测试剪枝验证完成；安全 XML 树无文件或网络访问，资源上界仍由 reader 提供。JDK 验证不代表 ART 或完整导入验收。
+
+**2026-09-08 CI 修复**：`T0-CI-SELFTEST-REPAIR` 已经 [PR #259](https://github.com/Asun28/MyInspection/pull/259) 合并（`a293b531`，正式 R3 首轮 pass）。17ai 清单与摘要同步；Windows seeded-git 使用 30 分钟预算，其他九个组合保持 20 分钟。verify 与 [合并后 CI 10/10](https://github.com/Asun28/MyInspection/actions/runs/34182253041) 全绿，旧失败记录保留作诊断证据。
+**2026-09-08 远端交付**：`T4-COMPLIANCE-UPDATE-TRUST` 已经 PR #257 合入 master（`4a1358e`，远端 R3 第二轮 pass，精确提交 CI 通过）；责任记录前置 PR #256 已合并。ADR-0008 确定单公钥离线签名、代次/根身份绑定、日期/反回退和初始化恢复矩阵；批准上下文与后续工程补强的区别已补证。交付为设计及导入卡 A1–A8 验收，真实密钥/制品、导入实现与 API 26/真机证据仍待后续卡，work-check 不启用。
+
+**2026-09-08 远端交付**：`T3-DOCX-PACKAGE-READER` 经 PR #242 squash 合并（`a4febb7f`；reviewed head `d56d4e39`，正式 R3 pass 空 reasons、候选 CI `verify` SUCCESS）。最新 DoD 28 项与项目 verify 通过；41 项同源变异仅沿用历史证据，未宣称重跑。完成无写入有界 ZIP/XML reader；在该 reader 合并时，图片资格验证、提取器、自定义属性兼容与完整导入仍待各卡交付。
+
+**2026-09-08 远端交付**：`T3-REPORT-HTML-PRESENTATION` 经 PR #250 合并（`e792ea75`）；46 项测试、正式 R3 与候选 CI 通过。响应式/A4 print/dark/forced-colors 规则、class parity 与 CSP 字节已验证；浏览器布局和字形未验收。
+
+**2026-09-08 需求审校远端补交**：新增卡/接口与既有卡修订分别由 `T7-AUDIT-REMOTE-FOUNDATION`、`T7-AUDIT-REMOTE-CARDS` 交付；本次 `T7-AUDIT-REMOTE-DOCS` 同步五份文档。11张新功能卡仍待实施；V1预设/键盘、V1.1批量照片、产品V2语音，物业备份format v2导出/恢复仍属V1。检查与合并状态以各PR记录为准。
+
+<!-- 随 R5 文档同步更新。 -->
+**2026-09-08 远端交付**：`T2-ROUTINE-CONTEXT-V2` 经功能 PR #241 合并（`35cb59f3`）；功能 PR #241 的 21 项验收测试、正式 R3 与 GitHub 候选 CI 通过。92 项 Routine v2 保留全部 83 项历史内容，新增 Hallway 八项与普通摘要项；缺少已安装 active v2 时不回退，历史按 ID 读取保持不变。先前本地合并不代表远端 PR 完成；APK 初始化和应用接入仍属后续工作。
+
 **2026-09-08 本地交付**：`T1-SPIKE-PLATFORM` 已合并（master `e8c2359a`，正式 R3 第 **2** 轮 pass）——V1 三项平台风险
 在**真机**上全部判「成立」、无一降级：设备 = Galaxy A34 5G `SM-A346E`、Android 13 / API 33、fingerprint
 `samsung/…/A346EXXU4AWG8:user/release-keys`（**零售 user 版**，非模拟器的 `userdebug/dev-keys`，API 亦低于模拟器的 35）。
@@ -115,6 +157,7 @@ light 调色板项补上那两个段色的职责。21/21 变异全杀。
 > 而这句的假在于**它与同句相邻分句的关系**。**遗留 `[FOLLOW-UP]` 记 TD175**：`outline` on
 > `surface-container` 的 CI 条目标 `evidence-boundary`，而同底另三个段色标 `evidence-segment`；该配对
 > 现服务两种职责，但规范要求每配对恰好一条条目，收口需 metadata schema 决定（多 usage）。
+
 **2026-09-08 本地交付**：`T4-DESIGN-STATUS-CARRIERS` 已合并（master `174c7ce6`，**R3 首轮 pass 零 finding**）——
 收口前卡 `T4-DESIGN-SYMBOL-CHROME-V2` 的三处遗留。**A1**：前卡为「必带状态字形须可感知」立的下限是
 「只渲染在闸已登记的配对上」，本卡补登记后放宽它。实测缺口比建卡段猜的大得多——状态色
@@ -146,8 +189,6 @@ light 调色板项补上那两个段色的职责。21/21 变异全杀。
 
 **2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLAN-PROJECTION` 已合并（master `5b86137e`，正式 R3 pass）；穷尽式单一来源归属、保守名称/房间/状态建议与照片默认待审已交付，复用 SNAPSHOT 并保留全部目标未评级。歧义 caption 父片段及重复图片 part 的 placements 保持独立待审。35 项 plan 测试、1012 项 core 测试（4 项既有 Windows 跳过）及 Golden Evidence E2E 通过；19 项源码变异均被行为断言或耗时上限捕获。确认、预览、回执与导入写入仍由后续卡交付。
 
-**2026-09-08 本地交付**：`T4-COMPLIANCE-UPDATE-TRUST` 已合并（master `cfb4609c`，正式 R3 第4轮 pass，用户授权一次计数重置）。ADR-0008 确定离线签名、公钥身份与代次绑定、日期/反回退、Keystore 初始化证据及恢复矩阵；用户批准本人发布责任、受控电脑持钥与 USB 首次信任安排。前三轮发现均修正，确定性闸门与 core 自检通过；交付为设计与导入卡 A1–A8 验收，实际公钥/制品、导入与真机证据尚待后续卡，不启用 work-check。
-
 **2026-09-08 本地交付**：`T4-SCHEDULE-UI-PRESENTATION` 已合并（master `d22f5d33`，**人裁合并**——
 八道确定性闸全绿、R4 27 枚变异全杀后，R3 轮次上限达顶抬起 `[R3-ROUND-CAP]` 未唤起评审者、按其设计
 转人裁，用户裁定合并）。交付排程界面的最小呈现契约：每状态**至多一个** primary 动作且**必须显式声明
@@ -173,18 +214,6 @@ light 调色板项补上那两个段色的职责。21/21 变异全杀。
 
 **2026-09-07 本地交付**：`T3-DOCX-CUSTOM-PROPERTIES` 已合并（master `b00bcbcd`，R3 pass）；94 项本卡测试、10 项最终源码变异通过。TD174 的固定自定义属性部件有界校验后丢弃已实现，源元数据不进入提取结果；未宣称完整私样导入或真机验收。
 
-**2026-09-07 需求审校**：两张收尾卡已本地合并，卡片/安全接口 `d6e22084`、五文档同步 `bdb428f0`，均正式 R3 第2轮 pass。11张新产品卡保持待实施；文档交付不代表功能完成。V1 预设/键盘、V1.1 批量照片、产品 V2 语音；物业备份 format v2 导出与恢复仍在 V1 发布范围。
-
-脚手架维护已合入精简任务卡、按任务改动选择自检范围，以及每日/手动运行聚合压力测试；状态和验证记录见对应归档卡。上游评审策略仍按其活卡推进；产品 compliance 触发隔离已完成。
-**2026-09-06 脚手架维护**：`T0-SELFTEST-META-EXPANSION` 已本地合并（`04b355d4`，R3 pass）。普通自检默认延后三处元测试，每日/手动完整执行；实时检查保留。最终 core/workflow 全绿；两处新增延后范围的单次局部测量净省约 29.5 秒，非整套自检提速结论。
-**2026-09-06 脚手架维护**：`T0-SELFTEST-SKILL-ROUTING` 已本地合并（`5f0000cf`，R3 pass）。仅 Skill 改动改跑 core + workflow，使用目标工作区的独立快照并省去 seeded 错峰等待；冻结、混合和未知改动仍全跑。DoD、聚合回归、完整两分片及 8 项关键变异验证通过。
-**2026-09-07 脚手架维护**：`T0-SCAFFOLD-TRIGGER-ADOPTION` 已本地合并（`9229141a`，R3 pass）。产品 compliance 单独 push 不触发脚手架自检，license/secret 配置及每日/手动完整矩阵保留；迁移 canary 使用隔离失败测试，17ai 分类与有序断言恢复。最终精确候选整套自检通过，耗时 1980.7 秒；不作为性能提速结论。
-<!-- 随 R5 文档同步更新。 -->
-**2026-09-07 本地交付**：`T2-ROUTINE-CONTEXT-V2` 已合并（master `0603b022`，R3 首轮 pass）；92 项 Routine v2 保留全部 83 项历史内容，新增 Hallway 八项与普通摘要项；仅选择已安装的 active Routine v2，缺失不回退，历史按 ID 读取不变。21 项验收测试、9 项最终源码变异及完整 selftest 通过；APK 初始化和应用接入由 `T1-APP-BOUNDARY-ASSEMBLY` 承接。
-**2026-09-07 本地交付**：`T3-DOCX-REPORT-EXTRACTOR` 已合并（master `71e2b8e5`，R3 pass）；42 项测试与 99 项最终源码变异通过，含 96 项父卡故障与 3 项前置边界集成敏感性验证；drawing/身份边界及字符数据通用守卫修复经真实 RED/GREEN、60 个公开入口探针验证；42 项集成测试完整保留。仅已验证小图可排除；原私样的上游包兼容缺口登记为 TD174，尚未实现原包完整导入。
-**2026-09-06 本地交付**：`T3-DOCX-EXTRACTION-MANIFEST` 已合并（master `2f03a166`，R3 pass）；11 项测试、42 项断言变异与 1 项实际删测验证完成。该前置的独立验收已完成，提取器由父卡继续交付。
-**2026-09-06 本地交付**：`T3-DOCX-XML-TREE` 已合并（master `0c801597`，R3 pass）；6 项测试、18 项断言变异与 6 项实际删测验证完成。该前置的独立验收已完成，提取器由父卡继续交付。
-**2026-09-06 本地交付**：`T3-DOCX-IMAGE-QUALIFICATION` 已合并（master `c571ab4f`，R3 pass）；21 项测试及 35 项变异验证通过。仅限定 PNG 子集可获小图排除资格，JPEG 与未验证负载保留待审；extractor 接入由后续卡完成。
 需求已收口 + **设计已定稿**（ADR-0001–0004、ADR-0006）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。ADR-0006 的 accepted 依据是需求 §11 的 `[定]` 合同及其在本 ADR 中的收紧，不另宣称一次未入账的签认。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/` 存未合并活卡、`specs/archive/tasks/` 存已合并历史，模型路由总表 `docs/TASK-BOARD.md`。
 
 **W0 已完成**：`T0-TOOLCHAIN` **merged**（2026-08-15，R3 pass 于 `5fec73c`，9 轮评审）——JDK 17 + Android SDK（用户级 `JAVA_HOME=C:\Android\jdk-17` / `ANDROID_HOME=C:\Android`）+ `android/` 双模块骨架（`:core` 纯 JVM / `:app` Compose 壳）+ 全项目依赖目录 pin（compileSdk 35、Compose BOM 2026.06.01、TestNG 而非 JUnit——JUnit=EPL 禁列）+ CI 收紧至 windows-latest。verify 的 Android 闸已收紧（哨兵「Android :core check 全绿」）。
@@ -399,7 +428,6 @@ SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）�
 > **轮次上限三次经用户裁定 `ResetRounds`**：每轮都是互不相同的真缺陷、都被接受修复、都带来新的击杀变异，
 > 不属该闸要止住的「同一争点拉锯」；计数被清零，评审本身一次没跳过。
 
-**2026-09-06 本地交付**：`T3-REPORT-HTML-PRESENTATION` 已合并（master `2801e019`，R3 第 2 轮 pass）；`T3-DOCX-PACKAGE-READER` 已合并（master `0a511e96`，R3 第 1 轮 pass）。两卡 DoD、verify 与范围/许可/防泄露闸均通过。HTML 浏览器目检未执行；DOCX 仅完成包读取边界，后续语义提取与图片解码仍由承接卡负责。
 
 **当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（其 `T1-SPIKE-PLATFORM` 真机 spike 前置**已满足**，master `e8c2359a`）· `T3-REPORT-HTML-RENDERER`
 · `T2-ROUTINE-CONTEXT-V2` ·
@@ -541,22 +569,27 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 15. `docs/DELIVERY-OPS.md` — **合并之后**交付/运维方法论（opt-in 姊妹篇：集成/e2e 测试层 · 结构化日志/可观测 · 灰度+feature-flag · CD 部署/回滚/staging；全为方法论+标准+占位、工具无关；**脚手架永不自动发布**，CD 下游接线）
 16. `docs/RELEASE-CHECKLIST.md` — **发布前收口清单**（工具无关、可勾选）：整合已有闸（防泄露 `check-secrets -Strict` / `verify`）+ 授权/认证安全自查（越权 IDOR/会话固定/token 存储/CSRF/密码哈希）+ 可观测 + 灰度/回滚。小项目按需取子集
 17. `docs/FRONTEND-FLOW.md` — **前端生成闭环**（T2 档 · 复杂多页前端）：四段串现有件（生成前/中/后/资产回流）+ **流程卡(页面地图)** 与 **意图卡(单页目标)** 两个模板；流程卡→喂 `plan-forge`、意图卡→`grill-design` 拷问敲定；驱动卡 `.claude/skills/frontend-flow`。**不重造引擎**，简单单页前端直接 `frontend-design`+pencil
-18. `docs/SCAFFOLD-SYNC.md` — **fleet 回路 + 决策账**：`check` 展示上游 Downstream 耦合组；`report` 反哺 issue；每版记 applied/partial/skipped。`ScaffoldOriginVersion` 是不可变来源（v0.29.0），`ScaffoldVersion` 是已裁决高水位（v0.46.0）；缺/坏账只回退 origin。`scaffold-stale` 只读本地 ref、绝不 fetch
+18. `docs/SCAFFOLD-SYNC.md` — **fleet 回路 + 决策账**：`check` 展示上游 Downstream 耦合组；`report` 反哺 issue；每版记 applied/partial/skipped。`ScaffoldOriginVersion` 是不可变来源（v0.29.0），`ScaffoldVersion` 是已裁决高水位（v0.47.0）；缺/坏账只回退 origin。`scaffold-stale` 只读本地 ref、绝不 fetch；本次耦合采用与未覆盖项见 `docs/SCAFFOLD-UPSTREAM-ADOPTION-20260910.md`
 19. `docs/DATABASE-DESIGN.md` — 离线主证据库、诊断库、文件存储、写权限、生命周期、读模型与诊断导出的设计权威
 20. `docs/adr/0006-offline-security-backup-hardening.md` — ADR-0002 的离线安全、密钥、provider 失败隔离与恢复验证加固；保留整包/按物业备份范围
 21. `docs/UI-UX-ELEMENTS.md` — UI 页面、Overlay 与状态的 Elements 覆盖索引；规范细节唯一服从 `context/DESIGN.md`
 22. `specs/android-module-boundaries.md` — 审校补全的产品模块所有权、窄接口与复用约束（后续卡实现，非已编译 API）；版本与卡依赖见 TASK-BOARD 的 2026-09-06 补卡计划
 23. `docs/adr/0008-compliance-update-trust.md` — 已批准的规则更新信任根、签名包、代次/版本/日期、初始化及恢复决策；实际制品与真机证据由导入卡交付
 
+22. `specs/android-module-boundaries.md` — 审校补全的产品模块所有权、窄接口与复用约束（后续卡实现，非已编译 API）；版本与卡依赖见 TASK-BOARD 的 2026-09-06 补卡计划
+23. `docs/adr/0008-compliance-update-trust.md` — 规则离线签名与信任根、版本/日期/恢复矩阵及用户决策证据；导入实现按 A1–A8 后续交付
+
+24. `docs/plans/PREREVIEW-REMOTE-ADOPTION.md` — prereview 最终契约、策略和 FACTS-LIB 的远端采纳边界与验证。
+
 ## 开发工作流（每张任务卡，详见 docs/DEVOPS-WORKFLOW.md）
 单卡闭环：`scripts\task.ps1 -TaskId <ID> -Phase start|ship|cleanup`
 - **R1 worktree**：每卡建 `<WorktreeRoot>\<ID>` 隔离分支（.venv/node_modules 每树独立、gitignored）
 - **R2 TDD**：先写失败测试→实现到绿→重构；契约测试 mock 必 100% 过
 - **R3 pre-push + PR/Codex 评审代替人工**：ship 在 push 前依次强制 DoD、verify、范围、许可、防泄露与**真实 diff 预算闸**；随后 `review.ps1` 按 `docs/QUALITY-RUBRIC.md` 判（注入 rubric + 反自我开脱立场），出 `{verdict:pass|block}`→回贴 `codex-review` 状态；
-  有 Pro 规则集则 `verify`(CI)+`codex-review` 双绿自动合并；free+private 由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
+  规则集要求 `required`（CI fan-in）+`codex-review` 双绿；本项目 `ReviewGate='required'` 同时由 review.ps1 退出码本地强制；**阻断态可诊断**——「跑完了但读不出可用裁决」分四态各带 ASCII 状态码 + 恢复路由（见 rubric §5），拒答原文另存 `.review/(分支名).raw.txt`
   - **评审者的模型/档位钉在 `scripts/_config.ps1`**（`ReviewModel`/`ReviewEffort`，留空=后端默认）：别让**用户级**
     `~/.codex/config.toml`（GUI 可改）决定本项目合并闸的生死——它一旦被改成当前 CLI 不支持的模型，R3 对所有 PR 都会 fail-closed block
-- **CI 触发形态**：`ci.yml` 跑 `[main, master]` push+PR；`verify` 是必需检查。`scaffold-selftest.yml` 的默认分支 push canary 只覆盖脚手架权威面，排除产品 `configs/compliance/**`，保留 license/secret 配置、每日与手动触发；每个 OS 跑 core/workflow/seeded-git/remote/scanner 五片，覆盖不减（8.2d/8.2e 锁死）。push 延后三处元层夹具至每日/手动；生产检查保留，详见 DEVOPS-WORKFLOW。合并前仍由卡 DoD + verify + R3 守门。
+- **CI 触发形态**：`ci.yml` 跑 `[main, master]` push+PR；必需检查 `required` 汇总 `verify` 等所有 CI 作业，`codex-review` 是独立 R3 状态。`scaffold-selftest.yml` 跑默认分支 push、每日定时和手动 canary，不在 PR 上运行；两种 OS 的分片及超时以该文件矩阵为准，并集覆盖完整 17 闸（8.2d/8.2e/8.2h 校验）。元层改动合并前仍须本地全量 selftest，另由卡 DoD + verify + R3 守门。
   **push 侧是事后检测、不是 push 前强制**——提交落地后才跑；free+private 无可强制规则集时，它保证直推提交**败即显式变红**（防泄露闸尤需事后可见：发现了才能轮换密钥）。
   push 前的真强制只有两层：`gh-bootstrap.ps1` 装的本地 pre-push 钩子（仅覆盖装了钩子的克隆）、服务端规则集（需 Pro/public）
 - **R4 测试卫生**：mutation-survivor 法剪枝冗余测试（每卡 `hygiene` 字段）
@@ -595,9 +628,9 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 <!-- TODO：按你项目填实际命令。下面是常见骨架。 -->
 - Android 工程（T0-TOOLCHAIN 落地后）：全部测试/静检 `cmd /c android\gradlew.bat -p android --offline --no-daemon :core:check`；装机包 `:app:assembleDebug`；装环境步骤见 `specs/archive/tasks/T0-TOOLCHAIN.md`
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
-- **工作流自检**：脚手架/harness 改动运行 `pwsh -File scripts\selftest.ps1`；完整 17 闸本地聚合 core/workflow/seeded，CI canary 用 2 OS × 5 片。任务卡可用 `pwsh -File scripts\selftest.ps1 -TaskId <id> -Base master` 选既有覆盖：基线卡与 FrozenPaths、分支身份、提交/暂存/脏/未跟踪改动任一不可判即以非零退出拒绝选择；普通产品改动只报 `NOT-APPLICABLE`（仍须做产品 DoD/verify），普通文档/卡片改动跑 core。脚手架卡可选聚焦 fixture 作迭代 DoD，最终验收按卡执行；产品卡使用相关产品测试 + `scripts/verify.ps1`，不把 scaffold selftest 当 DoD。
-  默认 `IncludeMeta=false` 延后 `1i/fixtures`、`8.2e/protocol`、`8.2e/harness`；每日/手动及本地 `-IncludeMeta` 补齐。DEFERRED 收据不表示测试通过；真实源码与生产行为检查保留。
-- **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；**已推送状态的手工恢复必须用完整式**——跑**主检出**那份 checker（相对自身位置加载判定核，从被审工作树跑＝被审分支自己判自己，同 L86 之理）、`-Path` 指被审树，先 `git fetch origin master T1-FOO`（**fetch/gh 非零即中止**——陈旧 `origin/*` 会让 allow_paths 都取自旧卡，空 head 会把绑定静默关掉）、**核 PR 的 `baseRefName` == 本次判定的 base**（判定前 + 合并前各一次；PR 被 retarget 会「按 A 判往 B 合」）、**合并前再复核基线 OID 未前移**（名没变但 base 前移时，合并落到新基线而 allow_paths 取自基线那份卡 ⇒ 判定依据已变，须重跑），再把两侧 OID 都钉进闸 `pwsh -File <主检出>\scripts\check-scope.ps1 -TaskId T1-FOO -Base master -Path <被审树> -ExpectTip $head -ExpectBase $baseOid`，合并配 `gh pr merge --match-head-commit`（权威序列含退出码检查见 `docs/DEVOPS-WORKFLOW.md`）
+- **工作流自检**：`pwsh -File scripts\selftest.ps1`；本地跑完整 17 闸，`-Parallel` 按矩阵分片并行；CI canary 用 2 OS × 5 片。任务卡可选定向检查作 DoD，但不能替代 Tier-S 完整验收。
+  显式 `-TaskId <id> -Base origin/master` 从已钉定本地基线读取卡/冻结配置，定位该任务的注册工作树：普通 `android/`、`configs/compliance/` 产品改动仅报不适用（仍须 product verify），普通文档跑 core，混合/关键/冻结/未知改动跑 all；省略 TaskId 保持完整默认覆盖。
+- **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；已推送状态的手工恢复可按 `docs/DEVOPS-WORKFLOW.md` 完整式做诊断和修复后自查，但最终交付不得裸跑 review/checks/merge，必须执行 `-NoAutoMerge` 打印的 `[SHIP-MANUAL-RESUME]` 命令，重新进入同一 `task.ps1 -Phase ship`，由 fresh R3、精确 CI workflow/run-attempt/PR/jobs 身份、终局 base/head/OID 快照和受保护合并腿共同裁决。
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 
 ## 架构大图
@@ -617,7 +650,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 ## 硬边界（不可违反）
 - **永不做**（需求 §1 写死，防范围蔓延）：租金/账务 · 房客筛选/背调 · 工单派发 · 房源广告 · 押金托管 · **任何账号体系** · **任何服务端功能** · 多用户/权限 · 模板编辑器 UI。
 - **local-first**：数据（SQLite + 照片/音频文件）永在本地；唯一联网点 = remediation 时调 LLM API（自己的 key，可完全跳过）；不做云账号、不做遥测。app **自己不发送**通知（只生成 + 一键复制，人工发送后回记存档）。
-- **合规校验为阻断闸、不可关闭，校验阈值/开关不进设置页**（需求 §10）：4 周内不得重复 Routine（法律上限；Ingoing/Exit 不计入）· 通知提前量 ≥48h 且 ≤14 天 · 巡检落在 08:00–19:00（寄宿公寓 08:00–18:00）。设置只允许按可信来源策略手动导入规则文件，不能修改阈值或绕过校验。
+- **合规校验为阻断闸、不可关闭，校验阈值/开关不进设置页**（需求 §10）：4 周内不得重复 Routine（法律上限；Ingoing/Exit 不计入）· 通知提前量 ≥48h 且 ≤14 天 · 巡检落在 08:00–19:00（寄宿公寓 08:00–18:00）。设置只允许按可信来源策略手动导入规则文件，不提供直接编辑阈值或绕过校验的入口。
 - **LLM 建议只进房东版**报告；定位 = 提示 + 分级（NZS 4306 思路）+ 建议找谁，**不做诊断/处方/成本估算**；报告必带免责声明。
 - 隐私（Privacy Act 2020）：备份包**必加密**（含租客照片/联系方式）；租客数据设明确保留期限 + 可一键清理；`.env` 与密钥永不入库。
 - 测试/verify/CI 走确定性/离线路径（LLM 调用全 mock，禁出站网络）。
@@ -690,4 +723,4 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - 并行工具调用时把只读诊断与写操作分批（L1）；触碰冻结契约会被 `guard-frozen` 钩子拒绝（需演进走版本评审）。
 
 ---
-<sub>脚手架溯源：**MyInspection** 由 devops-scaffold **v0.29.0** 生成（`ScaffoldOriginVersion`）；已裁决到的当前版本为 **v0.46.0**（`ScaffoldVersion`）。</sub>
+<sub>脚手架溯源：**MyInspection** 由 devops-scaffold **v0.29.0** 生成（`ScaffoldOriginVersion`）；已裁决到的当前版本为 **v0.47.0**（`ScaffoldVersion`）。</sub>

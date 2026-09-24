@@ -7,10 +7,10 @@ status: todo
 branch: T5-BACKUP-IO
 worktree: C:\wt\T5-BACKUP-IO
 plan_ref: context/DESIGN.md#offline-and-data-protection-experience
-backup_scopes: [full, property]
+backup_scopes: [full]
 backup_states: [NOT_CONFIGURED, READY, RUNNING, VERIFIED, PROVIDER_UNAVAILABLE, AUTHORIZATION_REVOKED, NEEDS_UNLOCK, NEEDS_PASSPHRASE, LOW_STORAGE, FAILED]
 acceptance:
-  - "A1 full and property backup states expose NOT_CONFIGURED through FAILED and PREPARING then ENCRYPTING then WRITING then VERIFYING; supported full backups only finish with a verified receipt, while property v1 compatibility exports have no recoverable receipt and are not restorable"
+  - "A1 format v1 full backup exposes NOT_CONFIGURED through FAILED and PREPARING then ENCRYPTING then WRITING then VERIFYING, finishing only with a verified receipt; no new v1 property export is offered, legacy v1 property restore is rejected, and production v2 property export/restore belongs to T5-PROPERTY-RESTORE-INTEGRATION"
   - "A2 restore expands into staging, supports recovery cleanup and rollback, and uses verify-before-replace so the live data is untouched until verification passes"
   - "A3 provider, authorization, storage, and secret failures are distinct; secrets are referenced from protected storage and never exported or logged"
   - "A4 local/USB export and restore work in flight-mode without an account or network dependency"
@@ -63,4 +63,4 @@ dod 见 front-matter。首选 Sonnet 5 · max；备选 Terra。难度 H。
 
 本卡只负责 format v1 full 的导出/恢复，不提供 v1 property 导出；旧 v1 property 包拒绝恢复。format v2 与逐表闭包归各自前置卡；T5-PROPERTY-RESTORE-INTEGRATION 拥有 v2 property 的生产导出、SAF 关闭重开全验、回执及恢复接线。复用 ArchiveStore 与启动装配的写入/恢复协调能力；命令和确认边界见 `specs/android-module-boundaries.md`。
 
-接线范围说明：新增 composition 两条路径用于注册备份维护/启动恢复与写入协调；只实现本卡恢复/快照的接入，不迁移其他功能。总路径较多但属于同一备份端到端交付，产品 v2 扩展仍由后续卡拆分。
+接线范围说明：新增 composition 两条路径用于注册备份维护/启动恢复与写入协调；只实现本卡恢复/快照的接入，不迁移其他功能。总路径较多但属于同一备份端到端交付，format v2 的物业导出/恢复由后续整合卡交付，仍属产品 V1。

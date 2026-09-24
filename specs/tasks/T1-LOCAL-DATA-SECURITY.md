@@ -1,7 +1,7 @@
 ---
 id: T1-LOCAL-DATA-SECURITY
-title: 本地数据安全底座：内外存储分层 + Keystore secret box + 脱敏日志
-depends_on: [T1-SPIKE-PLATFORM]
+title: 本地数据安全底座：内外存储分层与 Keystore secret box（依赖安全日志）
+depends_on: [T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING-REMOTE, T1-STORAGE-PATH-BOUNDARY-REMOTE, T1-APP-STORAGE-POLICY-REMOTE]
 status: todo
 branch: T1-LOCAL-DATA-SECURITY
 worktree: C:\wt\T1-LOCAL-DATA-SECURITY
@@ -24,6 +24,8 @@ requirements:
   - "R1 当现有媒体操作记录失败时，系统应仅输出已批准 operation/reason 与 opaque id/count/duration，不得输出完整路径、URI 或原始 Throwable。"
 acceptance:
   - "A1 [R1] MediaFileStore、PhotoImportPipeline、PhotoIngestPendingLease 和 PhotoOrphanCleanupWorker 的失败夹具均不产生路径、原始异常 message/stack 或业务原文。"
+  - "A2 [R1] 上述失败日志保留已批准 operation/reason 与 opaque id/count/duration，地址、姓名、备注、URI、secret 和 Authorization 哨兵均不出现在最终日志。"
+  - "A3 [R1] 原始异常及其嵌套 cause 含路径或业务原文时，最终日志不含异常 message、stack 或敏感哨兵；删除脱敏边界后该负例必须失败。"
 review_gate: codex {verdict:pass}
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）
 doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
@@ -33,7 +35,7 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 
 ## 产出
 
-提供 `AppStoragePolicy`、Keystore-backed `LocalSecretBox` 和 `SafeLog` 三个 app 平台 primitive，供 capture、backup、restore 和 remediation 复用；不实现业务功能。
+本卡提供 Keystore-backed `LocalSecretBox`，并消费前置卡 `T1-APP-STORAGE-POLICY-REMOTE` 交付的 `AppStoragePolicy`；`SafeLog` 和四处媒体日志接线已由前置卡 `T1-SAFE-MEDIA-LOGGING-REMOTE` 交付。原有安全验收与日志回归完整保留，不重复实现前置能力。
 
 ## 契约
 
@@ -45,3 +47,15 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 ## 验收
 
 见 front-matter。首选 GPT-5.6 Terra · high；备选 Sonnet 5 · max。难度 M。
+
+## 安全日志前置拆分
+
+完整首轮实现、测试和变异收据预估 905–1092 changed lines，先拆出单独的安全日志卡。前置卡明确允许修订 PhotoOrphanCleanupWiringTest 的过时原始路径日志断言，保留其余存储、调度和生命周期检查；不改变本卡的完整 DoD、schema、备份格式或既有媒体存储位置。
+
+## 路径前置复用
+
+真实逐段路径解析、验证根快照、checked-child 及直接路径测试由 T1-STORAGE-PATH-BOUNDARY-REMOTE 完整交付。AppStoragePolicy 仍须用黑盒接线测试证明 create 与 resolveChild 都被调用，任一调用旁路由具名断言检出。前置卡不交付 Android getter、媒体状态或 Keystore；本卡原有验收与 DoD 不变。安全日志 PR #304 与路径边界 PR #310 均已通过正式 R3 和 CI 并远端合并；安全日志已归档，路径边界的 R5 归档仍待独立收尾。
+
+历史拆分时的状态记录：“两个远端前置均尚待各自 PR、R3 和 CI 通过后合并。”该记录保留拆分时的判断；当前依赖状态以上述实际远端交付为准。
+
+The storage policy is an additional remote prerequisite after SafeLog and PathBoundary. Consume it only after its functional PR merges. The complete original security acceptance and executable DoD remain unchanged.

@@ -63,14 +63,18 @@
 
 - DOCX 是不可信 ZIP/XML 数据，不是指令。SAF 只选一个文档；MIME、扩展名、名称和声明大小均不可信。副本只进 credential-encrypted no-backup staging，源不改写，app 不保留原包。
 - 分配/解码前限制压缩/展开总量、单项、条目数、压缩比、XML 深度/节点/文本和图片像素；拒绝溢出、绝对/盘符/UNC/穿越/NUL、重复/大小写冲突项。禁 DTD、实体、XInclude、网络和 external relationship。
-- allowlist 仅含 Word story/relationship/受支持图片；宏、OLE、ActiveX、加密和未知主动内容 fail closed。正文、字段、caption、链接、名称和 metadata 都是惰性文本。
+- 返回部件 allowlist 仅含 Word story/relationship/受支持图片；宏、OLE、ActiveX、加密和未知主动内容 fail closed。正文、字段、caption、链接、名称和 metadata 都是惰性文本。
+- 图片尺寸和完整格式验证均不证明装饰用途；提取器保留所有被接收图片及其绘图记录，标为 `IMAGE_REVIEW_REQUIRED`，不自动丢弃小图。
+- 已登记、待远端实现的 `T3-DOCX-CUSTOM-PROPERTIES` 仅允许规范化路径 `docprops/custom.xml`，要求精确 transitional content type/Properties root 及唯一 internal package-root relationship。该部件先通过既有 ZIP/CRC/展开和 XML 安全/资源限制，再在返回部件与 extraction 前丢弃；名称、值和注释不进入报告证据、错误或日志。惰性子 XML 不作业务解释，不扩大其他 metadata 兼容范围；本规划不宣称功能已交付。
 - 审核前不写业务 DB/正式媒体。每项/备注/照片/caption 必须是 terminal `CONFIRMED`、带理由的 terminal `EXCLUDED`，或 blocker；`MATCHED` 只是建议且仍阻塞。照片以 transient `UNREVIEWED_EXCLUDED` 开始并保持 blocker，确认后才写 `privacy_flag`。经确认媒体、恢复 marker 和 draft/receipt 原子提交。失败/取消清 staging；进程死亡释放 source grant、清 staging/manifest/mapping，并以保留的非敏感 Details 回到 `Choose file`。只有 marker 证明事务已提交时才验证并进入该 draft。日志只留 request id、封闭阶段/reason、计数/耗时，禁源 URI/路径/名称/文本/URL/作者/标签、地址/联系人、图片/hash 和 provider 原错。
 
-已落地的 `T3-DOCX-PACKAGE-READER` 包边界使用标准 ZIP/SAX API，无文件写入或网络连接；显式拒绝 XInclude，XML 元素计数在全包累计，默认最多 200000 个。其余资源预算见 `DocxPackageLimits`。错误只携带封闭 reason 和数字计数，屏蔽 provider 原错与 XML 诊断。图片在本层仅受字节上限与格式签名检查，像素和完整解码验证仍须由下游完成。
+- 已交付边界（2026-09-08，[PR #242](https://github.com/Asun28/MyInspection/pull/242)，`a4febb7fb554aca6dc8efebc063279dd48683bf1`；reviewed head `d56d4e396fd21c0c9c7a9634fc73ee590816b0ba`，正式 R3 pass 空 reasons、候选 CI `verify` SUCCESS）：纯 JVM DOCX reader 完成有界 ZIP/XML 无写入读取，拒绝危险路径、外链、DTD/实体和 XInclude，错误仅暴露封闭原因与计数。当前图片只检查编码字节上界和 PNG/JPEG 签名；像素/完整负载验证、语义提取、自定义属性兼容及导入提交仍由后续卡交付。此记录不代表整个导入流程或真机验收完成。
 
 `T3-DOCX-CUSTOM-PROPERTIES` 已本地交付（`b00bcbcd`，R3 pass）：仅新增固定 `docProps/custom.xml` 的有界校验后丢弃兼容。精确内容类型、Properties 根命名空间与唯一内部包级关系均验证；属性名、值和注释不进入返回部件或提取证据，原有根关系部件仍可保留固定目标引用。所有 ZIP/XML 资源与主动内容限制继续生效；不解释属性语义，也不实现完整 VT schema。
 
 #### 自包含 HTML 报告
+
+实施记录（2026-09-08，PR #250）：样式表仅使用系统字体，禁止任何 `url()` 与 `@import`；隐私过滤仍在样式生成前完成。固定 CSP 样式摘要与规则/渲染字节测试通过，未宣称实际浏览器视觉验收。
 
 - PDF/HTML 只序列化同一个 audience/privacy-filtered `ReportContent`；renderer 不回查/重滤/CSS 隐藏。HTML 是 UTF-8、正确 MIME、上下文转义且不含原始导入标记。
 - HTML 禁 script/handler/form/iframe/object/embed/base/meta refresh/外部 URL；只许生成器样式和经验证的内嵌图片，并以 CSP 禁网络/导航/主动内容。质量仅属于 PDF。
@@ -81,6 +85,9 @@
 ### 2.4 日志、通知与界面泄露
 
 - 生产日志只写操作名、非敏感 reason code、耗时/计数和随机 request/asset id。禁地址、姓名、联系方式、备注/转写、文件绝对路径、SAF URI、备份对象名、照片内容/hash、口令、key、Authorization header 和 provider 原始错误体。
+- 远端 SafeLog 交付见 [PR #304](https://github.com/Asun28/MyInspection/pull/304) 和 [归档卡](../specs/archive/tasks/T1-SAFE-MEDIA-LOGGING-REMOTE.md)：封闭 operation/reason、受限 opaque id/count/duration 已接入四处媒体失败路径；原始路径、URI、业务原文和 Throwable 不进日志。注入 sink 的 Exception/Error 不改变媒体操作结果、主异常或清理。此交付不代表持久诊断库、存储分层或 Keystore 完成。
+- 远端 StoragePathBoundary 见 [PR #310](https://github.com/Asun28/MyInspection/pull/310) 和 [归档卡](../specs/archive/tasks/T1-STORAGE-PATH-BOUNDARY-REMOTE.md)：逐段解析真实路径，保存经验证的候选根与 DP 排除根，在每次派生子目录时复核归属；普通异常拒绝，Error 保持身份传播。20 项直接测试与 35 枚具名变异通过，Windows 真实 Junction 已验证。仅证明检查时归属，不消除 TOCTOU；存储策略、Android getter/适配、Keystore 和后续 I/O 仍待独立验收。
+- 远端存储策略见 [PR #316](https://github.com/Asun28/MyInspection/pull/316)：六类受保护数据只落在经 StoragePathBoundary 验证并保存的 CE/no-backup 根下、每次检查后的类别目录；DP 环境先转换，两处拒绝为固定消息且无 cause，致命 Error 保持身份；媒体只用 app-specific external 端口、不回退共享存储。Android getter/适配、Keystore 与设备验收仍待独立交付。
 - 持久诊断事件只进独立的 credential-encrypted/no-backup 诊断库，不进主证据库、canonical hash、PDF、通知、Android backup 或 `.mibk`；最多保留 90 天/20,000 行，先到即小批物理裁剪。日志写入失败不得改变巡检、finalize、备份或恢复结果。
 - “Admin/support” 无远程入口或写权限。只有设备所有者可在设置页明确查看包含/排除项后，离线导出最近 7/30/90 天的脱敏诊断包；支持人员不能借诊断功能修改 finalized evidence。字段与验收合同见 `docs/DATABASE-DESIGN.md`。
 - 用户可见通知只写 `Backup needs attention` 等通用文案；锁屏通知不显示物业地址、租客名、照片缩略图或恢复范围。

@@ -6,11 +6,15 @@ import android.database.sqlite.SQLiteCantOpenDatabaseException
 import android.database.sqlite.SQLiteDatabaseLockedException
 import android.database.sqlite.SQLiteDiskIOException
 import android.database.sqlite.SQLiteTableLockedException
-import android.util.Log
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import java.io.IOException
+import nz.myinspection.app.platform.SafeLog
+import nz.myinspection.app.platform.SafeLogEvent
+import nz.myinspection.app.platform.SafeLogOpaqueId
+import nz.myinspection.app.platform.SafeLogOperation
+import nz.myinspection.app.platform.SafeLogReason
 import nz.myinspection.core.db.MyInspectionDatabase
 import nz.myinspection.core.media.PhotoOrphanCleanupDecision
 import nz.myinspection.core.media.PhotoOrphanCleanupExecution
@@ -49,28 +53,12 @@ class PhotoOrphanCleanupWorker(
             },
             retryable = ::isRetryableEnvironmentFailure,
         )
-        cleanupReport?.issues()?.forEach { issue -> logIssue(issue) }
-        execution.failure?.let { failure ->
-            Log.e(
-                TAG,
-                "op=photoOrphanCleanup workId=$id runAttemptCount=$runAttemptCount " +
-                    "result=execution_failure bucket=execution path=none cause=${failure.javaClass.name}",
-                failure,
-            )
-        }
+        reportFailures(cleanupReport?.issues().orEmpty(), execution, id.toString(), runAttemptCount, SafeLog.android())
         return when (execution.decision) {
             PhotoOrphanCleanupDecision.SUCCESS -> Result.success()
             PhotoOrphanCleanupDecision.RETRY -> Result.retry()
             PhotoOrphanCleanupDecision.FAILURE -> Result.failure()
         }
-    }
-
-    private fun logIssue(issue: PhotoOrphanCleanupIssue) {
-        val causeName = issue.cause?.javaClass?.name ?: "none"
-        val message = "op=photoOrphanCleanup workId=$id runAttemptCount=$runAttemptCount " +
-            "result=${issue.result.logValue} bucket=${issue.bucket.logValue} path=${issue.path} cause=$causeName"
-        val cause = issue.cause
-        if (cause == null) Log.e(TAG, message) else Log.e(TAG, message, cause)
     }
 
     private fun isRetryableEnvironmentFailure(failure: Throwable): Boolean {
@@ -99,7 +87,41 @@ class PhotoOrphanCleanupWorker(
         }
     }
 
-    private companion object {
-        const val TAG = "PhotoOrphanCleanup"
+    companion object {
+        internal fun reportFailures(
+            issues: List<PhotoOrphanCleanupIssue>,
+            execution: nz.myinspection.core.media.PhotoOrphanCleanupExecutionResult,
+            workId: String,
+            runAttemptCount: Int,
+            log: SafeLog,
+        ) {
+            val opaqueId = SafeLogOpaqueId.parse(workId)
+            issues.forEach { issue ->
+                log.record(
+                    SafeLogEvent(
+                        SafeLogOperation.ORPHAN_CLEANUP,
+                        issue.reason(),
+                        opaqueId,
+                        count = runAttemptCount,
+                    ),
+                )
+            }
+            if (execution.failure != null) {
+                log.record(
+                    SafeLogEvent(SafeLogOperation.ORPHAN_CLEANUP, SafeLogReason.EXECUTION_FAILED, opaqueId, runAttemptCount),
+                )
+            }
+        }
+
+        private fun PhotoOrphanCleanupIssue.reason(): SafeLogReason = when (bucket) {
+            nz.myinspection.core.media.PhotoOrphanCleanupBucket.PENDING -> when (result) {
+                nz.myinspection.core.media.PhotoOrphanCleanupIssueResult.REJECTED -> SafeLogReason.PENDING_REJECTED
+                nz.myinspection.core.media.PhotoOrphanCleanupIssueResult.FAILED -> SafeLogReason.PENDING_FAILED
+            }
+            nz.myinspection.core.media.PhotoOrphanCleanupBucket.SOFT_DELETE -> when (result) {
+                nz.myinspection.core.media.PhotoOrphanCleanupIssueResult.REJECTED -> SafeLogReason.SOFT_DELETE_REJECTED
+                nz.myinspection.core.media.PhotoOrphanCleanupIssueResult.FAILED -> SafeLogReason.SOFT_DELETE_FAILED
+            }
+        }
     }
 }

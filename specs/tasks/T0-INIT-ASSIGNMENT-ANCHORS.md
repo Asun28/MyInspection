@@ -1,7 +1,8 @@
 ---
 id: T0-INIT-ASSIGNMENT-ANCHORS
 title: Restrict initializer configuration rewrites to their actual assignment fields
-status: todo
+status: merged
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
 depends_on: [T0-SHIP-REVIEW-BASE-BUNDLE]
 allow_paths:
   - init-scaffold.ps1
@@ -33,8 +34,17 @@ doc_sync: Keep the initializer comments accurate; synchronize the v0.47 partial-
 Adapt the root cause of upstream PR #377 across the local field set. The audit reproduced
 ReviewEffort rewriting a comment and LegacyReviewEffort. The current application is already initialized.
 
-Version-closeout coupling (confirmed before R1/RED): scaffold-sync's existing real-ledger SelfCheck
-pins current v0.46.0. Include its expected v0.47 partial row and the matching config/authority metadata
+Version-closeout coupling: registration baseline ceb2685e9e3ada76a503377584d512c0c6d2af4d pins v0.45.0; recheck its config,
+authority references and real-ledger SelfCheck against the actual remote tree before R1/RED. Include its expected v0.47 partial row and the matching config/authority metadata
 in this final adoption card so the last selected repair and its adoption record land together.
 The focused fixture also invokes the existing scaffold-sync SelfCheck. Historical ledger rows and
 immutable origin remain unchanged; unselected advisory/budget policies remain declined.
+
+
+## Remote delivery authorization and provenance
+
+The user's 2026-09-08 instruction authorizes remote delivery through an independent worktree and PR. The remaining acceptance, forbid and non-goals stay in force. This todo registration does not represent local historical results as remote implementation or acceptance. Use task-loop with GPT-6 Astra, high effort and the configured independent GPT-5.6 Sol high R3. Establish current-source behavior evidence and preserve existing remote product changes.
+
+## R5 closure by upstream adoption — 2026-09-11
+
+Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md), delivered in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc928c4dd36607cc19eace40ec3cc8c01dd1`). `status: merged` records closure through that merged replacement; it does not claim this original card's implementation, DoD, RED, mutation or performance plan was independently completed. The original worktree and evidence are preserved; its old execution queue is retired.

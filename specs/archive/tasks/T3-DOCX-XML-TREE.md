@@ -16,10 +16,10 @@ non_goals:
 plan_ref: docs/adr/0007-report-interchange.md
 acceptance:
   - "A1 direct parse tests prove namespace-aware ordered trees and closed rejection of malformed XML, DTDs and entities before external access"
-  - "A2 namespace/local names, attribute precedence, direct text including CDATA and UTF-8, child ordering, parent links, traversal and nearest Word ancestor queries retain existing behavior"
+  - "A2 namespace/local names, attribute precedence, direct text including CDATA and UTF-8, child ordering, parent links, traversal and nearest Word ancestor queries match the referenced extraction contract"
   - "A3 plain DOCTYPE, internal general and expansion entities, external general and parameter entities and external subsets are rejected as DOCX_XML with no exposed input, path or nested cause"
   - "A4 a test-only JDK17 I/O guard is calibrated through real file and URL entry points; each malicious case makes zero target-file or network attempts and the previous guard is restored"
-  - "A5 only the existing Element, parse and W declarations move to an internal unit in the same package; callers continue using validated bounded DocxPart input"
+  - "A5 implement the internal Element, parse and W signatures in docs/references/docx-extraction-contract-llms.txt; production callers use validated bounded DocxPart input"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q --rerun-tasks --no-build-cache :core:test --tests "nz.myinspection.core.report.importing.docx.extract.DocxXmlTreeTest"
 dod_exit: 0
 dod_assert: direct parse tests prove namespace-aware ordered trees and closed rejection of malformed XML, DTDs and entities before external access
@@ -32,8 +32,12 @@ doc_sync: ADR-0007 + TASK-BOARD
 
 ## Approved predecessor (2026-09-06)
 
-The user approved moving the existing parser/tree helper from T3-DOCX-REPORT-EXTRACTOR, changing private visibility to internal only where needed. The direct tests use synthetic DocxPart values and have no extractor, Manifest or fixture dependency. Production callers receive parts from DocxPackageReader, whose byte/depth/node/text bounds remain the upstream resource boundary; this helper does not claim an independent input-size sandbox. The malicious-input tests intentionally construct parts internally to verify the parser defense. The original malicious-XML extractor integration test remains in the parent card. No actual external network or target-file access is authorized.
+Implement [the internal contract](../../../docs/references/docx-extraction-contract-llms.txt). Direct tests independently construct synthetic DocxPart values, including hostile ones; production uses bounded reader parts. Parent integration stays as specified. No file/network access.
 
-## Delivery evidence
+## Remote delivery — 2026-09-08
 
-2026-09-06: local master `0c801597`, implementation `32c03d2874f4c17ec00f8ef4ce26287a89eb39fa`; exact DoD 6 tests passed, 18 source mutations failed by assertion, and 6 physical candidate-test deletions were evaluated with source restoration hashes. Official RED, DoD, verify, scope, license, secrets, size and R3 pass completed. The existing parser/tree declarations are now internal in their original package. Direct tests cover namespace, attributes, text, ordering and parent helpers, malformed XML and eight DTD/entity cases, with a calibrated test-only I/O guard. Reader resource limits remain the upstream input boundary. No new technical debt was identified within this boundary; report extraction and original-package compatibility remain in the parent card.
+Squash-merged by [PR #261](https://github.com/Asun28/MyInspection/pull/261) as `94dfbe58ee4c70e13581ae3eab957ad7f1e7f87c`; reviewed head `de12cd0931c208e11086b5836da78287f5437ad2` received formal R3 pass with empty reasons and exact-candidate CI `verify` SUCCESS ([run](https://github.com/Asun28/MyInspection/actions/runs/34187288526)). Official non-local task-loop ship passed RED, DoD, project verify, scope, licence, secrets and complete-diff budget gates.
+
+Fresh RED had 6 behavioral failures; final DoD passed all 6 without skips. Eleven production mutations and two I/O counter mutations failed their named assertions. Physical removal of the ancestor test let its mutation survive the full core suite (895 tests, 4 existing skips), so that unique test was restored. Source SHA-256 `73bfa6f6a26732ba7da5b1774ea47f86011e8584e507bda3054ece02dcff17de`; final test SHA-256 `9cd98fce9b2c03b9eda90009d879f696ad60e010fbe701a39a62b61649c4759e`. Preserved local evidence: `_local/projection-20260908/remote-xml-delivery/` and `remote-xml-evidence/`.
+
+Official cleanup completed after merge and evidence preservation. R5 debt scan found no new concrete divergence. R5.5 skips a duplicate lesson: L310 already records the local-only versus remote-delivery recovery. Parser I/O calibration is JDK 17 evidence, not ART acceptance; package resource limits remain the reader's responsibility. Extraction and complete import are separate deliveries.

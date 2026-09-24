@@ -1,10 +1,13 @@
 package nz.myinspection.app.media
 
-import android.util.Log
 import java.io.File
 import java.io.InputStream
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
+import nz.myinspection.app.platform.SafeLog
+import nz.myinspection.app.platform.SafeLogEvent
+import nz.myinspection.app.platform.SafeLogOperation
+import nz.myinspection.app.platform.SafeLogReason
 import nz.myinspection.core.media.NewAssetDiscard
 import nz.myinspection.core.media.StagedFile
 import nz.myinspection.core.media.StreamCompare
@@ -14,8 +17,6 @@ import nz.myinspection.core.media.StreamCompare
  * File」与字节落盘，不判定该落哪、该不该复用（那是 `PhotoIngest` 的决定）。
  */
 object MediaFileStore {
-    private const val TAG = "MediaFileStore"
-
     /**
      * @throws IllegalArgumentException 若 [relPath] 解析后逃出了 [root]（路径穿越/绝对路径注入）。
      * 与 `MediaPaths` 的命名空间形状闸是两道独立闸：那道防"在根内但不该被碰"，这道防"逃出根"。
@@ -34,7 +35,16 @@ object MediaFileStore {
         publish(staged.file, resolve(root, relPath))
 
     /** 导入=复制，不移动用户原始文件（硬边界）。调用方负责关闭 [source]。 */
-    fun copyInto(source: InputStream, root: File, relPath: String): File {
+    fun copyInto(source: InputStream, root: File, relPath: String): File =
+        copyInto(source, root, relPath, ::deleteIfPresent, SafeLog.android())
+
+    internal fun copyInto(
+        source: InputStream,
+        root: File,
+        relPath: String,
+        tempDelete: (File) -> Boolean,
+        log: SafeLog,
+    ): File {
         val target = resolve(root, relPath)
         target.parentFile?.mkdirs()
         val temp = createTempSibling(target)
@@ -47,7 +57,7 @@ object MediaFileStore {
             throw failure
         } finally {
             try {
-                deleteTemp(temp)
+                deleteTemp(temp, tempDelete, log)
             } catch (cleanupFailure: Throwable) {
                 val failure = copyPrimary
                 if (failure == null) throw cleanupFailure
@@ -93,10 +103,10 @@ object MediaFileStore {
         return a.inputStream().use { left -> b.inputStream().use { right -> StreamCompare.contentEquals(left, right) } }
     }
 
-    /** 临时文件清理失败不是证据丢失，但也不能悄悄看不见。`op=`/`path=`/`result=` 键值对格式固定、可 grep。 */
-    private fun deleteTemp(file: File) {
-        if (!deleteIfPresent(file)) {
-            Log.w(TAG, "op=deleteTemp path=${file.path} result=failed")
+    /** 临时文件清理失败不是证据丢失，但也不能悄悄看不见。 */
+    private fun deleteTemp(file: File, delete: (File) -> Boolean, log: SafeLog) {
+        if (!delete(file)) {
+            log.record(SafeLogEvent(SafeLogOperation.MEDIA_TEMP_DELETE, SafeLogReason.DELETE_FAILED))
         }
     }
 }

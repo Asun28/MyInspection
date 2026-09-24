@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "schema_revision": 1,
+  "records": [
+    { "local_id": "s1", "kind": "suggestion", "severity_guess": null, "category": "C7", "anchor": "file", "file": "docs/README.md", "symbol": "Usage", "line_start": null, "line_end": null, "unit_ids": ["docs/README.md#89abcdef0123-2"], "trigger": "t", "expected": "e", "actual": "a", "impact": "i", "contract_ref": "none", "evidence_refs": [], "evidence_needed": [], "introduced_or_worsened": "introduced", "suggested_fix_direction": "s" },
+    { "unit_id": "docs/README.md#89abcdef0123-2", "categories_checked": ["C1", "C2", "C3"], "status": "finding", "candidate_local_ids": ["s1"], "missing_context": [] }
+  ]
+}

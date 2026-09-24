@@ -1,7 +1,8 @@
 ---
 id: T0-SHIP-REVIEW-BASE-BUNDLE
 title: Bind both ship review legs and their executable helpers to the same immutable gate baseline
-status: todo
+status: merged
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
 depends_on: [T0-SELFTEST-SKILL-ROUTING]
 allow_paths:
   - scripts/task.ps1
@@ -23,7 +24,7 @@ acceptance:
   - "A4 Both real ship call sites use the bundle and pinned baseline; success and failure cleanup are exercised, with a visible diagnostic if a temporary bundle cannot be removed"
   - "A5 Existing review round caps, diff budgets, exact-head verdict checks and fail-closed behavior remain intact; integration fixtures use a local deterministic backend and the final real R3 remains required"
 forbid:
-  - Resetting existing cards, importing advisory-on-error review rules, weakening checks or publishing remotely
+  - Resetting existing cards, importing advisory-on-error review rules, weakening checks
 non_goals:
   - Reimplementing T0-REVIEW-LOW-RISK or adjudicating its capped review
 hygiene: Keep extraction in one small module with its own SelfCheck; test actual Git blobs and process invocation, not copied implementations.
@@ -32,7 +33,12 @@ doc_sync: Replace obsolete candidate-reviewer guidance with the exact BASE sourc
 
 # T0-SHIP-REVIEW-BASE-BUNDLE
 
-Adapt upstream PR #374 and TD278 together. This is an independent source-integrity repair,
-not another review of the pending low-risk policy candidate. Preserve that candidate and reconcile
-its implementation normally after a separately authorized verdict. Avoid new dependencies.
+Remote adoption is authorized by the user's 2026-09-08 instruction to complete all unfinished scaffold cards in independent worktrees and PRs. This card is pending remote implementation and acceptance; its local source history is provenance only, not a remote pass or merge.
 
+Use task-loop with GPT-6 Astra, high effort; R3 remains the configured GPT-5.6 Sol, high effort. Preserve current remote product changes, scaffold-trigger isolation, CI identity/jobs checks and timeout budgets. Apply only this card's scoped changes, with fresh RED/GREEN, current-source evidence and its own PR. Do not merge the divergent local master or copy historical pass receipts.
+
+Local candidate 90a8eaca repaired replacement-ref findings after two blocked R3 rounds. The user authorized one counter reset on 2026-09-08; it has already been consumed. Preserve the historical findings and current counter when moving to the remote candidate; a new worktree does not authorize another reset. Remote publication is explicitly authorized, while the remaining forbid and non-goals stay in force.
+
+## R5 closure by upstream adoption — 2026-09-11
+
+Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md), delivered in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc928c4dd36607cc19eace40ec3cc8c01dd1`). `status: merged` records closure through that merged replacement; it does not claim this original card's implementation, DoD, RED, mutation or performance plan was independently completed. The original worktree and evidence are preserved; its old execution queue is retired.

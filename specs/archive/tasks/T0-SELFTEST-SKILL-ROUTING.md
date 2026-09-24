@@ -2,7 +2,8 @@
 id: T0-SELFTEST-SKILL-ROUTING
 title: Route skill-only changes through existing core and workflow coverage without seeded product-independent regressions
 status: merged
-depends_on: [T0-SELFTEST-META-EXPANSION]
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
+depends_on: [T0-SELFTEST-META-EXPANSION,T0-SELFTEST-RISK-ROUTING]
 allow_paths:
   - scripts/_validation.ps1
   - scripts/selftest.ps1
@@ -29,32 +30,10 @@ doc_sync: Describe the skill route and exact preserved fallback behavior in the 
 
 # T0-SELFTEST-SKILL-ROUTING
 
-Adapt upstream PR #371 using the local shard boundary. Core plus workflow retains gates 9/11/14/15/16;
-the repository has no compatible upstream token dispatcher to copy. Wait for the preceding selftest change.
+Remote adoption is authorized by the user's 2026-09-08 instruction to complete all unfinished scaffold cards in independent worktrees and PRs. This card is pending remote implementation and acceptance; its local source history is provenance only, not a remote pass or merge.
 
-## Verification evidence (2026-09-06)
+Use task-loop with GPT-6 Astra, high effort; R3 remains the configured GPT-5.6 Sol, high effort. Preserve current remote product changes, scaffold-trigger isolation, CI identity/jobs checks and timeout budgets. Apply only this card's scoped changes, with fresh RED/GREEN, current-source evidence and its own PR. Do not merge the divergent local master or copy historical pass receipts.
 
-- `scripts/selftest.ps1` SHA-256: `EC631C06D93C2BB736ABA88A85F7E42C35D31C70132A89F3557FBFEBAE0FBE46`.
-- `scripts/_validation.ps1` SHA-256: `81BBEF41800282FBEFDB362028212D79AAE6E280AB1465EB4E3C0DDDB0F8DF53`.
-- Official RED observed `pure case 'skills' expected skills, got all` before the implementation.
-  The final DoD passed (`.review/skill-routing-green1.log`), independently repeated during the first-ship prereview.
-- Real Git fixtures select skills for committed, staged, dirty and untracked skill edits and within-skill renames;
-  cross-boundary renames, frozen skills, edited config and mixed paths select all using the pinned base.
-  The actual entry plus actual aggregator runs exactly core and workflow over dirty/untracked task snapshots,
-  preserves meta/lint values and lint binding state, rejects both child failures and invalid receipts, and cleans snapshots.
-  Its delay trap proves this route does not enter the existing 75-second seeded contention wait.
-- Existing `selftest.ps1 -Fixture meta-routing` passed (`.review/skill-meta-aggregation.log`), including all's three children.
-- Eight parseable, isolated actual-source mutants were rejected by named semantic assertions: skill class, frozen priority,
-  subset switch, resolved source, omitted workflow, meta forwarding, entry exit and failure-protocol propagation.
-  Results and unchanged source hashes: `.review/skill-mutations/`. No live source was mutated.
+## R5 closure by upstream adoption — 2026-09-11
 
-| Complete ordinary shard | Exit | Seconds | Source stable |
-|---|---:|---:|---|
-| core | 0 | 1119.8556 | yes |
-| workflow | 0 | 766.8460 | yes |
-
-Both emitted their final PASS sentinels. Timed runs and records: `.review/skill-shards/`.
-These are sequential Windows validation durations, not a whole-suite before/after speed benchmark.
-The smaller route and removed fixed wait are established by the real-entry tests above.
-
-Official local delivery: feature `2ef5649857ef90f21b96a5edfcc309cccd2d38cf`, R3 pass on the same SHA, merge `5f0000cf94bf2f4553bcaba6589072d66c53babc`.
+Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md), delivered in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc928c4dd36607cc19eace40ec3cc8c01dd1`). `status: merged` records closure through that merged replacement; it does not claim this original card's implementation, DoD, RED, mutation or performance plan was independently completed. The original worktree and evidence are preserved; its old execution queue is retired.

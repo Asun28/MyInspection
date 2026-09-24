@@ -1,38 +1,60 @@
 ---
-# id = 文件名 = 分支 = worktree 末段；格式 ^T\d+-[A-Z0-9]+(-[A-Z0-9]+)*$
-# T?-EXAMPLE 是待替换占位；branch/worktree 由工具按 id 派生，无须重复填写。
+# id naming (machine-checked): T<stage>-<UPPER-KEBAB>, regex ^T\d+-[A-Z0-9]+(-[A-Z0-9]+)*$
+#   OK: T0-SCAFFOLD / T2-API / T3-REVIEW-GATE   NOT: t1-foo / T1_FOO / my-task
+#   id == file name == branch == worktree leaf. The T?-EXAMPLE below is a deliberate placeholder
+#   violation and check-cards SKIPS this file. The required fields come first, then one optional block.
 id: T?-EXAMPLE
-title: 一句话可交付产出物
-status: todo
-depends_on: []
-allow_paths:
+title: one-sentence deliverable
+status: todo            # todo | in-progress | in-review | merged
+branch: T?-EXAMPLE
+worktree: C:\wt\T?-EXAMPLE   # = <WorktreeRoot>\<id> (default <system drive>\wt); see scripts/_config.ps1
+allow_paths:            # the paths this card may change; the ship scope gate blocks anything outside them
+  # A new tool in dod_command means the manifest installing it (pyproject.toml / package.json) sits here too.
   - path/to/...
-dod_command: uv run python -m pytest <tests> -q
+dod_command: uv run python -m pytest <tests> -q   # only tools CI already has, or that the card installs
+# Three machine-checked traps, one line each; the reasoning and the sentinels are in specs/README.md:
+#   L95  no `$variable` inside a nested `pwsh -Command` payload - it interpolates away and mints a fake RED.
+#   L245 a payload that itself spawns pwsh must END on an explicit `; exit 0`, never on a branch's exit.
+#   L308 assert every repo function it calls: if (-not (Get-Command <n> -ErrorAction SilentlyContinue)) { exit 1 } - that proves the NAME only; a wrong method on what it RETURNS throws and skips the arm the same way, so read the RED's OUTPUT, not just its exit code.
 dod_exit: 0
-dod_assert: <命令产出的可机检断言>
-review_gate: codex {verdict:pass}
-
-# 只添加本卡实际需要的支持字段；项目硬边界始终继承 CLAUDE.md。
-# plan_ref: docs/PLAN.md#节名
-# parallelizable_with: []     # 声明并行的卡 allow_paths 不得重叠
-# forbid:                    # 仅补本卡特有硬边界，免重复项目合同
-#   - <禁止事项>
-# non_goals:                 # 仅列与本卡有关的刻意排除能力，无则省略
-#   - <本次不做的能力>
-# diagnosis: <bugfix 的根因与同类排查结论；非 bugfix 省略>
-# acceptance:                # 可选；一条起，双引号块式字符串，严格 A1..An
-#   - "A1 fixture returns exactly 3 rows"
-#   - "A2 output contains ASCII sentinel [RESULT-READY]"
-# requirements:              # 可选；唯一非空 R-id 需求，不限定自然语言句式
-#   - "R1 返回符合筛选条件的记录"
-# 有需求时，验收可写 "A1 [R1] fixture returns exactly 3 rows"；多引用写 [R1] [R2]。
-# hygiene: <本卡适用的测试卫生工作；不为填模板追加变异任务>
-# doc_sync: <本卡实际需要同步的文档>
+review_gate: codex {verdict:pass}   # optional, kept filled: declaring it is what invokes the R3 reviewer
+acceptance:            # CLOSED numbered list rubric #6 judges against; required once review_gate is set
+  #   ([CARD-ACCEPTANCE]). WHAT is verified, not HOW; a gap outside it is [FOLLOW-UP]. Replace the seeds:
+  - 1. <one fact that means done, naming the assertion that covers it>. [dod arm 1]
+  - 2. <the next one; a gap outside this list is [FOLLOW-UP], not a block>. [dod arm 2]
+# ─────── Optional below. Absent is silent; no gate asks for any of these. Meanings: specs/README.md.
+# requirements:        # optional `R<n>.` items, one EARS line each, one `shall`. UNCOMMENT FIRST, then cite
+#   #   `[R<n>]` on the acceptance item each closes - a citation with no live item BLOCKS. skills/spec-ears
+#   - R1. The <system> shall <observable response>.
+#   - R2. WHEN <trigger>, the <system> shall <observable response>.
+#   - R3. WHILE <state>, the <system> shall <observable response>.
+#   - R4. IF <condition>, THEN the <system> shall <observable response>.
+#   - R5. WHERE <feature> is enabled, the <system> shall <observable response>.
+#   - R6. WHEN <trigger>, the <system> shall reject it within [TBD: timeout, ms].  # never invent a number
+# depends_on: []       # prerequisite card ids (topological order, decides what may run in parallel)
+# parallelizable_with: []   # parallel card ids; their allow_paths must not overlap (machine-checked)
+# plan_ref: <PlanDir>/PLAN.md#section   # this card's plan section - the implementer's minimal pointer
+# budget: 400          # declared net changed lines (added+deleted); once declared it is a merge gate
+# tier: S              # acceptance tier - computed from allow_paths, may only be RAISED, never lowered
+# sweep: "<the grep you ran, and the teaching faces it found>"   # REQUIRED above five allow_paths (L97)
+# forbid: [<cross-cutting hard boundaries this card may not cross: network, credentials, frozen contracts>]
+# non_goals: [<a capability this card deliberately does not build; rubric #14 judges scope creep on it>]
+# diagnosis:           # bugfix cards only (rubric #17: repair the root cause, not the symptom)
+#   root_cause: <why it broke, not how it showed>  ·  same_class: <sibling call sites checked too?>
+# dod_assert: <the machine-checkable assertion the command produces, in prose>
+# hygiene: <R4 test hygiene; a promised mutation batch needs room in allow_paths for BOTH its artifacts>
+# doc_sync: <the docs to bring back in step after merge (R5)>
+# superseded_by: <the later card that deliberately deleted what this card's DoD asserted>
 ---
 
 # T?-EXAMPLE
 
-（按需补充实现者独立开工所需的上下文、设计决定或证据；不重复 front-matter。）
+## Deliverable
+(The single deliverable, matching this card's section of the plan.)
 
-DoD 工具须由 CI/verify 保证存在；新增依赖须声明并纳入 `allow_paths`。
-`dod_command` 直接写 PowerShell；不要嵌套带可内插 `$var` 的 `pwsh -Command`（TD69/L95）。
+## Acceptance (DoD = command + exit code + assertion; paired with the closed `acceptance:` list)
+```powershell
+<dod_command>
+```
+- Expected exit code: 0
+- Assertion: <...>
