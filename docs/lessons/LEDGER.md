@@ -150,7 +150,7 @@
 - refs:
 
 ## L17
-- date: 2026-06-03 ｜ tags: powershell,bash-tool,ps1,tooling,encoding ｜ tier: must ｜ severity: minor ｜ recurrence: 7
+- date: 2026-06-03 ｜ tags: powershell,bash-tool,ps1,tooling,encoding ｜ tier: must ｜ severity: minor ｜ recurrence: 8
 - symptom: 用 Bash 工具调 `.ps1` 有两种坏法——①反斜杠路径被吞成 `scriptstask.ps1`，exit 64，脚本根本没执行；②即便改用正斜杠路径让脚本真跑起来，Bash(Git Bash) 终端的控制台编码与 PowerShell 不一致，`selftest.ps1` 等含中文断言/输出的脚本会显示乱码、且**真的返回 FAIL**（非仅显示问题）——靠 Bash 跑出的「验证」结果不可信，须用 PowerShell 工具重跑核实。
 - root_cause: Bash 把 Windows 路径反斜杠当转义消除；且 Bash(Git Bash) 子进程的控制台代码页与 pwsh 原生 `[Console]::OutputEncoding` 不同源，跨这层边界的中文断言/比较会失真。
 - rule: `.ps1` 一律用 PowerShell 工具调用（task-loop 已规定一律 pwsh 非 bash），**不仅因路径分隔符会被吞，也因编码链不同会产出假结果**；连事后核验/巡检也不例外——别为图快用 Bash 抄近路查 pwsh 脚本结果。必须用 Bash 时路径改正斜杠 `scripts/task.ps1`，且任何看起来异常的失败先用 PowerShell 工具重跑一次再下结论。
@@ -1143,7 +1143,7 @@
 - refs: 
 
 ## L165
-- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 9
+- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 10
 - symptom: 同一张卡里「断言看起来在测 X、实际没测 X」连出四次：①断言写在**整份 stdout** 上，而被测命令在判定前先打印改动清单，那条路径无论判定如何都在输出里 ②断言匹配**中文结论行**，父进程 stdout 被重定向时解码成乱码，六个 case 在别人机器上齐红而我连跑六次全绿 ③断言只数文档里**关键词出现次数**，而周围散文本就含那些词，把真正的可执行守卫整段删掉照样绿 ④不符用例传**全零 OID**，于是停在「解析不出提交」那一支，根本走不到它声称要测的身份比对那句。**第 2 次（T56 r17 批，2026-08-05）：变异分类器自己犯②**——gate 锚带一个「闸」字、红面正则锚「闸17t(」，批改派 schtasks 后 OEM 码页把中文打成 '?'，六枚真红被误判 NOT-OK；改纯 ASCII 锚时又差点掉进③（裸 '17t(tXX)' 会把 t16 半覆盖信息行误计红面），红面行判别改锚 'WARNING: ' 前缀（L149）才闭合。
 - root_cause: 断言落在了**比被测契约更宽的表面**上：整份输出 ⊃ 判定行、中文文案 ⊃ 稳定标识、关键词出现 ⊃ 可执行命令、任一非零 ⊃ 该守卫拦下。宽表面在被测契约还成立时当然绿，于是看不出问题；一旦契约被摘掉，宽表面仍可能因别的原因满足，断言就静默失效。人写断言时脑子里想的是契约，手上写的却是「输出里有没有这个字符串」。
 - rule: 断言面必须**恰好等于**被测契约，且用一枚只删该契约那一句的变异来证明：①只比对**判定行**（先按稳定标识切出那一行再匹配），不比对整份输出 ②机检一律认 **ASCII 哨兵**，本地化文案只给人读（编码链一变中文断言就假红/假绿）③文档契约锚到**可执行命令行形态**（行首 + 真实命令），不数关键词出现次数 ④「不符/失败」用例必须让被测那一句**真的被执行到**（如身份比对要传可解析但不同的 OID，全零 OID 只测到解析失败那支），并断言输出里有该句独有的证据（如 judged=/expect= 两个值）。**每道守卫配一枚单句删除变异**——它红了才算这条断言真的在测它。⑤**判据提取器（变异分类器/红面正则/日志 grep）也是机检，锚同样纯 ASCII**——连锚里带一个中文字都会在换执行环境（schtasks OEM 码页）时整批失配；行判别锚 'WARNING: ' 前缀（L149），别锚中文前缀，也别裸锚标签（信息行会误计）。
@@ -2319,7 +2319,7 @@
 - refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
 
 ## L309
-- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 11
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 12
 - symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
@@ -2545,7 +2545,7 @@
 - refs: 
 
 ## L337
-- date: 2026-09-24 ｜ tags: r3,review,remote,ship,codex-quota ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-24 ｜ tags: r3,review,remote,ship,codex-quota ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: Remote task.ps1 ship ran Codex for R3 (quota error, [R3-NO-OUTPUT]) even though the control checkout set _config.ps1 ReviewCommand to an Opus backend; the same edit worked for -Local ships on the older local scripts.
 - root_cause: Origin task.ps1 (T288) exports the whole reviewer bundle, _config.ps1 included, from the pinned base commit, so an uncommitted ReviewCommand in the running checkout never reaches the ship R3 leg. Separately, [SHIP-SCOPE-CARD-ABSENT] requires the card on the base commit before its product ship.
 - rule: To swap the R3 backend for a remote ship without committing machine-specific config: let the ship run every deterministic gate and open the PR, reset the round after diagnosing the quota failure, run the checkout review.ps1 (verify it is byte-identical to the base blob) with -PostStatus -PrNumber, confirm a successful ci.yml run on the same head and the PR base, then gh pr merge --squash --match-head-commit. Register cards on origin in a separate PR first.
