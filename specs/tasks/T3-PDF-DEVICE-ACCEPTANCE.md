@@ -23,6 +23,7 @@ acceptance:
   - "A4 each quality has explicit visual/manual-check PASS or FAIL conclusions for complete CJK glyphs, nameplate small-text readability, no OOM, and correct appendix numbering/backreferences; High nameplate text must be readable"
   - "A5 each drawn footer matches the first 12 characters of the fixed native data_hash, program.identity.dataHash matches its full fixed native value, and program.identity.semanticFingerprint matches the fixed filtered-content value across qualities; these distinct labels are never compared for equality"
   - "A6 missing fixture authorization, missing categories or device evidence, and absent or failed manual-check conclusions prevent an acceptance-complete claim; debug integration has no release entrypoint"
+  - "A7 each FixturePhotoDescriptor.file opened for drawing is re-hashed against the descriptor's contentHash and a mismatch is refused before anything from it is drawn, because DEVICE-FIXTURE verifies the bytes only at preflight (user ruling 2026-09-24)"
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:assembleDebug :app:assembleRelease; if ($LASTEXITCODE -ne 0) { exit 1 }; cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest
 dod_exit: 0
 dod_assert: builds and app JVM runner tests pass; docs/spike/PDF-DEVICE-ACCEPTANCE.md contains the actual physical-device four-quality records, fixed authorized real80 manifest reference and per-quality binary manual-check conclusions; A1-A6 evidence is mandatory in addition to build green

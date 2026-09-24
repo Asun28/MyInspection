@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-DEVICE-FIXTURE
 title: Debug-only authorized real80 fixture preflight and fixed filtered report input
-status: todo
+status: merged
 depends_on: [T3-REPORT-CONTENT-ADAPTER, T1-SPIKE-PLATFORM]
 parallelizable_with: [T3-PDF-MEASUREMENT-BINDING]
 allow_paths:
@@ -58,4 +58,24 @@ Portable JVM cases use synthetic typed rows and exercise the real guards/builder
 
 File-level forecast, including complete tests/evidence/R4: PdfFixtureManifest.kt 100-140 lines; AndroidFixtureManifestReader.kt 25-30; PdfDeviceFixture.kt 90-120; PdfDeviceFixtureTest.kt 120-155; PDF-DEVICE-FIXTURE.md 35-55 including mutation summary. Subtotal 370-500 changed lines; reserve another 90-125 for repairs. Complete forecast 460-625 lines / 28k-40k unified-diff characters, not a measured implementation diff. First authored candidate should remain within 500 lines / 32k characters. Recompute using review.ps1 -SizeOnly before first ship; at 650 lines or 45k characters stop and re-scope before spending R3 rounds. Do not compress tests or omit fixture evidence.
 
+Budget ruling (user, 2026-09-23): the delivered candidate `0061b8e8` measures 708 changed lines / 48,888 characters against `master...HEAD`. The user approved proceeding at that size instead of trimming or splitting, because it stays under the 1000-line / 60,000-character R3 gate and trimming would discard evidence or invalidate the 28/28 R4 receipt. Repairs must not push it past that gate. Review routing while the Codex quota is exhausted (same ruling as `T3-PDF-IMAGE-FIT`): repeated DeepSeek V4 Flash pre-review rounds until no block, then a fresh Opus 5.5 subagent performs the R3 review against `docs/QUALITY-RUBRIC.md`; rubric, DoD, verify, scope, licence and secret gates are unchanged.
+
 DEVICE-ACCEPTANCE consumes this input and retains every physical four-quality/80-photo obligation, its launcher and actual measurement/composer/builder/executor integration. This card never declares those complete. Author: GPT-5.6 Terra high; independent R3: GPT-5.6 Sol high.
+
+## Delivery record (2026-09-24)
+
+Merged locally: master `08ab4d8a`, feature `89285d67`, 5 files / 825 lines / 56,560 characters (user budget ruling
+above). The public route `AndroidFixtureManifestReader.preflight` hashes the manifest bytes it reads and refuses a
+non-approved digest before org.json parses; the digest-taking preflights, `AuthorizedFixture` and `AuthorizedPhoto`
+construction are internal or private, and verified collections are read-only copies. 11 JVM tests; R4 63/63 portable
+kills with the real80 variable unset. The actual Kotlin builder reproduces native `f8573b32...751023` and semantic
+`af17258a...a7287c` on the approved real80 collection; a one-byte change is refused with `FIXTURE-FILE-BYTES`.
+
+Review: DeepSeek V4 Flash pre-review rounds 1-7 (round 1 blocked on the size stop, resolved by the ruling above),
+then fresh Opus 5.5 R3 rounds 1-5. Round 1 found the verified-by-construction claim unenforced (public digest-taking
+preflight, castable mutable collections) plus three comments beyond the code; round 2 untested visibility guards and
+descriptor fields; round 3 a doc sentence claiming DEVICE-ACCEPTANCE re-hashes at draw time (the user then added A7 to
+that card); round 4 an untested reader digest refusal and one overstated test comment. Round 5 passed on tree
+`f22b89c4`. The user authorized rounds 3, 4 and 5 one at a time beyond the cap of 2. `ship -Local` ran every
+deterministic gate; its optional R3 leg was skipped because codex was removed from PATH for that process, and the
+merged tree equals the reviewed tree. Follow-up: test inputs of `:app:testDebugUnitTest` are `T0-APP-TEST-SOURCE-INPUTS`.

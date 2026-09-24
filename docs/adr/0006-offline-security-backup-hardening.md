@@ -42,6 +42,10 @@ Android 官方建议离线优先应用以本地数据源为唯一真相源，并
 
 2026-09-18 路径前置远端交付：`T1-STORAGE-PATH-BOUNDARY-REMOTE` 是同名本地产品能力的远端交付别名，不增加产品卡计数；完整承担真实逐段路径解析、验证根快照、逐次子目录检查及全部 20 项直接测试/35 枚变异验收。根与子目录仍支持尚未创建的路径，仅入口属性探测的 `NoSuchFileException` 表示缺失；异常拒绝与 Error 身份传播、真实链接夹具和原 Policy 五次 BLOCK 历史保留。仅保证检查时路径归属，不声明消除 TOCTOU 或后续 I/O 安全。后继存储策略复用此能力，Android getter/平台适配、媒体状态、Keystore 与生产装配仍须独立验收。本地 feature `c201c793`/merge `115138a4` 及本地测试是历史证据；远端现已通过新 RED、三次各 177 项应用回归、35 枚具名可编译变异、正式 R3 与精确候选 CI，并由 [PR #310](https://github.com/Asun28/MyInspection/pull/310)，reviewed head `bfefc1057a0ecbdfde4f747193c68c0069bdb73c`，CI `35174714509`，merge `74aa9cb7ac6e70bbae30cb5d3a2024d8c95d6a0c`；正式 R3 pass。原始证据已复核，历史清理错误日志保留；2026-09-18T01:16:43Z 补证确认路径、Git 登记及分支均不存在，不证明原删除命令如何完成。完整合同和实际收据已归档。
 
+2026-09-17 前置交付（R5 于 2026-09-24 补记）：`T1-STORAGE-PATH-BOUNDARY` 已本地合并（master `115138a4`，feature `c201c793`，正式 R3 首轮 pass）。`StoragePathBoundary` 私有构造，`create` 在解析任何根之前拒空白根，保存检查时的同一真实根路径与 DP 排除路径；`resolveChild` 逐次对保存的根解析并返回所检查的同一目录。逐段解析用 NOFOLLOW 属性探测，只有该探测的 `NoSuchFileException` 视为缺失段，其余异常拒绝、致命 Error 按身份传播。20 项真实文件系统测试（Windows Junction，POSIX 未跑）、35/35 变异，差异 615 行。保证仅为检查时的路径归属，不含后续 I/O 权限或消除 TOCTOU。
+
+2026-09-24 策略交付：`T1-APP-STORAGE-POLICY` 已本地合并（master `f68d7006`，feature `834206a6`）。策略以非重写 merge 吸收前置后，删除内嵌的 `canonicalFile` 判定，改由 `StoragePathBoundary.create` 验证并保存 CE/no-backup 根（DP 环境先转换，转换后仍为 DP 则拒绝），每次 `location` 由 `resolveChild` 检查类别目录并返回所检查的目录；两处拒绝均为固定消息、无 cause，普通异常（含 IOException/SecurityException）不外泄，致命 Error 按身份传播。媒体只消费 app-specific external 端口，四个读数各自失败均闭合为 Unavailable。12 项策略测试（其中 3 项真实 Junction 黑盒接线）、45/45 变异、250 项 app 测试。Codex 配额耗尽期间按用户裁定由全新 Opus 5.5 子代理作 R3：第 1、2 轮 block 共 4 条测试侧缺口（假环境忽略目录参数、转换夹具根过宽、探针失败只覆盖 space、catch 宽度未测），当场修复并补 M36–M45，第 3 轮 pass；合并树与评审树 `448da9cd` 一致。实际 Android getter、卷状态映射与目录可写探针仍归 `T1-APP-STORAGE-ANDROID`。
+
 - SQLite、设置、回执、Keystore 密文信封、恢复 journal 和 staging 元数据放 credential-encrypted **internal storage**；device-protected storage 不放租客数据。
 - 体积较大的照片/音频可放 app-specific external storage，但不可成为 DB、恢复 journal 或密钥的唯一落点。启动和每次媒体操作都处理卷不可用/空间不足。
 - 临时明文只放 internal cache/staging，使用不可预测名称；成功、失败、崩溃恢复后都清理。文件名、日志和通知不含地址、姓名、备注或租客信息。

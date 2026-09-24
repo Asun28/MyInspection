@@ -69,6 +69,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-24 本地交付**：`T3-PDF-DEVICE-FIXTURE`（master `08ab4d8a`，feature `89285d67`）交付 debug-only real80 清单预检与固定 LANDLORD 报告输入：公开入口 `AndroidFixtureManifestReader.preflight` 对自己读到的清单字节算摘要、非批准字节在 org.json 解析前即拒；取摘要的 preflight 与 `AuthorizedFixture`/`AuthorizedPhoto` 构造均为 internal/private，已验证集合为只读副本。11 项 JVM 测试、63/63 可移植变异；真实 Kotlin builder 在批准 real80 集上复现冻结的 native/semantic 双哈希，改一字节即被 `FIXTURE-FILE-BYTES` 拒绝。825 行超卡片 650/45k 早停，经用户裁定在 1000/60k 闸内继续。Codex 配额耗尽期间按用户裁定：DeepSeek V4 Flash 7 轮预审 + 全新 Opus 5.5 R3 五轮（第 3–5 轮逐轮授权），第 5 轮 pass，合并树与评审树 `f22b89c4` 一致。五轮 finding 全部属实、逐轮变窄（未强制的构造期保证 → 未测的可见性/描述符字段 → 对下游卡的越界声称 → 公开入口摘要拒绝无测试）；第 3 轮后用户给 DEVICE-ACCEPTANCE 加 A7（绘制前按 contentHash 重算）。不宣称设备或四档验收。
+
+**2026-09-24 本地交付**：`T1-APP-STORAGE-POLICY`（master `f68d7006`，feature `834206a6`）在前置交付后以非重写 merge 吸收主线，删除内嵌 `canonicalFile` 判定，改为消费 `StoragePathBoundary`：保存验证过的 CE/no-backup 根，每次 `location` 检查并返回类别目录；两处拒绝固定消息无 cause，普通异常（含 IOException/SecurityException）不外泄，致命 Error 保身份。12 项策略测试（3 项真实 Junction 接线）、45/45 变异、250 项 app 测试。Codex 配额耗尽期间由全新 Opus 5.5 子代理作 R3：前两轮 block 的 4 条均是测试断言面缺口（假环境忽略参数、夹具根过宽使守卫互相遮蔽、只注入一种异常类型），第 3 轮 pass，合并树=评审树 `448da9cd`。实际 Android 适配归 `T1-APP-STORAGE-ANDROID`；TD178 记测试临时目录不清理。
+
+**2026-09-24 R5 补记**：`T1-STORAGE-PATH-BOUNDARY` 已于 2026-09-17 本地合并（master `115138a4`，feature `c201c793`，正式 Sol R3 首轮 pass），当时未做 R5。`StoragePathBoundary` 交付检查时的真实路径归属（Junction/符号链接按真实目标比较，不靠 `canonicalFile`）、保存的根快照与逐次子目录检查；20 项真实文件系统测试、35/35 变异。不含后续 I/O 权限或消除 TOCTOU；`T1-APP-STORAGE-POLICY` 由此解锁。
+
+**2026-09-23 本地交付**：`T3-PDF-IMAGE-BRIDGE`（master `fee6451f`，feature `4993e073`）是图片 bridge 拆分的第三张、也是最后一张：`AndroidPdfImagePort` 把已交付端口绑到 BitmapFactory/Canvas（bounds 用 inJustDecodeBounds、-1 返回 null，inSampleSize 原样转交，两个矩形原样交给 drawBitmap）。设备代码无法在 JVM 执行（L280），两轮 Opus R3 证明「源码扫描」可被字符串里的伪注释、链式 apply 等绕过，用户裁定改为**精确源码钉住**：唯一测试断言适配器文件逐字等于评审文本，22/22 变异。Opus R3 第 3 轮 pass，合并树与评审树 `3a61ec1e` 一致。三卡齐，`T3-PDF-RENDER-DEVICE` 可接。遗留 [FOLLOW-UP]：`:app` 测试任务未把源码读取型测试所读文件声明为输入。
+
+**2026-09-23 本地交付**：`T3-PDF-IMAGE-OWNERSHIP`（master `1558594d`，feature `17060f81`）是图片 bridge 拆分的第二张：窄端口上的 bounds → 已交付采样 → decode → FIT 绘制 → recycle，每条打开的流都有 close 尝试、每张解码图都有 recycle 尝试，清理失败挂为 suppressed 不顶替原失败，单次 draw 至多持有一张解码图。20 项测试、23/23 变异。DeepSeek V4 Flash 两轮预审 + 全新 Opus 5.5 R3 首轮 pass，合并树与评审树 `b85231ae` 一致。
+
+**2026-09-23 本地交付**：`T3-PDF-IMAGE-FIT`（master `f367ca86`，feature `daa4f720`）是 `T3-PDF-IMAGE-BRIDGE` 按用户裁定拆成三张小卡（FIT → OWNERSHIP → 窄化后的 BRIDGE 适配器）的第一张：固定 FIT_CENTER 几何，拒非正解码尺寸与非有限/无面积框，Double 计算并把每条边钳进框内。11 项测试、26/26 变异。Codex 配额耗尽期间按用户裁定改用 DeepSeek V4 Flash 多轮预审 + 全新 Opus 5.5 子代理作 R3（第 5 轮 pass，第 3–5 轮逐轮经用户授权）；ship -Local 其余确定性闸全过，其可选 R3 腿因 codex 不在 PATH 而显式跳过，合并树与评审树 `0092e994` 逐字节一致。前两轮 R3 抓到真实浮点缺陷，后两轮是注释措辞超出证据（L309）。
+
 **2026-09-18 第二轮远端收口**：`T3-PDF-PAGINATION-FIXTURES-REMOTE` 经 [PR #309](https://github.com/Asun28/MyInspection/pull/309)，reviewed head `09dfa20cf8e75d095b8535a1473b17acdf581628`，CI `35171143884`，merge `553d53382f3b663dac19ed1c607ffa35ee499d0c`；正式 R3 pass。只迁移两处固定 4mm 行高分页夹具；生产源码字节不变。基线、迁移、恢复、尾注后各 255 项报告测试与 6 项 E2E 通过，两枚具名预算变异被断言检出。完整证据及守卫清理已复核，合同和收据已归档。Boundary 已完成 R5；Pagination 的产品证据已归档，但本 metadata closure 仍待本 PR 通过并合并。该 PR 合并后，五轮十张产品卡进度为 4/10，已完成 2/5 轮。测量绑定、平台字形和设备渲染仍由后继卡验收。
 
 **2026-09-18 第二轮存储路径交付（Pagination metadata closure 前的历史状态）**：`T1-STORAGE-PATH-BOUNDARY-REMOTE` 经 [PR #310](https://github.com/Asun28/MyInspection/pull/310)，reviewed head `bfefc1057a0ecbdfde4f747193c68c0069bdb73c`，CI `35174714509`，merge `74aa9cb7ac6e70bbae30cb5d3a2024d8c95d6a0c`；正式 R3 pass。20 项直接测试、35 枚具名可编译变异及 GREEN、恢复后、尾注后三次各 177 项应用回归通过；Windows 真实 Junction 已执行，POSIX 未执行。逐段解析保存已验证根，逐次检查子目录；只保证检查时路径归属。原始证据与清理错误日志均已保留；2026-09-18T01:16:43Z 补证确认路径、Git 登记及分支当时均不存在，不倒推原删除命令成功。完整合同及收据见归档卡。本卡完成 R5 后，五轮十张产品卡进度 3/10；第 2 轮的分页卡仍待 R5 收尾。第 3 轮 Policy 与 Requests 仅在原窗口准备，尚未完成验收；不新增任务窗口或另选产品卡。
@@ -748,7 +760,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 > `scripts/lessons.ps1` 完整命令集：`add|archive|bump|check|list|promote|search`；本节超上限须淘汰最不活跃项回按需层。
 > **封顶的计量单位是驻留的经验 id、不是本节的条目数**：一条写着 `[L190][L193]` 的 Markdown bullet 包含 2 个驻留 id、
 > 占 2 个封顶单位；封顶要管的是驻留 id。判定核 `scripts/_lessons.ps1`，`lessons.ps1 check` 与心跳探针 5 共用。
-- **[L1] 并行工具批次**：只读诊断与写操作**分批**；首个命令非零退出会**连带取消整批**、丢失已写文件。
+- **[L309] 全称声称先逐例代入、再送评审**：往文档、注释、测试名或验收里写全称保证（every / never / 一律 / 不会越界 / 精确）时，先把受它管辖的既有实例和输入域边界值逐个代入核一遍，冲突的当场消解或显式豁免；数值类保证优先靠构造（守卫 + 钳位）并对编译产物实测。同一条声称连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞。
 - **[L165] 断言面必须恰好等于被测契约，并用「只删那一句」的变异证明它在测**：宽于契约的断言（整份 stdout ⊃ 判定行 · 本地化文案 ⊃ ASCII 哨兵 · 关键词出现次数 ⊃ 可执行命令行 · 任一非零 ⊃ 该守卫拦下）在契约还在时照样绿，契约被摘掉后又常因别的原因满足 ⇒ 静默失效。故：只比判定行 · 机检认 ASCII 哨兵（本地化文案只给人读，编码链一变即假红/假绿）· 文档契约锚到可执行命令行形态 · 「不符」用例要让被测那句**真被执行到**。**每道守卫配一枚单句删除变异，它红了才算数**。
 - **[L17] `.ps1` 一律用 PowerShell 工具，不用 Bash；经 Bash 传给任何解释器的字符串也别含字面反斜杠**：Bash 工具吞的是**任何**字符串里的反斜杠层级（引号 heredoc 也不例外——`scripts\review.ps1` 到达 Python 时 `\r` 已成回车，锚点静默失配），且控制台编码与 pwsh 不同源——后者会让 `selftest.ps1` 等中文断言脚本产出**假 FAIL**，连事后核验也会被误导；异常失败先用 PowerShell 工具重跑再下结论。
 - **[L97] 横切纪律行为化前先 grep 出全部权威面、一次性纳入 allow_paths**：改的是「所有面都在教的那条规则」时，教它的面（CLAUDE.md · README/操作手册 · skill · 脚本头注 · 架构图 · 各校验清单枚举）**一次扫齐再开卡**，并连同**改动文件自身的注释与卡 front-matter** 一起对齐——评审每轮只报当轮最刺眼的一处，漏一处就多打一轮。**扫描清单显式含本次 diff 改到的每个文件自身**（注释 + 失败/日志文案 + 总结行）；**失败文案不写死具体病因**（那是必然过时的正面陈述），能从现场数据动态报就动态报。这类卡 allow_paths 天然大，是横切的固有形态、非 scoping 失误；check-cards「>5 告警」对它是误报但不放宽阈值，在卡标题声明式扩尺寸即可。
