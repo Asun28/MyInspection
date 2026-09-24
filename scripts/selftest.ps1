@@ -1247,7 +1247,9 @@ foreach ($preCore in @(
     @{ File = '_prereview-records.ps1'; Check = 'Test-ScaffoldPrereviewRecordsExamples' },
     @{ File = '_prereview-facts.ps1'; Check = 'Test-ScaffoldPrereviewFactsExamples' },
     @{ File = '_prereview-state.ps1'; Check = 'Test-ScaffoldPrereviewStateExamples' })) {
-  $coreExampleFindings += @(& pwsh -NoProfile -Command ". '$(Join-Path $PSScriptRoot $preCore.File)' -AsLibrary; $($preCore.Check)" 2>&1 | ForEach-Object { "$_" } | Where-Object { $_.Trim() })
+  $preOut = @(& pwsh -NoProfile -Command ". '$(Join-Path $PSScriptRoot $preCore.File)' -AsLibrary; $($preCore.Check)" 2>&1 | ForEach-Object { "$_" } | Where-Object { $_.Trim() })
+  if ($LASTEXITCODE -ne 0 -and $preOut.Count -eq 0) { $preOut = @("$($preCore.File): the $($preCore.Check) child process exited $LASTEXITCODE without reporting") }
+  $coreExampleFindings += $preOut
 }
 if ($coreFiles.Count -lt 1) { Fail '1h: no scripts/_*.ps1 found at all - the gate would pass vacuously, so the discovery itself is the first assertion.' }
 elseif ($coreExampleFindings.Count) { $coreExampleFindings | ForEach-Object { Fail "1h: $_" } }

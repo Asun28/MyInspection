@@ -515,3 +515,7 @@ The actual first publication review blocked five proof guards at `c6a22b07284fdc
 Local guard controls:78/78 passed (10 positive,68 negative); the original code falsely accepted60 negatives and rejected one valid prompt-decoy case. Groups: header9, verify21, prior-audit10, raw-rejection/CI11, cleanup27. Controls execute the actual `raw_review` function and uniquely labelled guard expressions; the complete saved778 replay separately passed. These are metadata preparation checks, not new product tests, committed authority approval, or formal R3. The local harness and native evidence remain in `_local/requests-publication-repair-r3-01`; the earlier harness-scope and raw-CRLF failures are preserved, excluded from passing evidence.
 
 Replay code SHA `FA40F78C50CACC0588F5E2859BB4275B94149CA664881271028BD68D9C7FF412`; local control harness SHA `B51871DCDEFBF86BB3A4358EA81A927D30B710EE32CC5CB400DCC29103E3D7CF`; final green-control report SHA `FDBF1FEB66E6D6D767F7043A4105805E4D4A930F68860C25CBCEA237273CBAF9`; saved replay stdout SHA `31EDFBD00C2236B6CD294508E9DD6505AC3D5336D374D57E54F247D0F608D37E`. This paragraph is included in the complete candidate diff budget; the ignored harness is not a proposed tracked file.
+
+## Reconcile note (2026-09-24)
+
+The 2026-09 local/origin reconcile merge is not this card's publication merge. As the section above records, the publication review blocked at `c6a22b07` and no publication merge happened; `status: merged` here reflects local master's card state and does not record a completed publication, which remains open.

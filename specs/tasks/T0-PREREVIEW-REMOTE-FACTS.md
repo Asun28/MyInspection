@@ -31,3 +31,7 @@ hygiene: Retain exact production bytes and 18 historical killed-mutant evidence;
 Remote adoption of the already approved final local artifact; no original local card is relabelled as remotely merged. Source and excluded consumers: docs/plans/PREREVIEW-REMOTE-ADOPTION.md.
 
 The original tests and mutation receipts are historical evidence only. Run the DoD and the current remote delivery gates on this candidate. R5 records the new PR/review/CI identity and archives this adoption card.
+
+## Reconcile note (2026-09-24)
+
+The 2026-09 local/origin reconcile landed the local-only parts of local master's PR review v2 phase 1a chain on master: PROTOCOL-DOC (`a66af219`), CHECKLISTS (`2782b55b`), RECORDS (`dec30514`), FACTS-LIB (`b675d6a6`) and STATE-1A (`62ec5f3b`). For the schema and its checker (SCHEMA and UNIT-ID-REVISION), master keeps origin's versions from T0-PREREVIEW-REMOTE-SCHEMA. `scripts/_prereview-facts.ps1` and `scripts/fixtures/prereview/facts-lib/` are therefore on master at their local merged bytes, plus the gate 1h self-check entry the reconcile added. Whether this card is closed, narrowed or kept is a user decision.

@@ -128,12 +128,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **2026-09-16 本地交付**：`T0-PREREVIEW-FACTS-LIB`（master `b675d6a6`，首轮 R3 pass、零 finding）交付八个事实函数：worktree/base、临时 index 快照、基线原始字节 policy hash、带 hunk 序号的 units、live_allowed、运行时模型路由及 temp root。31 项自检通过，18/18 定向变异检出，verify/范围/许可/防泄露闸及常规完整 selftest 三分片通过；工作树及分支已按合并凭据清理。TD183 登记后续删除文件 candidate 锚点文案契约，须在 worker/prompt 接线前单独修订。
 
-**2026-09-16 本地合并**：`T0-PREREVIEW-UNIT-ID-REVISION`（master `71895645`，首轮 R3 pass、零 finding）落实用户批准的 TD176 前置修订：schema_revision 1，hunk ID 为 `path#bodyHash12-ordinal`（同文件 diff 顺序从 1 起），`path#file` 保留；投影、schema/RECORDS 夹具与协议同步，10/10 定向变异检出。FACTS-LIB A3/A5、快照 Git 对象写入例外及固定快照的 Units 输入已先在 master 登记（`704fbd69` / `1220f108`）。前置卡完整 selftest 三分片 PASS，工作树及分支已按合并凭据清理。
+**2026-09-16 本地合并**：`T0-PREREVIEW-UNIT-ID-REVISION`（master `71895645`，首轮 R3 pass、零 finding）落实用户批准的本地 TD176（本地计划的来源编号，不是 tech-debt-tracker 中的 TD176）前置修订：schema_revision 1，hunk ID 为 `path#bodyHash12-ordinal`（同文件 diff 顺序从 1 起），`path#file` 保留；投影、schema/RECORDS 夹具与协议同步，10/10 定向变异检出。FACTS-LIB A3/A5、快照 Git 对象写入例外及固定快照的 Units 输入已先在 master 登记（`704fbd69` / `1220f108`）。前置卡完整 selftest 三分片 PASS，工作树及分支已按合并凭据清理。
 
 **2026-09-16 本地交付**：`T0-PREREVIEW-RECORDS` 已合并（master `dec30514`，R3 第 **7** 轮 pass 零 finding；三次用户裁定 `-ResetRounds`，
 六轮 block 共 13 条 finding 全部属实、全部当场修）——`scripts/_prereview-records.ps1`（`-AsLibrary` / `-SelfCheck`，67 条断言）+
 `scripts/fixtures/prereview/records/`（4 个 unit、两 worker 11 条盖章记录、7 个 reject 文件 + 5 个内存派生 reject 类）：worker 记录校验、
-unit 归属、C-<n> 单调铸造、精确重复合并（键不含行号，位置靠 unit_ids / evidence_refs 并集保留，TD176 的决定写在卡片 A4）、
+unit 归属、C-<n> 单调铸造、精确重复合并（键不含行号，位置靠 unit_ids / evidence_refs 并集保留，本地 TD176 的决定写在卡片 A4）、
 fingerprint / root_group、missing 覆盖合成。58/58 变异全杀。**coverage 与 candidates 的绑定最终形态 = 重铸而非核对**：coverage 从
 结果自带的 `StartId` 重铸一遍，要求整个结果对象（七个属性的规范 JSON）逐字节相等——前四轮每轮都被找到「核对没盖到的一种改写形状」
 （缺字段 / 换 id / 协同改写 / 补条目 / 只改状态），重铸把这一整类关掉。
@@ -173,7 +173,7 @@ DoD 在 ship 前于 master 收紧为大小写敏感（`6881a970`：`-eq`→`-ceq
 进包内容与两个 worker 各自可见面 · worker 命令契约（白名单环境、`PRE_*`、`PRE_LIVE` 唯一写者 + 三处登记的自检例外）· 记录/覆盖形状 ·
 C1–C7 · 读包 · `link-r3`/`recall` · 1a 检查点 · 首次真跑清单 · 20 个 `[PRE-…]` 状态码表（`-Anchors` 双向锚定）· 1b 只留指针段）·
 TRUST-MANIFEST 两行（发现者 Anthropic `claude` CLI = 整包含 `tree/` 出站；透镜 DeepSeek = 仅 prompt.txt，`PrereviewDiscoverCommand`/
-`PrereviewLensCommand` 钉在指针格）· CLAUDE.md 索引行 24 + AI 工具句改写 · task-loop 4.6 一句。4/4 锚点变异全杀；路由自检
+`PrereviewLensCommand` 钉在指针格）· CLAUDE.md 索引行（现为第 25 条） + AI 工具句改写 · task-loop 4.6 一句。4/4 锚点变异全杀；路由自检
 （mode=all，从 worktree 自己那份 `selftest.ps1` 跑）PASS 1422 s。
 > **四轮 R3 全是同一类错误——写下的保证超出所引卡片的验收行（L309）**：`PRE_LIVE` 唯一写者的全称句被自己的括号推翻 ·
 > `DEEPSEEK_API_KEY` 既「所有 worker 都没有」又「透镜子进程读取」· 「gitignored 由构造排除」只对**未跟踪**文件成立（`read-tree HEAD`

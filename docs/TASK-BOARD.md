@@ -6,6 +6,8 @@
 
 ## PR review v2
 
+> 2026-09 reconcile：本地 1a 链的本地独有部分（PROTOCOL-DOC、CHECKLISTS、RECORDS、FACTS-LIB、STATE-1A）随 reconcile 并入 master（schema 与校验器保留 origin 经 T0-PREREVIEW-REMOTE-SCHEMA 采纳的版本），记录见下方「PR review v2：本地 1a 链记录」一节。`docs/PREREVIEW-PROTOCOL.md`、`docs/PREREVIEW-CHECKLISTS.md` 与 `scripts/_prereview-facts.ps1` 因此已在 master 上；T0-PREREVIEW-REMOTE-POLICY、T0-PREREVIEW-REMOTE-FACTS、T0-PREREVIEW-POLICY-SOURCE、T0-PREREVIEW-POLICY-SOURCE-CHECK 与 T0-PREREVIEW-SOURCE-REGISTRATION 的处置待用户裁定。
+
 远端采纳按 [交付计划](plans/PREREVIEW-REMOTE-ADOPTION.md) 顺序执行：T0-PREREVIEW-REMOTE-SCHEMA → T0-PREREVIEW-REMOTE-POLICY → T0-PREREVIEW-REMOTE-FACTS。只采纳最终 revision 1 契约、策略与 FACTS-LIB；原始本地卡图及其它实现不计为远端完成。作者沿用当前 Astra，正式 R3 为 Sol。
 
 ## 模型席位（性价比路由原则）
@@ -200,9 +202,9 @@
 | W4 | T3-PDF-MEASUREMENT-BINDING | TextRun精确快照、caption最终来源与DEFAULT双图同页 | T3-PDF-MEASUREMENT-REQUESTS | M | GPT-6 Astra · high | GPT-5.6 Sol R3 · high | **todo**；第4轮与StorageAndroid同轮；原test-only草稿未RED并保留；四文件含修复余量219–253行/18k–24.1k；完整原验收由两卡分担，无default/fallback snapshot |
 | W4 | T3-PDF-TEXT-METRICS-OPS | PdfTextOp快照与baseline转发、实际行框校验 | T3-PDF-MEASUREMENT-BINDING | M | GPT-5.6 Terra · high | GPT-5.6 Sol R3 · high | **todo**；拆分B；候选144行/11,443字符，未GREEN/R4；不重算字形度量 |
 | W4 | T3-PDF-ANDROID-TEXT-MEASURER | Android Paint/Typeface 测量适配器与 CJK fallback 资产搬迁 | T3-PDF-TEXT-METRICS-OPS,T1-SPIKE-PLATFORM | M | GPT-5.6 Terra · high | GPT-6 Astra · high | **todo**；前置 OPS 后启动；实测后采用每次最终行 getTextBounds union，超框明确拒绝；380–570 行/34k–51k预估，650行/50k前拆；一次 move assets，未识别rename则须RED前拆资产/许可 |
-| W4 | T3-PDF-IMAGE-FIT | 固定FIT_CENTER几何：不变placement框+实际解码尺寸 | T3-PDF-RENDERER | S | Opus 5.5 · xhigh | DeepSeek V4 Flash预审 → Opus 5.5 R3（Codex配额恢复前） | **merged**；2026-09-23本地f367ca86，featuredaa4f720；196行；11测试、26/26变异；DeepSeek V4 Flash 8轮预审，Opus 5.5 R3第5轮pass（第3–5轮用户逐轮授权）；合并树=评审树0092e994 |
-| W4 | T3-PDF-IMAGE-OWNERSHIP | bounds/采样转交、decode/draw与流/位图所有权（窄端口） | T3-PDF-IMAGE-FIT,T3-PDF-RENDERER | M | Opus 5.5 · xhigh | DeepSeek V4 Flash预审 → Opus 5.5 R3（Codex配额恢复前） | **merged**；2026-09-23本地1558594d，feature17060f81；443行；20测试、23/23变异；DeepSeek V4 Flash 2轮预审，Opus 5.5 R3首轮pass；合并树=评审树b85231ae |
-| W4 | T3-PDF-IMAGE-BRIDGE | Android BitmapFactory/Canvas端口，补全已交付bridge | T3-PDF-IMAGE-OWNERSHIP,T1-SPIKE-PLATFORM | S | Opus 5.5 · xhigh | DeepSeek V4 Flash预审 → Opus 5.5 R3（Codex配额恢复前） | **merged**；2026-09-23本地fee6451f，feature4993e073；174行；1个精确源码钉住测试、22/22变异；DeepSeek V4 Flash 5轮预审，Opus 5.5 R3第3轮pass（第3轮用户授权，并由用户裁定改为精确源码钉住）；合并树=评审树3a61ec1e；图片bridge三卡全部交付，RENDER-DEVICE可接 |
+| W4 | T3-PDF-IMAGE-FIT | 固定FIT_CENTER几何：不变placement框+实际解码尺寸 | T3-PDF-RENDERER | S | Opus 5.5 · xhigh | DeepSeek V4 Flash预审 → Opus 5.5 R3（Codex配额恢复前） | **merged**；2026-09-23本地f367ca86，featuredaa4f720；196行；11测试、26/26变异；DeepSeek V4 Flash 8轮预审，Opus 5.5 R3第5轮pass（第3–5轮用户逐轮授权）；合并树=评审树0092e994；远端 PR #325 |
+| W4 | T3-PDF-IMAGE-OWNERSHIP | bounds/采样转交、decode/draw与流/位图所有权（窄端口） | T3-PDF-IMAGE-FIT,T3-PDF-RENDERER | M | Opus 5.5 · xhigh | DeepSeek V4 Flash预审 → Opus 5.5 R3（Codex配额恢复前） | **merged**；2026-09-23本地1558594d，feature17060f81；443行；20测试、23/23变异；DeepSeek V4 Flash 2轮预审，Opus 5.5 R3首轮pass；合并树=评审树b85231ae；远端 PR #326 |
+| W4 | T3-PDF-IMAGE-BRIDGE | Android BitmapFactory/Canvas端口，补全已交付bridge | T3-PDF-IMAGE-OWNERSHIP,T1-SPIKE-PLATFORM | S | Opus 5.5 · xhigh | DeepSeek V4 Flash预审 → Opus 5.5 R3（Codex配额恢复前） | **merged**；2026-09-23本地fee6451f，feature4993e073；174行；1个精确源码钉住测试、22/22变异；DeepSeek V4 Flash 5轮预审，Opus 5.5 R3第3轮pass（第3轮用户授权，并由用户裁定改为精确源码钉住）；合并树=评审树3a61ec1e；图片bridge三卡全部交付，RENDER-DEVICE可接；远端 PR #327 |
 | W4 | T0-APP-TEST-SOURCE-INPUTS | :app源码读取型测试的Gradle输入声明（同PR #188对:core所做） | T3-PDF-IMAGE-BRIDGE | S | Sonnet 5 · high | 第二模型R3 | **todo**；T3-PDF-IMAGE-BRIDGE R3的[FOLLOW-UP]，2026-09-24用户同意开卡；注释等字节码不变的改动可令源码钉住测试UP-TO-DATE假绿 |
 | W4 | T3-PDF-RENDER-DEVICE | PdfDocument页/文档/文本执行与真实图片bridge集成 | T3-PDF-RENDERER,T1-SPIKE-PLATFORM,T3-PDF-TEXT-METRICS-OPS,T3-PDF-ANDROID-TEXT-MEASURER,T3-PDF-IMAGE-BRIDGE | M | GPT-5.6 Terra · high | GPT-5.6 Sol R3 · high | **todo**；消费已测量TextOp与已交付imagebridge；363–481行/24k–35k完整预测；本批第5轮后置 |
 | W4 | T3-PDF-DEVICE-FIXTURE | debug real80清单预检与固定ReportContent/双哈希输入 | T3-REPORT-CONTENT-ADAPTER,T1-SPIKE-PLATFORM | M | GPT-5.6 Terra · high | DeepSeek V4 Flash预审 → Opus 5.5 R3（Codex配额恢复前） | **merged**；2026-09-24本地08ab4d8a，feature89285d67；825行（用户批准超650/45k早停）；11测试、63/63变异；真实Kotlin builder复现双hash；DeepSeek V4 Flash 7轮预审，Opus 5.5 R3第5轮pass（第3–5轮经用户逐轮授权）；合并树=评审树f22b89c4；不宣称设备验收 |
@@ -343,7 +345,9 @@ V1 发布汇合卡是 `T7-SMOKE-POLISH`：增加 PDF/HTML/DOCX、物业恢复和
 
 规则信任决策见 ADR-0008（2026-09-08 用户已批准）：APK 单公钥、本人批准规则、受控电脑分开保管两类私钥、USB 首次安装/传递。用户在完整方案和明确责任问题后回复“好的”，关闭用户待决策项；不代表密钥已生成或安装已完成。轮换、撤销、日期、确认绑定与恢复同步导入卡 A1–A8；本卡已通过远端 R3 并合并（PR #257），此项前置完成；实际制品与安装证据由后续验收提供。remediation provider/key 由 provider 决策卡先定，未选择供应商或授权采购；备份 format v2 字节布局必须走版本评审。V1.1/V2 参数由各自卡前置收口，不影响当前采集建设。既有 s48(2)(c) work-check 法律待办保留，不在本轮修改法律配置。
 
-## PR review v2
+## PR review v2：本地 1a 链记录（经 2026-09 local/origin reconcile 并入）
+
+> 2026-09 reconcile：本节是本地 master 的 1a 链计划与交付记录，随 reconcile 并入 origin。其中以 origin 领先为前提的排程规则（禁止 reconcile、先收口某卡再 reconcile 等）已被本次 reconcile 取代；远端采纳状态以上方「PR review v2」一节为准。
 
 计划真相源 `_local/PLAN-PR-REVIEW-V2.md`（v7，不入库）；卡正文自足，实施者不需要读计划。基线（143 张归档卡）：R3 首轮 pass 32.9%，平均每卡 3.9 次 block；非正式 pre-review 抓到的 20 张里仍有 17 张被 block。目标：在 ship 之前跑一份**建议性**发现包（Claude 发现者读整棵快照树 + 一枚 DeepSeek 透镜，两者并行、不投票），把可在本卡内修的缺陷在 R3 之前吃掉。codex R3 仍是唯一合并闸；包不进 codex 提示词，包里没有 `verdict` 字段，发现者与评审者的提示词只差 nonce。
 
