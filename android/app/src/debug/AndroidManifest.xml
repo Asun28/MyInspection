@@ -11,5 +11,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".platform.AppStorageProbeActivity" android:exported="true"
+            android:permission="android.permission.DUMP" />
     </application>
 </manifest>
