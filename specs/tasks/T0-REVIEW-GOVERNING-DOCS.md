@@ -1,7 +1,7 @@
 ---
 id: T0-REVIEW-GOVERNING-DOCS
 title: Give the docs that define the gates, the security rules and the agents' boundaries the adversarial R3 class
-status: todo
+status: merged
 depends_on: []
 parallelizable_with: []
 allow_paths:
@@ -117,3 +117,17 @@ bullets name the commit each one ran on.
   the file's single `SCAFFOLD-SYNC-LEDGER` marker, and the text from the marker to the end is unchanged.
   `Get-SyncedVersion` in `scripts/scaffold-sync.ps1`, which `scripts/triage.ps1` also loads, reads version rows
   only after that marker.
+
+## R5 delivery (2026-09-25)
+
+[PR #347](https://github.com/Asun28/MyInspection/pull/347) merged as `f970f741` with `--match-head-commit 3b4ebfe8`, after
+`ci.yml` run 35999775552 (pull_request, attempt 1) succeeded on that head and `origin/master` was still `a5dbdbc5`,
+the base R3 round 2 reviewed. The merged tree's four changed files equal the reviewed head's blobs, and the
+dod_command exits 0 with `[DOD-PASS]` on `f970f741`.
+
+R3 ran on Claude Opus 5.5 through `review.ps1`'s `ReviewCommand` while the Codex quota was exhausted (user
+approval, 2026-09-24): a copy of the base commit's `scripts/` with only the `ReviewCommand` line changed. The two
+Codex attempts from the ship's R3 leg wrote no verdict (`[R3-NO-OUTPUT]`, usage limit); each was diagnosed before
+its round was reset. Opus round 1 blocked on the two record findings described above; round 2 passed on both axes.
+The PR's provenance comment records this, because the local review record's `model` field shows the configured
+label `gpt-5.6-sol`.
