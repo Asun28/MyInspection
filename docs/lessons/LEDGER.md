@@ -1143,7 +1143,7 @@
 - refs: 
 
 ## L165
-- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 8
+- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 9
 - symptom: 同一张卡里「断言看起来在测 X、实际没测 X」连出四次：①断言写在**整份 stdout** 上，而被测命令在判定前先打印改动清单，那条路径无论判定如何都在输出里 ②断言匹配**中文结论行**，父进程 stdout 被重定向时解码成乱码，六个 case 在别人机器上齐红而我连跑六次全绿 ③断言只数文档里**关键词出现次数**，而周围散文本就含那些词，把真正的可执行守卫整段删掉照样绿 ④不符用例传**全零 OID**，于是停在「解析不出提交」那一支，根本走不到它声称要测的身份比对那句。**第 2 次（T56 r17 批，2026-08-05）：变异分类器自己犯②**——gate 锚带一个「闸」字、红面正则锚「闸17t(」，批改派 schtasks 后 OEM 码页把中文打成 '?'，六枚真红被误判 NOT-OK；改纯 ASCII 锚时又差点掉进③（裸 '17t(tXX)' 会把 t16 半覆盖信息行误计红面），红面行判别改锚 'WARNING: ' 前缀（L149）才闭合。
 - root_cause: 断言落在了**比被测契约更宽的表面**上：整份输出 ⊃ 判定行、中文文案 ⊃ 稳定标识、关键词出现 ⊃ 可执行命令、任一非零 ⊃ 该守卫拦下。宽表面在被测契约还成立时当然绿，于是看不出问题；一旦契约被摘掉，宽表面仍可能因别的原因满足，断言就静默失效。人写断言时脑子里想的是契约，手上写的却是「输出里有没有这个字符串」。
 - rule: 断言面必须**恰好等于**被测契约，且用一枚只删该契约那一句的变异来证明：①只比对**判定行**（先按稳定标识切出那一行再匹配），不比对整份输出 ②机检一律认 **ASCII 哨兵**，本地化文案只给人读（编码链一变中文断言就假红/假绿）③文档契约锚到**可执行命令行形态**（行首 + 真实命令），不数关键词出现次数 ④「不符/失败」用例必须让被测那一句**真的被执行到**（如身份比对要传可解析但不同的 OID，全零 OID 只测到解析失败那支），并断言输出里有该句独有的证据（如 judged=/expect= 两个值）。**每道守卫配一枚单句删除变异**——它红了才算这条断言真的在测它。⑤**判据提取器（变异分类器/红面正则/日志 grep）也是机检，锚同样纯 ASCII**——连锚里带一个中文字都会在换执行环境（schtasks OEM 码页）时整批失配；行判别锚 'WARNING: ' 前缀（L149），别锚中文前缀，也别裸锚标签（信息行会误计）。
@@ -2319,7 +2319,7 @@
 - refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
 
 ## L309
-- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 8
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 9
 - symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
@@ -2568,6 +2568,14 @@
 - refs: 
 
 ## L346
+- date: 2026-09-24 ｜ tags: r3,review-round-cap,quota,remote-ship ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: Remote ship while Codex is out of quota: every ship reruns the Codex leg, it fails closed, and ResetRounds after diagnosis also zeroes the real Opus R3 rounds that blocked before it, so ReviewRoundCap never fires (PR #334 reached 4 real rounds with the counter never above 1)
+- root_cause: The .rounds counter is one per-branch tally and ResetRounds clears it whole; it cannot tell an external quota failure from a real reviewer block
+- rule: When resetting after a diagnosed external failure, count the real review rounds yourself; once they reach ReviewRoundCap, ask the user before the next reviewer run even though the counter reads low
+- enforced_by: 
+- refs: 
+
+## L347
 - date: 2026-09-24 ｜ tags: git,bisect,checkout,exit-code,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: one void bisect, redone
 - symptom: A path-level bisect for the reconcile (restore a few files from older commits, re-run a contract check, compare) restored files with `git checkout --detach <sha> -- <paths>`. Every step ran against the unchanged tree, so the first bisect result was void. Git had refused each restore with "fatal: git checkout: --detach does not take a path argument '<path>'" (exit 128), and the script never looked at the exit code.
 - root_cause: `--detach` moves HEAD and accepts no pathspec; with paths the command fails before touching any file. A bisect that trusts the restore command instead of the resulting file state measures the same tree at every step.
@@ -2575,7 +2583,7 @@
 - enforced_by:
 - refs: reconcile 2026-09, bisect of the T4-DESIGN-SYMBOL-CHROME-V2 check 07 failure (TD185)
 
-## L347
+## L348
 - date: 2026-09-24 ｜ tags: powershell,wildcard,like,markdown,backtick ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: two silent misses in one reconcile
 - symptom: Sweeps that matched a Markdown code span with -like, such as ``$line -like '*`T1-FOO`*'``, returned False on lines that plainly contained the span, twice during the reconcile. The sweep looked clean because nothing matched.
 - root_cause: In -like and other wildcard patterns the backtick is the escape character: a backtick before T means a literal T, and the closing backtick before the asterisk makes that asterisk literal, so the pattern demands a line that ends with *. Single quotes do not help; the string keeps the backtick and the wildcard parser consumes it.
@@ -2583,7 +2591,7 @@
 - enforced_by:
 - refs: reconcile 2026-09, card and board sweeps
 
-## L348
+## L349
 - date: 2026-09-24 ｜ tags: reconcile,merge,cards,task-board,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: three extra R3 rounds on reconcile slice 4
 - symptom: Reconcile slice 4 (PR #338) passed R3 only on round 7. Rounds 4-6 each found one record taken from one side while another record carried by the same PR said otherwise: CLAUDE.md called T3-PDF-RENDER-DEVICE unlocked although the carried re-plan made it wait; T1-LOCAL-DATA-SECURITY kept origin's depends_on although the carried ADR-0006 added T1-APP-STORAGE-ANDROID; the T1-SHARE-SCREEN-PRIVACY board row stayed origin's pre-split row while its card was local's split. The author's sweep started from the rows the PR had changed, so it never checked an untouched origin row next to a changed card, or a card kept at origin's version while a changed ADR paragraph added a prerequisite to it.
 - root_cause: Conflicts are resolved file by file, but a card, its board rows, ADR paragraphs and CLAUDE.md lines describe the same entity; choosing a side per file can pair one side's card with the other side's row. A review that starts from the diff sees only changed lines.
