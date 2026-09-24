@@ -2319,7 +2319,7 @@
 - refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
 
 ## L309
-- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 10
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 11
 - symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
@@ -2480,12 +2480,13 @@
 - refs: renumbered from the uncommitted L328 by the 2026-09 reconcile (#339)
 
 ## L344
-- date: 2026-09-15 ｜ tags: selftest,worktree,routing,task-card ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-15 ｜ tags: selftest,worktree,routing,task-card ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: Ran scripts\selftest.ps1 -TaskId <id> -Base master from the main checkout as the card DoD asked; the run resolved mode=all and tested the main checkout (its untracked .aidlc/ root entry turned gate 8 red, and gate 11 counted the main checkout links), so the card worktree was never the tree under test.
 - root_cause: For mode all and core the -TaskId route only selects shards; every shard runs on $RepoRoot, which selftest.ps1 derives from its own location. Only the skills mode targets the task worktree (Invoke-SelftestAll -SourceRoot WorktreePath). Invoking the main checkout copy therefore tests the main checkout.
-- rule: Routed selftest evidence for a card must come from the worktree copy: pwsh -File <WorktreeRoot>\<id>\scripts\selftest.ps1 -TaskId <id> -Base master. Also check that the invoked root has no stray top-level entries before a full run (gate 8.1 whitelist), and that every L<n> the card cites exists at base (git show master:docs/lessons/LEDGER.md), not only in the dirty working ledger (gate 16).
+- rule: Routed selftest evidence for a card must come from the worktree copy: pwsh -File <WorktreeRoot>\<id>\scripts\selftest.ps1 -TaskId <id> (since the 2026-09 reconcile selftest.ps1 has no -Base parameter; passing it fails before any gate runs). Also check that the invoked root has no stray top-level entries before a full run (gate 8.1 whitelist), and that every L<n> the card cites exists at base (git show master:docs/lessons/LEDGER.md), not only in the dirty working ledger (gate 16).
 - enforced_by: 
 - refs: renumbered from the uncommitted L329 by the 2026-09 reconcile (#339)
+- addendum(2026-09-25, T1-APP-STORAGE-ANDROID): a card whose paths are android/ product files has no GATE-MAP row, so the tier-1 route escalates to the full 17 gates (2594 s on the worktree copy). Budget about 45 minutes, and free memory first: the first attempt was killed for low system memory while an emulator and another session's ship were running.
 
 ## L345
 - date: 2026-09-16 ｜ tags: powershell,ordinal,comparison,r3 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
@@ -2536,7 +2537,7 @@
 - refs: 
 
 ## L336
-- date: 2026-09-23 ｜ tags: handoff,progress.md ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- date: 2026-09-23 ｜ tags: handoff,progress.md ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
 - symptom: Replacing the HANDOFF block in progress.md with IndexOf overwrote the oldest of 13 historical blocks; it had to be restored from the SessionStart hook print.
 - root_cause: progress.md accumulates one HANDOFF block per session and handoff.ps1 check reads the last one; IndexOf finds the first.
 - rule: Edit only the last block (LastIndexOf of the START and END markers) and compare the block count before and after the write.
@@ -2544,7 +2545,7 @@
 - refs: 
 
 ## L337
-- date: 2026-09-24 ｜ tags: r3,review,remote,ship,codex-quota ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-24 ｜ tags: r3,review,remote,ship,codex-quota ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: Remote task.ps1 ship ran Codex for R3 (quota error, [R3-NO-OUTPUT]) even though the control checkout set _config.ps1 ReviewCommand to an Opus backend; the same edit worked for -Local ships on the older local scripts.
 - root_cause: Origin task.ps1 (T288) exports the whole reviewer bundle, _config.ps1 included, from the pinned base commit, so an uncommitted ReviewCommand in the running checkout never reaches the ship R3 leg. Separately, [SHIP-SCOPE-CARD-ABSENT] requires the card on the base commit before its product ship.
 - rule: To swap the R3 backend for a remote ship without committing machine-specific config: let the ship run every deterministic gate and open the PR, reset the round after diagnosing the quota failure, run the checkout review.ps1 (verify it is byte-identical to the base blob) with -PostStatus -PrNumber, confirm a successful ci.yml run on the same head and the PR base, then gh pr merge --squash --match-head-commit. Register cards on origin in a separate PR first.
@@ -2604,5 +2605,21 @@
 - symptom: Carding a one-value config change (ReviewIntensityByTier tier 0 advisory to adversarial, T0-REVIEW-GOVERNING-DOCS), a grep for the literal assignment found only scripts/_config.ps1. While implementing it, gate 17ib failed: scripts/selftest.ps1 pins the live value through $map['0'] -ne 'advisory'. The card needed an amendment PR to add scripts/selftest.ps1 to allow_paths and to relax its own forbid entry.
 - root_cause: A config value is pinned through its accessor and key, not its literal spelling. The drift check calls Get-ScaffoldReviewIntensityByTier and indexes ['0'], so a search for the assignment text cannot find it.
 - rule: Before carding a change to a scripts/_config.ps1 value, grep every reader of that key (its Get-Scaffold<Key> accessor and $ScaffoldConfig.<Key>) across scripts/, selftest.ps1 included, and look for assertions that pin the current value. Put each pinning file in allow_paths when the card is written, not after RED.
+- enforced_by: 
+- refs: 
+
+## L351
+- date: 2026-09-25 ｜ tags: android,device,evidence,r3 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: T1-APP-STORAGE-ANDROID: R3 round 1 blocked the device evidence. It pinned the SHA-256 of the four card files only, the runs had been built on an earlier base, and the probe also exercised the unpinned prerequisites AppStoragePolicy and StoragePathBoundary, so the doc claim that the source hashes identify the candidate was false. Baselines, 19 mutants on two devices and the final runs all had to be rerun.
+- root_cause: An APK is built from the whole module tree, so hashes of the changed files cannot identify it, and absorbing base commits after the runs changes the candidate without changing those hashes.
+- rule: Commit the candidate before any device run and have the host script print git rev-parse HEAD:android plus a dirty count on every run. Record that tree id in the evidence, and before merge check that git rev-parse <merge head>:android still equals it; rerun if it does not.
+- enforced_by: 
+- refs: 
+
+## L352
+- date: 2026-09-25 ｜ tags: android,emulator,device ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: After adb emu kill, relaunching the API 35 AVD with its default quick-boot snapshot stayed offline for 16 minutes while qemu used 13 CPU seconds; adb reconnect offline and an adb server restart did not help.
+- root_cause: Not diagnosed: the quick-boot snapshot load hung.
+- rule: If an emulator stays offline for more than about 2 minutes with qemu near idle, kill that instance and cold boot it with -no-snapshot (it booted in about 40 s); do not keep waiting or restarting adb.
 - enforced_by: 
 - refs: 
