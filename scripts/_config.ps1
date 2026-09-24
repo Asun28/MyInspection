@@ -492,9 +492,13 @@ $script:ScaffoldConfig = @{
   # Why tier and not size: ReviewEffortBySize already keys on changed lines, and a 300-line doc card draws
   # the same 40-minute adversarial read as a 300-line enforcer change. 80% of the last 813 commits touch no
   # code file (ADR 0016), so most R3 minutes are spent where the blast radius is a document.
-  # Consumed by scripts/review.ps1, sentinel [R3-INTENSITY]. The values below are THIS repo's decision
-  # (T301), and the trade-off they buy is recorded on that card and in docs/QUALITY-RUBRIC.md section 4.
-  ReviewIntensityByTier = @{ 'S' = 'adversarial'; '1' = 'adversarial'; '0' = 'advisory' }
+  # Consumed by scripts/review.ps1, sentinel [R3-INTENSITY]. The values below are THIS repo's decision.
+  # T301 set them and recorded the trade-off on that card and in docs/QUALITY-RUBRIC.md section 4. Tier 0
+  # was raised from 'advisory' to 'adversarial' by T0-REVIEW-GOVERNING-DOCS: a card editing only
+  # docs/QUALITY-RUBRIC.md, docs/SECURITY.md, CLAUDE.md or another doc that defines the gates computes
+  # tier 0, and such edits now draw the same review class as a code change. ReviewEffortBySize still sets
+  # the effort by diff size, so a small doc diff is still reviewed at 'low'.
+  ReviewIntensityByTier = @{ 'S' = 'adversarial'; '1' = 'adversarial'; '0' = 'adversarial' }
 
   # 经验系统「必须层」（CLAUDE.md 经验铁律）封顶条数。超限须淘汰最不活跃项回按需层。
   LessonsMustCap = 10
