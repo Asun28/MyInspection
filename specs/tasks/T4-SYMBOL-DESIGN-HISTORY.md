@@ -40,3 +40,7 @@ Authorization recorded 2026-09-09: the user replied “授权” to the explicit
 Source history is the exact section beginning R4 mutation receipt through the end of local R3 rounds7-8, before Change log, in PR263 head af230c16cd39c88c601a4af983c1a0f777f52c5e. It records the original local design candidate, not current remote completion. Existing remote acceptance remains untouched; parser integration and all old/new checks stay in the subsequent PR263 repair.
 
 After this independently reviewed history-only change merges, PR263 normally merges that new base and retains the exact same history, removing it from PR263's new diff without deleting or weakening any record. This is a genuine two-stage publication, not a higher diff limit or a reset through branch recreation. R5.5: no new lesson is introduced by this mechanical history publication.
+
+## Reconcile note (2026-09-24)
+
+A2's "including todo status" and doc_sync's "keep target status todo" describe origin before the 2026-09 local/origin reconcile, which lands the local design merged as `53673571` and sets `T4-DESIGN-SYMBOL-CHROME-V2` to merged. This card's DoD already failed with SYMBOL-HISTORY content drift on origin before the reconcile, so no gate result changes.
