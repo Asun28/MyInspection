@@ -1,7 +1,7 @@
 ---
 id: T1-LOCAL-DATA-SECURITY
 title: 本地数据安全底座：内外存储分层与 Keystore secret box（依赖安全日志）
-depends_on: [T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING-REMOTE, T1-STORAGE-PATH-BOUNDARY-REMOTE, T1-APP-STORAGE-POLICY-REMOTE]
+depends_on: [T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING-REMOTE, T1-STORAGE-PATH-BOUNDARY-REMOTE, T1-APP-STORAGE-POLICY, T1-APP-STORAGE-ANDROID]
 status: todo
 branch: T1-LOCAL-DATA-SECURITY
 worktree: C:\wt\T1-LOCAL-DATA-SECURITY
@@ -35,7 +35,7 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 
 ## 产出
 
-本卡提供 Keystore-backed `LocalSecretBox`，并消费前置卡 `T1-APP-STORAGE-POLICY-REMOTE` 交付的 `AppStoragePolicy`；`SafeLog` 和四处媒体日志接线已由前置卡 `T1-SAFE-MEDIA-LOGGING-REMOTE` 交付。原有安全验收与日志回归完整保留，不重复实现前置能力。
+本卡提供 Keystore-backed `LocalSecretBox`，并消费前置卡 `T1-APP-STORAGE-POLICY` 交付的 `AppStoragePolicy`（master `f68d7006`；2026-09 reconcile 以它取代 `T1-APP-STORAGE-POLICY-REMOTE` 的版本，见 ADR-0006）；`SafeLog` 和四处媒体日志接线已由前置卡 `T1-SAFE-MEDIA-LOGGING-REMOTE` 交付。原有安全验收与日志回归完整保留，不重复实现前置能力。
 
 ## 契约
 
@@ -59,3 +59,9 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 历史拆分时的状态记录：“两个远端前置均尚待各自 PR、R3 和 CI 通过后合并。”该记录保留拆分时的判断；当前依赖状态以上述实际远端交付为准。
 
 The storage policy is an additional remote prerequisite after SafeLog and PathBoundary. Consume it only after its functional PR merges. The complete original security acceptance and executable DoD remain unchanged.
+
+## 2026-09 reconcile note
+
+本卡正文取 origin（#301/#313 的远端别名登记）。本地 `a718507f`（2026-09-17）把 Android getter/转换、原始卷状态与目录可写实现拆给 `T1-APP-STORAGE-ANDROID`，并把它加为本卡前置（ADR-0006 的 2026-09-17 交付拆分条目：LocalSecretBox 与生产装配均以后者为前置）。reconcile 据此补入该前置，并把策略前置改指 master 上实际交付 `AppStoragePolicy` 的 `T1-APP-STORAGE-POLICY`。本地 2026-09-17 改动本卡的四个提交（`f372005f`、`21d3c9c9`、`12d96828`、`a718507f`）对标题、allow_paths、forbid、non_goals 与 DoD 的收窄未取入，origin 的完整验收保留。
+
+本次改动使 `T0-REMOTE-ROUND3-CARDS` DoD 对本文件的 SHA-256 钉（`E1C388F0…`，即 #313 登记时的内容）不再成立；该 DoD 在 origin master `70844aae` 上已有四个钉不成立（`T1-APP-STORAGE-POLICY-REMOTE` 卡、ADR 0006、ADR 0007、TASK-BOARD）。它对 TASK-BOARD 本卡行依赖列与本卡 `depends_on` 逐字相等的检查，本次两处同步修改后仍成立。

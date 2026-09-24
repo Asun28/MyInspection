@@ -517,7 +517,7 @@ SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）�
 > **轮次上限三次经用户裁定 `ResetRounds`**：每轮都是互不相同的真缺陷、都被接受修复、都带来新的击杀变异，
 > 不属该闸要止住的「同一争点拉锯」；计数被清零，评审本身一次没跳过。
 
-**当前已解锁待做**（按 depends_on 核对，2026-09-24）：前置均已合并的产品卡包括 `T1-APP-STORAGE-ANDROID`、`T1-LOCAL-DATA-SECURITY`、`T2-GHOST-EDGE-OVERLAY` 与 `T3-REPORT-IMPORT-COMMIT`。`T3-PDF-RENDER-DEVICE` 的图片 bridge 与 `T1-SPIKE-PLATFORM` 真机 spike 前置已满足（master `e8c2359a`），但仍待 `T3-PDF-TEXT-METRICS-OPS` 与 `T3-PDF-ANDROID-TEXT-MEASURER`；
+**当前已解锁待做**（按 depends_on 核对，2026-09-24）：前置均已合并的产品卡包括 `T1-APP-STORAGE-ANDROID`、`T2-GHOST-EDGE-OVERLAY` 与 `T3-REPORT-IMPORT-COMMIT`。`T1-LOCAL-DATA-SECURITY` 仍待 `T1-APP-STORAGE-ANDROID`（ADR-0006 的 2026-09-17 拆分）。`T3-PDF-RENDER-DEVICE` 的 `T1-SPIKE-PLATFORM` 真机 spike（master `e8c2359a`）与图片 bridge（master `fee6451f`）前置已满足，但仍待 `T3-PDF-TEXT-METRICS-OPS` 与 `T3-PDF-ANDROID-TEXT-MEASURER`；
 `T5-BACKUP-IO` 仍待 `T1-SHARE-SCREEN-PRIVACY`、`T1-LOCAL-DATA-SECURITY` 与 `T1-APP-BOUNDARY-ASSEMBLY`。
 
 **T0-GATE-HARDENING 的事后 R3 已结清**：其合并 `5ba3319` 未经 `task.ps1 ship`（`-SkipRed` ×2），post-hoc R3
