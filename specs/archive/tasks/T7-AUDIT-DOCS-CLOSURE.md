@@ -35,4 +35,4 @@ doc_sync: 仅将本收尾卡标为merged并归档；业务功能卡保持原状�
 
 ## Reconcile note (2026-09-24)
 
-Origin delivered this audit's document synchronization before the 2026-09 local/origin reconcile, as `T7-AUDIT-REMOTE-DOCS` ([PR #249](https://github.com/Asun28/MyInspection/pull/249)); it is archived there as merged. `status: merged` records closure through that remote card. Local master merged its own version of this card later, on 2026-09-07 (`bdb428f0`), which the next reconcile slice carries.
+Local master had already merged this card on 2026-09-07 (`bdb428f0`, 16:59 NZ time). Origin later re-submitted the same document synchronization from its own baseline as `T7-AUDIT-REMOTE-DOCS` ([PR #249](https://github.com/Asun28/MyInspection/pull/249)), archived there as merged. `status: merged` with `superseded_by` records closure through that remote card. The next reconcile slice carries the local merge.
