@@ -4,7 +4,7 @@ title: Adopt product-only scaffold trigger exclusion with shared focused proof
 depends_on: []
 parallelizable_with: []
 status: merged
-superseded_by: T0-SCAFFOLD-TRIGGER-REMOTE
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
 branch: T0-SCAFFOLD-TRIGGER-ADOPTION
 worktree: C:\wt\T0-SCAFFOLD-TRIGGER-ADOPTION
 allow_paths:
@@ -94,4 +94,4 @@ This delivery supersedes the [earlier preparation](./T0-SELFTEST-SCAFFOLD-ONLY.m
 
 ## Reconcile note (2026-09-24)
 
-Origin delivered A1 (product-only trigger exclusion) through `T0-SCAFFOLD-TRIGGER-REMOTE` ([PR #245](https://github.com/Asun28/MyInspection/pull/245), `b4a72de9`) and A3 (isolated migration-failure fixture) through `T0-SELFTEST-SCAFFOLD-ONLY` ([PR #272](https://github.com/Asun28/MyInspection/pull/272), `75009925`). A2 (the shared `-Fixture scaffold-trigger` entry used by gate 8.2d) and A4 (gate 17ai classification and the task.ps1 summary comment) targeted local selftest structures that origin's selftest does not have, so they are not on master. A5 is an acceptance step for the local candidate and is not claimed for master. As on origin's NIGHTLY-META card, `status: merged` records closure through the replacement cards, not delivery of every item. The local implementation (merged locally as `9229141a` on 2026-09-07) is replaced by origin's scaffold in the reconcile.
+Origin delivered A1 and A2 through `T0-SCAFFOLD-TRIGGER-REMOTE` ([PR #245](https://github.com/Asun28/MyInspection/pull/245), `b4a72de9`: the product-only trigger exclusion and the shared `-Fixture scaffold-trigger` / gate 8.2d contract), A3 through `T0-SELFTEST-SCAFFOLD-ONLY` ([PR #272](https://github.com/Asun28/MyInspection/pull/272), `75009925`) and A4 through `T0-CI-SELFTEST-REPAIR` ([PR #259](https://github.com/Asun28/MyInspection/pull/259), `a293b531`). `T0-SCAFFOLD-UPSTREAM-ADOPTION` ([PR #297](https://github.com/Asun28/MyInspection/pull/297), `d991cc92`) then replaced `scripts/selftest.ps1` and `scripts/task.ps1` with upstream's, which removed the A2 fixture and the A4 gate 17ai inventory and task.ps1 comment. On master only A1 and A3 therefore still hold. A5 is an acceptance step for the local candidate and is not claimed for master. The local implementation (merged locally as `9229141a` on 2026-09-07) is replaced by origin's scaffold in the reconcile.

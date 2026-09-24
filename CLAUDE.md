@@ -662,13 +662,11 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 20. `docs/adr/0006-offline-security-backup-hardening.md` — ADR-0002 的离线安全、密钥、provider 失败隔离与恢复验证加固；保留整包/按物业备份范围
 21. `docs/UI-UX-ELEMENTS.md` — UI 页面、Overlay 与状态的 Elements 覆盖索引；规范细节唯一服从 `context/DESIGN.md`
 22. `specs/android-module-boundaries.md` — 审校补全的产品模块所有权、窄接口与复用约束（后续卡实现，非已编译 API）；版本与卡依赖见 TASK-BOARD 的 2026-09-06 补卡计划
-23. `docs/adr/0008-compliance-update-trust.md` — 已批准的规则更新信任根、签名包、代次/版本/日期、初始化及恢复决策；实际制品与真机证据由导入卡交付
-24. `docs/PREREVIEW-PROTOCOL.md` — PR review v2 阶段 1a **建议性发现包**的人读协议：规范顺序、进包内容与两个 worker 各自可见面、worker 命令契约、记录/覆盖形状（契约本体 = `specs/prereview-record.schema.json`）、发现分类 C1–C7、20 个 `[PRE-…]` 状态码表（与 schema 枚举双向锚定）、首次真跑清单、link-r3/recall 与 1a 检查点；1b 只留状态码行 + 指针段。codex R3 仍是唯一合并闸、包不进其提示词
 
-22. `specs/android-module-boundaries.md` — 审校补全的产品模块所有权、窄接口与复用约束（后续卡实现，非已编译 API）；版本与卡依赖见 TASK-BOARD 的 2026-09-06 补卡计划
 23. `docs/adr/0008-compliance-update-trust.md` — 规则离线签名与信任根、版本/日期/恢复矩阵及用户决策证据；导入实现按 A1–A8 后续交付
 
 24. `docs/plans/PREREVIEW-REMOTE-ADOPTION.md` — prereview 最终契约、策略和 FACTS-LIB 的远端采纳边界与验证。
+25. `docs/PREREVIEW-PROTOCOL.md` — PR review v2 阶段 1a **建议性发现包**的人读协议：规范顺序、进包内容与两个 worker 各自可见面、worker 命令契约、记录/覆盖形状（契约本体 = `specs/prereview-record.schema.json`）、发现分类 C1–C7、20 个 `[PRE-…]` 状态码表（与 schema 枚举双向锚定）、首次真跑清单、link-r3/recall 与 1a 检查点；1b 只留状态码行 + 指针段。codex R3 仍是唯一合并闸、包不进其提示词
 
 ## 开发工作流（每张任务卡，详见 docs/DEVOPS-WORKFLOW.md）
 单卡闭环：`scripts\task.ps1 -TaskId <ID> -Phase start|ship|cleanup`

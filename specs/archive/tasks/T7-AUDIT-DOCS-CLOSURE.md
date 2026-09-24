@@ -2,6 +2,7 @@
 id: T7-AUDIT-DOCS-CLOSURE
 title: 需求审校交付二：需求与页面版本一致性
 status: merged
+superseded_by: T7-AUDIT-REMOTE-DOCS
 depends_on: [T7-AUDIT-CARDS-CLOSURE]
 allow_paths:
   - CLAUDE.md
@@ -35,3 +36,7 @@ doc_sync: 仅将本收尾卡标为merged并归档；业务功能卡保持原状�
 ## 交付证据（2026-09-07）
 
 正式 R3 第2轮 pass 于 `4d46499f`，本地 merge `bdb428f0`。首轮发现需求§2旧的一天相机spike说法，已同步为现行 overlay/SAF/80照PDF 三项真机验证。DoD、Android core check、Golden Evidence JVM Core E2E、范围/许可/防泄露全通过；完整评审251 changed lines / 58,404 chars。五份文档三方合并保留前序DOCX交付与Routine卡更新；本轮两份其他所有者草稿逐字节未变。11张新功能卡仍todo，语音/批量版本与备份format v2范围已同步。本卡无源码或冻结协议变化；纯文档SkipRed，R4未新增镜像测试。
+
+## Reconcile note (2026-09-24)
+
+Origin delivered this audit's document synchronization before the 2026-09 local/origin reconcile, as `T7-AUDIT-REMOTE-DOCS` ([PR #249](https://github.com/Asun28/MyInspection/pull/249)); it is archived there as merged. `status: merged` records closure through that remote card. Local master merged its own version of this card later, on 2026-09-07 (`bdb428f0`), which the next reconcile slice carries.

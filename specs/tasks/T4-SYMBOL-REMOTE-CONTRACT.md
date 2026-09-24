@@ -254,3 +254,7 @@ $challenged=Test-SymbolMetadata $card
 $visibility=Test-SymbolVisibilityConsumers (Get-Content -LiteralPath 'specs/tasks/T4-SYMBOL-REMOTE-CONTRACT.md' -Raw) $card
 Write-Host "SYMBOL-METADATA PASS: exact25+15 tuples,12 final rows; $challenged malformed/duplicate/changed cases rejected; $visibility visibility consumer cases"
 ```
+
+## Reconcile note (2026-09-24)
+
+A1's "status remains todo" describes origin before the 2026-09 local/origin reconcile. The reconcile lands the local design merged as `53673571` and sets `T4-DESIGN-SYMBOL-CHROME-V2` to merged; that card's own reconcile note records how this contract's checks fare on the landed design.

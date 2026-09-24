@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 228 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 227 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -206,7 +206,6 @@
 | T4-COMPLIANCE-UPDATE-TRUST | merged | 规则更新的可信来源与版本决策 |
 | T4-DESIGN-NOT-APPLICABLE-COLOR | merged | NOT_APPLICABLE 的破折号没有声明前景色：evidence-rail 五个段态只有四个色 |
 | T4-DESIGN-STATUS-CARRIERS | merged | 状态载体收口的三处遗留：对比度绑定、两处边界行、capture Back 双名 |
-| T4-DESIGN-SYMBOL-CHROME-V2 | merged | 「符号化 chrome」准入条件收口（承接 T4-DESIGN-SYMBOL-CHROME，含相机面决策与逐行对齐） |
 | T4-NOTICES | merged | 48h 通知：双语文本生成 + 一键复制 + 送达存档（全文快照/提前量/校验快照） |
 | T4-REMINDER-CORRESPONDS-TRIM | merged | 删掉 corresponds 中两个被 store 不变量蕴含的比较 |
 | T4-SCHEDULE-CADENCE | merged | 巡检类型的本地民历提醒节奏 |

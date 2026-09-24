@@ -40,3 +40,7 @@ Tests extend the existing reader and extractor test files. Synthetic markers cov
 ## Delivery record — 2026-09-07
 
 Locally merged as `b00bcbcd`; reviewed tip `ca3530c954644ef6d7e6191319859127a4dc44a4` received formal R3 pass. Card DoD: 94 tests, zero failures/errors/skips. Ten directed final-production mutations each compiled and failed the specified real behaviour test; fresh XML and restoration SHA checks passed. Project verify: 976 tests including E2E, zero failures/errors, four existing media symlink tests skipped by the Windows environment. Scope, licence, secret and size gates passed (4 files, 198 added lines, 21102 diff characters). Only the fixed custom-properties part is newly admitted, fully validated, then discarded. This does not attest complete private-source import or Android device execution. Evidence is retained under `_local/card-loop-01a073fa-custom-properties/`; no private source content enters Git.
+
+## Reconcile note (2026-09-24)
+
+The delivery record above counts tests against the local extractor. In the 2026-09 local/origin reconcile origin's extractor replaced the local one (user ruling of 2026-09-08), and this card's extractor test `customPropertiesNeverBecomeExtractionEvidence` was ported onto origin's test fixture (`47b1452e`) with its assertions unchanged; the reader and boundary changes merged as delivered.
