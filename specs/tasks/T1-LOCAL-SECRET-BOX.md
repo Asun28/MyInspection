@@ -50,7 +50,7 @@ User ruling 2026-09-25: deliver `T1-LOCAL-DATA-SECURITY` in three PRs (card regi
 
 ## Shape
 
-- `LocalSecretBox(keys: SecretKeyPort, unlock: DeviceUnlockPort, files: SecretEnvelopeFiles, sealVersion = 1, readableVersions = setOf(1))` with `seal(purpose, secret: CharArray): SecretSealResult` and `open(purpose): SecretOpenResult`. Versions are constructor values because the version-isolation acceptance needs two readable versions; production uses the defaults.
+- `LocalSecretBox(keys: SecretKeyPort, unlock: DeviceUnlockPort, files: SecretEnvelopeFiles, sealVersion = 1, readableVersions = setOf(1))` with `seal(purpose, plaintext: CharArray): SecretSealResult` and `open(purpose): SecretOpenResult`. Versions are constructor values because the version-isolation acceptance needs two readable versions; production uses the defaults.
 - `SecretPurpose`: `BACKUP_PASSPHRASE` (ADR-0006 background backup) and `REMEDIATION_API_KEY` (SECURITY.md and specs/android-module-boundaries.md).
 - Cipher `AES/GCM/NoPadding`, 128-bit tag. Encryption initialises without an IV and reads `cipher.iv`, so the same code path works with Android Keystore keys, which generate the nonce themselves.
 - `SecretOpenResult`: `Opened(SecretChars)`, `NeedsUnlock`, `NeedsPassphrase(reason)`; reasons `ENVELOPE_MISSING`, `ENVELOPE_UNREADABLE`, `ENVELOPE_CORRUPT`, `VERSION_UNSUPPORTED`, `KEY_MISSING`, `KEY_UNUSABLE`, `AUTHENTICATION_FAILED`. `SecretSealResult`: `STORED`, `NEEDS_UNLOCK`, `UNAVAILABLE`.
