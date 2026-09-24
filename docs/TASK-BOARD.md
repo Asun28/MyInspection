@@ -1,6 +1,6 @@
-# TASK-BOARD — 任务/模型路由总表（v1 · 更新于 2026-09-08）
+# TASK-BOARD — 任务/模型路由总表（v1 · 更新于 2026-09-24）
 
-> **这张表管「谁做哪张卡、用什么档」**；每张卡的完整上下文包/验收在 `specs/tasks/<id>.md`；**状态与 depends_on 以活卡及归档卡为准**（本表状态为 2026-09-08 卡片快照，不作为实时状态源）。
+> **这张表管「谁做哪张卡、用什么档」**；每张卡的完整上下文包/验收在 `specs/tasks/<id>.md`；**状态与 depends_on 以活卡及归档卡为准**（本表状态是各行最后一次同步时的快照，不作为实时状态源）。
 > 计划真相源 `_local/PLAN.md`；设计决策 `docs/adr/`；需求 `docs/inspection-app-requirements.md`。
 > 执行形态：每卡走 R1–R5（`scripts/task.ps1` start→ship），R3 评审恒 = **GPT-5.6 Sol**（`scripts/_config.ps1` 已钉；Sol 原则上不作同卡作者）。
 
@@ -271,13 +271,14 @@ flowchart LR
   F --> G[T0-ASCII-REVIEW-ARCHIVE-CODES]
   C[T0-HARNESS-SUBTRACTION-PROTOCOL]
   D[T0-LESSONS-COLD-RECALL]
+  D --> H[T0-LESSONS-COLD-RECALL-R3-CLOSURE]
   A -.->|selftest write conflict| A4
   D -.->|selftest write conflict| A
   D -.->|selftest write conflict| B
   D -.->|selftest write conflict| E
 ```
 
-- 历史状态（2026-08-23；冷存卡结局于 2026-09-08 核验补齐）：`T0-R3-DIFF-BUDGET` 已按自身教义拆成 3 张（度量 / 输入可信 / 提交身份），PR #53 的实现分属三张卡，各自独立评审；`T0-LESSONS-COLD-RECALL` PR #51 后续已于 `1e302201` 合并，含规范 meta 解析；收尾专卡退役，不再是施工依赖。`T0-CI-MERGE-GATE` 的依赖歧义已收口（2026-08-23）：卡内 `depends_on: [T0-R3-DIFF-BUDGET]` 为准（CLAUDE.md「状态以卡为准」），本表该栏与上图边已同步；此前本行建议的 `T0-R3-MEASURED-OID-BINDING` 未被采纳——OID 绑定与合并闸无产物依赖。
+- 历史状态（2026-08-23；冷存卡结局于 2026-09-08 核验补齐）：`T0-R3-DIFF-BUDGET` 已按自身教义拆成 3 张（度量 / 输入可信 / 提交身份），PR #53 的实现分属三张卡，各自独立评审；`T0-LESSONS-COLD-RECALL` PR #51 后续已于 `1e302201` 合并；收尾专卡 `T0-LESSONS-COLD-RECALL-R3-CLOSURE` 仍为 todo（TD144 未结）。`T0-CI-MERGE-GATE` 的依赖歧义已收口（2026-08-23）：卡内 `depends_on: [T0-R3-DIFF-BUDGET]` 为准（CLAUDE.md「状态以卡为准」），本表该栏与上图边已同步；此前本行建议的 `T0-R3-MEASURED-OID-BINDING` 未被采纳——OID 绑定与合并闸无产物依赖。
 - 推荐执行宽度 2：文档协议可与任一实现卡并行；所有写 `scripts/selftest.ps1` 的卡合并宽度 1。
 - receipt-loss 拆分证据（仅设计输入，不冒充正式验证）：reviewed WIP `c53ec489f7bb4b89dbe81ec7273deb037bd2e65d` 超 60,000 字符；旧行为 RED `session 54615` raw SHA256 `A6388DA76D404F6292E2905F5E5E7C3E7D904F67B2889CE6ACDB8139EC801637`，exit 1、HEAD PRE=POST `ceb2685e9e3ada76a503377584d512c0c6d2af4d`、receipt 真删除后唯一失败 `15r(e)B`；探索性 A prototype `4495fae854777eb4592d0b5223a9981de13f0ac4` 投影 57+/18-（75 changed lines）/ 17,120 字符。正式执行必须依次 fresh RED、实现、GREEN、R3、merge。
 - 上游只提交通用建议，不要求其修本仓：[#163 TD→1–N cards](https://github.com/Asun28/claude-devops-scaffold/issues/163) · [#164 actual diff budget](https://github.com/Asun28/claude-devops-scaffold/issues/164) · [#165 read-only scaffold diff](https://github.com/Asun28/claude-devops-scaffold/issues/165)。

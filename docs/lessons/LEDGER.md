@@ -1391,7 +1391,7 @@
 - refs: 
 
 ## L196
-- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 11
+- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 12
 - symptom: 后台变异批被会话结束硬杀在「植入后、还原前」，finally 不执行，review.ps1 跨会话停在 D28 收窄变异态；git 只显示 M、注释仍宣称全区间覆盖，与真修复混在同一 diff 里肉眼难辨（r11 强杀后已发生过一次，本次复发；第三次 2026-08-05：r14 批被前会话超上下文拆除杀在 D23 植入后 1 秒，任务报 exit 4，本条 rule 的「续接第一步核 SHA」当场抓到并从 .bak 还原——per-mut 日志让续跑只补缺失 10 枚，不必全批重来；第四/五次同日晚：r17 批两连遭会话侧外杀（D14/D17 植入后），每次同一套「核 SHA → .bak 还原 → -Only 续跑」恢复、单次损失一枚——机制已把事故成本从「整批作废」压到「一枚」。两连杀后加固：**长批改派 OS 计划任务（schtasks）脱离会话进程树跑，会话侧只留可弃 watcher 轮询完成标记**——会话怎么死都杀不到批）
 - root_cause: 硬杀（会话终止/进程树 kill）不执行 finally/trap；变异批把还原动作只挂在 finally 上，批死在植入与还原之间就留下变异态文件
 - rule: 还原动作不得只依赖 finally：批启动先核基线 SHA、不符即中止（既有守卫）；**每次会话续接第一步核被测文件 SHA==上批基线**，不符先从 .bak 还原再谈 diff/证据；判干净以 SHA256 为准（L178），别信 git status 或文件注释。**扩展（T5-BACKUP-FORMAT 两次实证）：变异批进行中勿并行跑独立交叉复核/评审**——复核者读到瞬态变异文件会产出自信的假阳性；交叉复核排在批完成+SHA 还原核验之后
@@ -2204,7 +2204,7 @@
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的**既有实例全部列出**（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。**同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞**（同 L189 的识别信号）。
 - enforced_by: 
-- refs: 
+- refs: same lesson as L309 (recorded separately on origin and on local master before the 2026-09 reconcile)
 
 ## L341
 - date: 2026-09-08 ｜ tags: task-loop,delivery,git ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
@@ -2324,7 +2324,7 @@
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
 - enforced_by: 
-- refs: specs/archive/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md; specs/tasks/T4-DESIGN-SYMBOL-CHROME.md; L189; L311; L312
+- refs: specs/archive/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md; specs/tasks/T4-DESIGN-SYMBOL-CHROME.md; L189; L311; L312; same lesson as L300 (recorded separately on origin and on local master before the 2026-09 reconcile)
 - addendum(2026-09-08, V2 交付后): 实例代入表按本条做了，仍连吃 8 轮 R3 / 13 条 finding，补三处覆盖缺口——① 只代入**中心规则**会漏掉**被改写的周边条款**，它们各自也带全称词、也在对整份文档做断言；② 表比对的是「新句 vs 旧实例」，**管不了「新句 vs 新句」自相矛盾**（本卡最重的一条即两条新句打架），新写的句子之间须交叉核对；③ 规则若有**两半**（如视觉线索 + 播报），**必须两半同时代入**——只判一半时，为满足另一半而新增的载体会系统性在另一半开新口子，本卡第 5 轮每加一个必带字形就在播报半漏一处，第 6 轮原样被拦。④ 改写任何一行前，先把**该行自己声明的 variants / states 清单**逐个代入新措辞（`state-badge` 的 SOURCE 变体即因此漏掉）。
 
 ## L310
