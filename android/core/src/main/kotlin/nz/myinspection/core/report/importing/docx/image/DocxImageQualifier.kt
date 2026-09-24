@@ -6,7 +6,7 @@ import java.util.zip.Inflater
 
 /**
  * Pure inspection of a narrow RGB8/RGBA8, non-interlaced PNG subset. Only complete
- * tiny payloads within fixed qualification budgets can authorize shim exclusion.
+ * tiny payloads within fixed qualification budgets yield validation candidates; human review remains mandatory.
  * Other inputs remain reviewable; a proven header above 40 MP throws a closed error.
  * No bytes are mutated or retained, and JPEG headers never prove payload validity.
  */
@@ -14,14 +14,15 @@ class DocxImageQualifier {
     fun qualify(bytes: ByteArray): DocxImageQualification {
         val png = PNG_SIGNATURE.indices.all { it < bytes.size && bytes[it] == PNG_SIGNATURE[it] }
         val dimensions = if (png) pngDimensions(bytes) else jpegDimensions(bytes)
-        val shim = png && dimensions != null && dimensions.width <= 24 && dimensions.height <= 24 &&
+        val candidate = png && dimensions != null && dimensions.width <= 24 && dimensions.height <= 24 &&
             bytes.size <= 65536 && u8(bytes, 24) == 8 && u8(bytes, 25) in setOf(2, 6) &&
             u8(bytes, 28) == 0 && hasPayload(bytes, dimensions)
         return DocxImageQualification(dimensions,
-            if (shim) DocxImageDisposition.SHIM_QUALIFIED else DocxImageDisposition.REVIEW_REQUIRED)
+            if (candidate) DocxImageDisposition.VALIDATED_SMALL_CANDIDATE else DocxImageDisposition.REVIEW_REQUIRED)
     }
 
-    // W3C PNG 3 sections 5.6, 10 and 11.2. This deliberately excludes ancillary chunks.
+    // W3C PNG 3 sections 5.6, 10 and 11.2. Only IHDR/IDAT/IEND are supported;
+    // every other chunk leaves the image review-required.
     private fun hasPayload(bytes: ByteArray, dimensions: DocxImageDimensions): Boolean {
         var at = 33
         var chunks = 1

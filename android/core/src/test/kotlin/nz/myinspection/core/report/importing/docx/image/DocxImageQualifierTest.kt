@@ -14,25 +14,25 @@ class DocxImageQualifierTest {
     private fun encoded(payload: ByteArray, header: ByteArray = F.header()) =
         F.pngChunks("IHDR" to header, "IDAT" to payload, "IEND" to byteArrayOf())
 
-    private fun qualified(bytes: ByteArray) {
-        assertEquals(DocxImageDisposition.SHIM_QUALIFIED, qualifier.qualify(bytes).disposition)
+    private fun validatedCandidate(bytes: ByteArray) {
+        assertEquals(DocxImageDisposition.VALIDATED_SMALL_CANDIDATE, qualifier.qualify(bytes).disposition)
     }
 
-    @Test fun completeTinyRgbAndRgbaQualifyAtBothDimensionEdges() {
+    @Test fun completeTinyRgbAndRgbaContentPatternsYieldValidatedCandidatesAtBothDimensionEdges() {
         for (channels in listOf(3, 4)) for (size in listOf(1, 24)) {
             val source = F.throughReader(F.png(size, size, channels))
             val result = qualifier.qualify(source)
-            assertEquals(DocxImageDisposition.SHIM_QUALIFIED, result.disposition)
+            assertEquals(DocxImageDisposition.VALIDATED_SMALL_CANDIDATE, result.disposition)
             assertEquals(DocxImageDimensions(size, size), result.dimensions)
         }
     }
 
-    @Test fun independentLiteralRgbVectorQualifies() {
+    @Test fun independentLiteralRgbVectorYieldsValidatedCandidate() {
         // Independently encoded with Python struct/zlib: one RGB pixel (3, 7, 11), filter 0.
         val source = java.util.Base64.getDecoder().decode(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgZucGAAAmABYTihH6AAAAAElFTkSuQmCC")
         assertEquals(69, source.size)
-        qualified(F.throughReader(source))
+        validatedCandidate(F.throughReader(source))
         assertEquals(DocxImageDimensions(1, 1), qualifier.qualify(source).dimensions)
     }
 
@@ -59,13 +59,13 @@ class DocxImageQualifierTest {
         assertContentEquals(original, source)
         source.fill(0)
         assertEquals(DocxImageDimensions(24, 24), first.dimensions)
-        assertEquals(DocxImageDisposition.SHIM_QUALIFIED, first.disposition)
+        assertEquals(DocxImageDisposition.VALIDATED_SMALL_CANDIDATE, first.disposition)
         assertEquals(first, qualifier.qualify(original))
     }
 
     @Test fun everyFilterSelectorIsValidForBothSupportedColorTypes() {
         for (channels in listOf(3, 4)) for (filter in 0..4) {
-            qualified(F.png(24, 24, channels, IntArray(24) { filter }))
+            validatedCandidate(F.png(24, 24, channels, IntArray(24) { filter }))
         }
     }
 
@@ -74,7 +74,7 @@ class DocxImageQualifierTest {
         val parts = listOf("IHDR" to F.header(color = 6), "IDAT" to byteArrayOf()) +
             payload.map { "IDAT" to byteArrayOf(it) } +
             listOf("IDAT" to byteArrayOf(), "IEND" to byteArrayOf())
-        qualified(F.pngChunks(*parts.toTypedArray()))
+        validatedCandidate(F.pngChunks(*parts.toTypedArray()))
     }
 
     @Test fun unsupportedProfilesAndAncillaryChunksRemainReviewable() {
@@ -87,6 +87,31 @@ class DocxImageQualifierTest {
         for (type in listOf("tEXt", "PLTE", "acTL", "ABCD")) {
             review(F.pngChunks("IHDR" to F.header(), type to byteArrayOf(0),
                 "IDAT" to payload, "IEND" to byteArrayOf()))
+        }
+    }
+
+    @Test fun unknownCriticalAndAncillaryChunksHaveValidFramingButRequireReview() {
+        val control = qualifier.qualify(F.png())
+        assertEquals(DocxImageDisposition.VALIDATED_SMALL_CANDIDATE, control.disposition)
+        assertEquals(DocxImageDimensions(1, 1), control.dimensions)
+        for (type in listOf("ABCD", "abCD")) {
+            val source = F.pngChunks("IHDR" to F.header(), type to byteArrayOf(0),
+                "IDAT" to F.zlib(F.scanlines(1, 1, 3)), "IEND" to byteArrayOf())
+            var offset = 8
+            val types = mutableListOf<String>()
+            while (offset < source.size) {
+                val length = java.nio.ByteBuffer.wrap(source, offset, 4).int
+                assertTrue(length >= 0 && offset + 12 + length <= source.size)
+                types += String(source, offset + 4, 4, Charsets.US_ASCII)
+                val crc = java.util.zip.CRC32().apply { update(source, offset + 4, length + 4) }.value
+                val stored = java.nio.ByteBuffer.wrap(source, offset + 8 + length, 4).int.toLong() and 0xffffffffL
+                assertEquals(crc, stored)
+                if (types.last() == type) assertEquals(1, length)
+                offset += length + 12
+            }
+            assertEquals(source.size, offset)
+            assertEquals(listOf("IHDR", type, "IDAT", "IEND"), types)
+            assertEquals(control.dimensions, review(source).dimensions)
         }
     }
 
@@ -176,7 +201,7 @@ class DocxImageQualifierTest {
                 List(count - 2) { "IDAT" to if (it == 0) payload else byteArrayOf() } +
                 listOf("IEND" to byteArrayOf())
             val source = F.pngChunks(*parts.toTypedArray())
-            if (count == 64) qualified(source) else review(source)
+            if (count == 64) validatedCandidate(source) else review(source)
         }
     }
 
@@ -191,7 +216,7 @@ class DocxImageQualifierTest {
             val independentlyDecoded = javax.imageio.ImageIO.read(source.inputStream())
             assertNotNull(independentlyDecoded, "Both budget-edge fixtures must be valid PNGs")
             assertEquals(height, independentlyDecoded.height)
-            if (size == 65536) qualified(source) else review(source)
+            if (size == 65536) validatedCandidate(source) else review(source)
         }
     }
 
@@ -232,7 +257,8 @@ class DocxImageQualifierTest {
     }
 }
 
-/* R4 evidence: .review/r4-final/<mutation>/receipt.json and its raw TestNG XML.
- * .review/r4-explore records the two redundant checks removed after they survived.
- * Final receipts bind the actual compiled source/test bytes and restored copy SHA.
+/* Fresh R4: 35 assertion-killed mutations; control 22/22.
+ * Qualifier SHA256 c7094ebd340c829a0a6d675c8a02b96c0d27740f047ad342854603f20bad3a83.
+ * Byte-cap test physically removed with its guard: full core survived; unique test restored.
+ * Raw XML and hashes: .review/r4-final/ and .review/image-full-core-pruning/.
  */

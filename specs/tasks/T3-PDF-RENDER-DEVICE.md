@@ -49,8 +49,8 @@ doc_sync: ADR-0007 + TASK-BOARD 备注（R5）
 `:app` 单测是纯 JVM：`android/app/build.gradle.kts` 无 `testOptions { unitTests.returnDefaultValues }`，T0-TOOLCHAIN non_goals 禁 Robolectric 与仪器测试 ⇒ 任何直接触碰 `PdfDocument`/`Canvas`/`Paint`/`BitmapFactory` 的代码在单测里抛 `Stub!`。
 **故设计必须把平台调用收进一个可替换的窄端口**（形态参考 `app/media` 的 `PhotoJpegEncoder`/`PhotoBitmapScaler` 分层）：执行器对着端口写状态机 —— 页开/页闭配对、失败路径、位图存活计数 —— 这部分在 JVM 单测里用假端口证明；真正的 `PdfDocument` 实现薄到只有直调，其正确性由 A4 的真机记录承担。**别把状态机写进直调那一层**，那等于把它移出所有闸门之外。
 
-### 前置：spike ④
-`T1-SPIKE-PLATFORM` 的第四项（80 张占位图循环渲染 + 逐页 recycle + 中英混排 + `DroidSansFallback.ttf` 字形试，记录峰值内存与耗时）是本卡的实测基线。开工前该卡须已产出 `docs/spike/PLATFORM-SPIKE.md` 的第四节结论。
+### 前置：V1 PDF spike
+`T1-SPIKE-PLATFORM` 的 PDF 压力项（80 张占位图循环渲染 + 逐页 recycle + 中英混排 + `DroidSansFallback.ttf` 字形试，记录峰值内存与耗时）是本卡的实测基线。开工前该卡须已产出 `docs/spike/PLATFORM-SPIKE.md` 的 PDF 压力节结论（V1 三项中的第三项；听写已移 V2）。
 
 ### 字体
 `assets/fonts/DroidSansFallback.ttf`（Apache-2.0）；`Typeface.createFromAsset` 加载。en 可用平台 sans，zh 一律走 fallback 字体（`TextRun.language` 已由 composer 标好，直接读，不做语言探测）。**PR 里附许可来源链接**，`check-licenses.ps1` 须绿。二进制资产进仓是本卡唯一的大文件，落位仅限 `assets/fonts/`。

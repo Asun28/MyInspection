@@ -1,12 +1,14 @@
 ---
 id: T0-SELFTEST-NIGHTLY-META
 title: Run selftest aggregation stress checks nightly with explicit coverage receipts
-depends_on: []
+depends_on: [T0-SELFTEST-RISK-ROUTING]
 status: merged
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
 branch: T0-SELFTEST-NIGHTLY-META
 worktree: C:\wt\T0-SELFTEST-NIGHTLY-META
 allow_paths:
   - scripts/selftest.ps1
+  - scripts/_validation.ps1
   - .github/workflows/scaffold-selftest.yml
   - docs/DEVOPS-WORKFLOW.md
   - CLAUDE.md
@@ -23,7 +25,7 @@ dod_assert: The focused fixture exercises the actual meta selector and receipt c
 acceptance:
   - "A1 Default local and manual/nightly runs retain full coverage; ordinary scaffold pushes defer only the aggregation stress harness to the nightly lane"
   - "A2 A single explicit meta registry reports executed/deferred checks and rejects unknown, duplicated or missing receipts; production checks and failure propagation remain unchanged"
-  - "A3 IncludeMeta is forwarded through all aggregation children; workflow preserves both OSes and five shards, adds one daily schedule and keeps the effective 20-minute timeout"
+  - "A3 IncludeMeta is forwarded through all aggregation children; workflow preserves both OSes and five shards, adds one daily schedule and preserves the target baseline timeout matrix (Windows seeded-git 30 minutes; all other OS/shard combinations 20 minutes)"
 review_gate: codex {verdict:pass}
 hygiene: Reuse the existing aggregation fixture and exact workflow assertions; no second runner or copied production logic.
 doc_sync: Document full local default, explicit deferred coverage and daily/manual meta coverage in existing authority files.
@@ -31,22 +33,10 @@ doc_sync: Document full local default, explicit deferred coverage and daily/manu
 
 # T0-SELFTEST-NIGHTLY-META
 
-Adapt upstream PRs #362/#365/#369 only at the local selftest aggregation stress harness.
-The regular path retains matrix validation, failure-protocol tests and production-script tests.
-The user's 2026-09-05 instruction authorizes adoption. No runtime saving is claimed before measurement.
+Remote adoption is authorized by the user's 2026-09-08 instruction to complete all unfinished scaffold cards in independent worktrees and PRs. This card is pending remote implementation and acceptance; its local source history is provenance only, not a remote pass or merge.
 
-Validation (2026-09-06 NZ): the focused fixture replays the full production outer 8.2e
-control envelope, replacing only its expensive stress body with an observable body. It proves
-both IncludeMeta outcomes (EXECUTED and DEFERRED receipts), preserves the real `all` entry and
-its terminating exit, and retains true/false receipts from each real child. Genuine RED
-sources are `_local/meta-routing-genuine-red.log` (the former extracted-fragment replay
-survived a forced preceding branch) and `_local/meta-all-genuine-red.log` (the former extracted
-all-entry replay accepted an exit bypass); the full-envelope replay rejects those failures plus
-selector inversion, completion deletion, and receipt-output deletions. Focused GREEN is
-`_local/meta-routing-final-green.log` (exit `0`); mutation replay preserves the source SHA.
+Use task-loop with GPT-6 Astra, high effort; R3 remains the configured GPT-5.6 Sol, high effort. Preserve current remote product changes, scaffold-trigger isolation, CI identity/jobs checks and timeout budgets. Apply only this card's scoped changes, with fresh RED/GREEN, current-source evidence and its own PR. Do not merge the divergent local master or copy historical pass receipts.
 
-Combined evidence: the original `ee1` full run passed core, workflow, and scanner. A setup
-issue in the separate review-policy integration at `17ac` was fixed in final `e7`, whose full
-actual 17ac run passed in 574.42 s. The final seeded-remote run passed in 1007.14 s with nine
-known skips and no prerequisite skips; `verify.ps1` passed in 32.10 s. These are combined-run
-records only: no new single full-`all` run or idle-speed claim is made here.
+## R5 closure by upstream adoption — 2026-09-11
+
+Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md), delivered in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc928c4dd36607cc19eace40ec3cc8c01dd1`). `status: merged` records closure through that merged replacement; it does not claim this original card's implementation, DoD, RED, mutation or performance plan was independently completed. The original worktree and evidence are preserved; its old execution queue is retired.

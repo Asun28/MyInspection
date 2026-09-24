@@ -727,7 +727,7 @@
 - refs: 
 
 ## L106
-- date: 2026-07-12 ｜ tags: powershell,worktree,sandbox,tool-usage ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
+- date: 2026-07-12 ｜ tags: powershell,worktree,sandbox,tool-usage ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 7
 - symptom: PowerShell 工具对 C:\wt\<worktree> 等主检出之外的路径默认沙箱化：cd/写入表面成功（无报错、'done' 打印），但下一次调用读回验证却是旧内容；未加 dangerouslyDisableSandbox 时的一次写脚本还曾把 cd 静默重置回主检出，导致后续相对路径写操作真的落进了主检出（误把 BOM 加进 7 个生产脚本），须 git restore 撤销。
 - root_cause: PowerShell 工具默认沙箱模式对主工作目录之外路径的读写不可靠——未显式传 dangerouslyDisableSandbox:true 时，跨目录操作可能被静默重定向/回退到主目录而非报错，造成'看起来成功、实际操作了错误位置'的假象。
 - rule: 对 <WorktreeRoot>\<id> 等主检出之外路径的任何 PowerShell 读写（cd/Set-Content/WriteAllBytes/git -C 等）一律显式传 dangerouslyDisableSandbox:true；每次写操作后用绝对路径读回验证内容，不要只信打印的'done'；怀疑跨目录污染立刻 git status 主检出确认无意外改动。**具体机制（2026-07-23 复发，T49）**：.NET 静态方法（System.IO.File 的 ReadAllBytes/ReadAllText/WriteAllText 等）的**相对路径按 .NET 进程的当前目录解析，PowerShell 的 cd / Set-Location 不改它**——于是「先 cd 进 worktree 再查那边文件的 BOM」实际读的是**主检出**的同名文件，得出「BOM 还在、子代理没剥」的**假结论**，差点据此放过一处真回归。跨检出调 .NET API 一律传**绝对路径**（或显式 System.IO.Directory SetCurrentDirectory）；PowerShell 原生 cmdlet（Get-Content/Set-Content -LiteralPath）不受此影响，混用两者时尤其容易只对一半。**本次判定不 promote 进必须层**：Tier-1 刚由 TD88 弧压到 4 条，且该形态已被 L157「落盘改动先对 diff --stat」的通用习惯覆盖（同 L61/L148 的降级先例）。 **2026-08-23 复核（recurrence 2→4）**：结论不变，仍不 promote。2026-07-23 的判定依据（已被 L157「落盘改动先对 diff --stat」覆盖）在计数升到 4 之后依然成立——新增的两次只增加了暴露频次，没有推翻「已有通用形态覆盖它」这一理由。
@@ -1391,7 +1391,7 @@
 - refs: 
 
 ## L196
-- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 10
+- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 11
 - symptom: 后台变异批被会话结束硬杀在「植入后、还原前」，finally 不执行，review.ps1 跨会话停在 D28 收窄变异态；git 只显示 M、注释仍宣称全区间覆盖，与真修复混在同一 diff 里肉眼难辨（r11 强杀后已发生过一次，本次复发；第三次 2026-08-05：r14 批被前会话超上下文拆除杀在 D23 植入后 1 秒，任务报 exit 4，本条 rule 的「续接第一步核 SHA」当场抓到并从 .bak 还原——per-mut 日志让续跑只补缺失 10 枚，不必全批重来；第四/五次同日晚：r17 批两连遭会话侧外杀（D14/D17 植入后），每次同一套「核 SHA → .bak 还原 → -Only 续跑」恢复、单次损失一枚——机制已把事故成本从「整批作废」压到「一枚」。两连杀后加固：**长批改派 OS 计划任务（schtasks）脱离会话进程树跑，会话侧只留可弃 watcher 轮询完成标记**——会话怎么死都杀不到批）
 - root_cause: 硬杀（会话终止/进程树 kill）不执行 finally/trap；变异批把还原动作只挂在 finally 上，批死在植入与还原之间就留下变异态文件
 - rule: 还原动作不得只依赖 finally：批启动先核基线 SHA、不符即中止（既有守卫）；**每次会话续接第一步核被测文件 SHA==上批基线**，不符先从 .bak 还原再谈 diff/证据；判干净以 SHA256 为准（L178），别信 git status 或文件注释。**扩展（T5-BACKUP-FORMAT 两次实证）：变异批进行中勿并行跑独立交叉复核/评审**——复核者读到瞬态变异文件会产出自信的假阳性；交叉复核排在批完成+SHA 还原核验之后
@@ -1783,7 +1783,7 @@
 - refs: scripts/archive.ps1; specs/archive/cards-index.md
 
 ## L248
-- date: 2026-08-27 ｜ tags: powershell,task-loop,dod,fail-fast ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-08-27 ｜ tags: powershell,task-loop,dod,fail-fast ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 任务卡 dod_command 直接运行一个预期非零的 native 命令，再准备读取 LASTEXITCODE 判断；手工终端可处理，但 task.ps1 ship 在判定语句前就抛 NativeCommandExitException，DoD 被误判失败。
 - root_cause: ship 为防多个 native 命令中途假绿，会在子 PowerShell 中设置 PSNativeCommandUseErrorActionPreference=true；因此预期非零的探测不能依赖同一脚本块后续的 LASTEXITCODE 分支。RED 相刻意设为 false，不代表 GREEN/ship DoD 也如此。
 - rule: 卡片 DoD 中每个 native 进程都必须在期望路径返回 0。若要证明不存在/应失败，先用成功返回的 dry-run 或导出结果，再用 PowerShell 内建断言检查；或用专用 helper 把预期失败归一成最终 0。不要直接调用预期非零的 native 命令后再读 LASTEXITCODE。
@@ -1815,7 +1815,7 @@
 - refs: PR #187; TD162; T0-DEBT-SELFTEST-MUTATION-BUDGET
 
 ## L252
-- date: 2026-08-28 ｜ tags: task-loop,r5,archive,cleanup ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3
+- date: 2026-08-28 ｜ tags: task-loop,r5,archive,cleanup ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 4
 - symptom: R5 先把 merged 卡移入 cold storage 后，task.ps1 cleanup 因只读取 specs/tasks 中的 live 卡而在任何删除前报任务卡不存在。
 - root_cause: archive.ps1 的正常 R5 搬运与 task.ps1 cleanup 的 live-only 卡路径存在顺序耦合，但流程没有显式规定 cleanup 必须先于归档。
 - rule: R5 先完成文档状态与验证，再在卡仍位于 specs/tasks 时运行 guarded cleanup；worktree 和分支确认移除后才运行 archive.ps1 冷存。
@@ -2127,7 +2127,7 @@
 - refs: 
 
 ## L291
-- date: 2026-09-04 ｜ tags: powershell,dotnet,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-04 ｜ tags: powershell,dotnet,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: A script writes a file with [System.IO.File]::WriteAllText using a relative path after Set-Location, then runs it with pwsh -File using the same relative name. The run silently uses a stale earlier copy, and an unexpected file appears in the repo root. Here a dry-run reported 12 mutation targets when the table held 15, and dryrun.ps1 turned up as an untracked file at the repository root.
 - root_cause: Set-Location changes the PowerShell provider location, not the .NET process current directory. Any System.IO API given a relative path resolves against the process CWD, which is wherever pwsh was started. PowerShell cmdlets and the -File argument resolve against the provider location instead, so a write and a read using the identical relative string can land on two different files.
 - rule: Never hand a relative path to a System.IO API. Build an absolute path first, for example with Join-Path on an explicit root or $PSScriptRoot, and pass that. If a generated-then-executed script behaves as though the edit did not happen, do not re-reason about the content: print the absolute path actually written and the absolute path actually executed and compare them. Same rule for Get-Content versus File::ReadAllText.
@@ -2199,9 +2199,58 @@
 - refs: 
 
 ## L300
+- date: 2026-09-06 ｜ tags: docs,review,design-system ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
+- root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
+- rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的**既有实例全部列出**（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。**同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞**（同 L189 的识别信号）。
+- enforced_by: 
+- refs: 
+
+## L310
+- date: 2026-09-08 ｜ tags: task-loop,delivery,git ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: Routine v2 was reported complete after ship -Local although no GitHub feature PR existed.
+- root_cause: A local-only delivery mode was carried forward without checking the remote deliverable; successful local gates were mistaken for completion of the requested PR workflow.
+- rule: When the requested delivery includes a PR, use normal remote ship and verify the PR URL, exact reviewed head, successful candidate CI and remote merge before reporting completion. Report local-only completion explicitly; restore isolated card diffs from the current remote base when local master diverges, never push unrelated local history.
+- enforced_by: none（delivery-mode selection and completion wording still require operator verification; existing remote ship enforces R3 and candidate CI once selected）
+- refs: PR #238; PR #241; .claude/skills/task-loop/SKILL.md; docs/DEVOPS-WORKFLOW.md
+
+## L327
+- date: 2026-09-09 ｜ tags: task-loop,evidence,receipts ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: After PR286, flattening scaffold-merged and scaffold-shipped receipts into one directory let T35 overwrite the archived T24; official cleanup then consumed the original T24.
+- root_cause: Destination identity used basename instead of source namespace plus basename, and a destination-only manifest was produced after the overwrite.
+- rule: Preserve scaffold-merged/<id>, scaffold-shipped/<id> and worktree-review/<file> namespaces. Before cleanup enumerate required source paths, copy to unique destinations, then verify source/destination counts and exact bytes or SHA for every pair. A destination-only manifest does not prove completeness. Label missing originals missing; never reconstruct them as original evidence.
+- enforced_by: none（receipt backup completeness is an operator check; no automated archive guard is claimed）
+- refs: PR286; PR287; _local/routine-remote-recovery/spike-feature-closeout/manifest.json
+
+## L328
+- date: 2026-09-14 ｜ tags: process,worktree,mutation,parallel ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: Stopping "stray" pwsh processes with a machine-wide command-line pattern (selftest.ps1|task.ps1) after cancelling my own DoD run killed another session's in-flight mutate.ps1 batch (D:\wt\T310-PRE-R2-SPEC-PASS, upstream scaffold repo) and its selftest -Parallel full run (stpl_f7c69125) 6 minutes in. Their target files were clean afterwards only by luck of timing (kill landed between mutants).
+- root_cause: The filter selected by script NAME, which every session on this machine runs; nothing in it named the worktree, temp root or PID tree I owned. A cancelled background command leaves children alive, so the urge to sweep is real, but the sweep must be scoped.
+- rule: Kill only what you own: filter Win32_Process by YOUR worktree path, YOUR scratch/temp root (stpl_<id>, scaffold-e2e-<pid>) or the PID tree of the task you cancelled (Get-CimInstance -Filter "ParentProcessId=<pid>"), never by script name. Before Stop-Process print the full command lines and check none point into another worktree; if a mutation batch of another session is among them, do not touch it (L196 restore hazard) and tell the user.
+- enforced_by: 
+- refs: 
+
+## L329
+- date: 2026-09-14 ｜ tags: gradle,licenses,cache,ship ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: ship stopped at the license gate with [GRADLE-METADATA] "no POM in cache" on 144 of 150 GAVs although verify (offline Gradle build) had just passed and the same gate was green on 2026-09-08. Gradle 30-day cache cleanup had deleted the POM files check-licenses.ps1 reads: builds take metadata from the binary store and touch only AAR/JAR, so the POMs downloaded on 08-15 aged out exactly on 09-14.
+- root_cause: The scanner depends on files Gradle considers garbage; nothing prewarms them and the failure text reads like a policy violation, not like an expired cache.
+- rule: When check-licenses reports mass [GRADLE-METADATA] on GAVs that resolved fine offline, prewarm before touching policy: gradlew --refresh-dependencies --no-daemon -q :app:dependencies --configuration debugRuntimeClasspath (then releaseRuntimeClasspath, then :core:dependencies --configuration runtimeClasspath, then testRuntimeClasspath) - ONE --configuration per invocation, Gradle keeps only the last one per project. Inject JAVA_HOME/ANDROID_HOME first (L208). Re-run check-licenses.ps1 alone before resuming ship. Tracked as TD176.
+- enforced_by: 
+- refs: 
+
+## L330
+- date: 2026-09-16 ｜ tags: selftest,powershell,linux,path,fixtures ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: Nightly #217 and #218 Ubuntu light failures
+- symptom: When 8.2j hid git by removing its PATH directories on Ubuntu, -Only 15 falsely failed the 15f(a) and 15x(b) green controls.
+- root_cause: The directory filter also hid sh. The product verify fixture supplied gradlew but not the bare shell that verify invokes.
+- rule: For hidden-tool PATH tests, check sibling executables removed with the target tool; provide fixture-local dependencies and assert unrelated controls still execute on both operating systems.
+- enforced_by: scripts/selftest.ps1 gates 8.2j, 15f and 15x
+- refs: PR #300; T0-SELFTEST-HIDDEN-GIT
+
+## L340
 - date: 2026-09-06 ｜ tags: xml,security,tests ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
 - symptom: DOCX 读取器已禁用外部实体，但仍接收 XInclude；仅靠 XML 字节上限也未实现独立节点预算。
 - root_cause: 将不执行的惰性数据与合同要求的显式拒绝混为一谈，并把间接上界当成独立上界。
 - rule: 写 XML 边界测试前逐项对照安全合同：按命名空间构造 XInclude 真实失败夹具；元素预算在全包累计，并测试多个 XML part 各自未超但合计超限。禁扩展不等于已拒绝。
 - enforced_by:
-- refs: specs/archive/tasks/T3-DOCX-PACKAGE-READER.md; android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/package/DocxPackageReaderTest.kt
+- refs: specs/archive/tasks/T3-DOCX-PACKAGE-READER.md; android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/package/DocxPackageReaderTest.kt; renumbered from local L300 by the 2026-09 local/origin reconcile (origin already used L300)
+

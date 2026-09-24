@@ -2,11 +2,15 @@ package nz.myinspection.app.media
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.util.Log
 import java.io.File
 import java.io.InputStream
 import java.security.DigestInputStream
 import java.security.MessageDigest
+import nz.myinspection.app.platform.SafeLog
+import nz.myinspection.app.platform.SafeLogEvent
+import nz.myinspection.app.platform.SafeLogOpaqueId
+import nz.myinspection.app.platform.SafeLogOperation
+import nz.myinspection.app.platform.SafeLogReason
 import nz.myinspection.core.media.ContentHash
 import nz.myinspection.core.media.ImportBounds
 import nz.myinspection.core.media.PhotoAssociationRecorder
@@ -33,8 +37,6 @@ import nz.myinspection.core.media.VerifiedAssetWorkflow
  * 那样如果更早的步骤先失败，函数会在流从未进入任何 `use{}`/`try` 的情况下直接抛出，流永远不会被关闭。
  */
 object PhotoImportPipeline {
-    private const val TAG = "PhotoImportPipeline"
-
     fun ingest(
         sourceStream: InputStream,
         tempDir: File,
@@ -133,15 +135,7 @@ object PhotoImportPipeline {
                 scratchPrimary = failure
                 throw failure
             } finally {
-                try {
-                    if (!MediaFileStore.deleteIfPresent(tempFile)) {
-                        Log.w(TAG, "op=deleteImportTemp photoId=$photoId path=${tempFile.path} result=failed")
-                    }
-                } catch (cleanupFailure: Throwable) {
-                    val failure = scratchPrimary
-                    if (failure == null) throw cleanupFailure
-                    failure.addSuppressed(cleanupFailure)
-                }
+                cleanupImportTemp(tempFile, photoId, scratchPrimary, MediaFileStore::deleteIfPresent, SafeLog.android())
             }
         } catch (failure: Throwable) {
             primary = failure
@@ -154,6 +148,29 @@ object PhotoImportPipeline {
                 if (failure == null) throw closeFailure
                 failure.addSuppressed(closeFailure)
             }
+        }
+    }
+
+    internal fun cleanupImportTemp(
+        tempFile: File,
+        photoId: String,
+        primary: Throwable?,
+        delete: (File) -> Boolean,
+        log: SafeLog,
+    ) {
+        val event = SafeLogEvent(
+            SafeLogOperation.IMPORT_TEMP_DELETE,
+            SafeLogReason.CLEANUP_FAILED,
+            SafeLogOpaqueId.parse(photoId),
+        )
+        try {
+            if (!delete(tempFile)) {
+                log.record(event.copy(reason = SafeLogReason.DELETE_FAILED))
+            }
+        } catch (cleanupFailure: Throwable) {
+            log.record(event)
+            if (primary == null) throw cleanupFailure
+            primary.addSuppressed(cleanupFailure)
         }
     }
 

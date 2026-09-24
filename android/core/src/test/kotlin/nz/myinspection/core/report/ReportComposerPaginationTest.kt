@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
  * An assertion phrased in terms of `BODY_BOTTOM_MM` stays green when `BODY_BOTTOM_MM` becomes 9999.
  */
 class ReportComposerPaginationTest {
-    private val composer = ReportComposer(ReportTestFixtures.measurer)
+    private val composer = ReportComposer(ReportTestFixtures.measurer, ReportTestFixtures.typography)
 
     @Test
     fun `eighty photos paginate without overflow orphan heading or split image`() {
@@ -146,19 +146,19 @@ class ReportComposerPaginationTest {
      */
     @Test
     fun `variable caption heights drive the thumbnail stacking recurrence`() {
-        val variableCaptions = TextMeasurer { text, style, widthMm ->
+        val variableCaptions = TextMeasurer { text, language, style, widthMm ->
             if (style == TextStyle.CAPTION) {
                 val lineCount = when {
                     text.startsWith("2.1.2") -> 2
                     text.startsWith("2.1.3") -> 3
                     else -> 1
                 }
-                MeasuredText(List(lineCount) { "caption-${it + 1}" }, 4)
+                ReportTestFixtures.measuredLines(List(lineCount) { "caption-${it + 1}" }, language, style)
             } else {
-                ReportTestFixtures.measurer.measure(text, style, widthMm)
+                ReportTestFixtures.measurer.measure(text, language, style, widthMm)
             }
         }
-        val thumbnails = ReportComposer(variableCaptions)
+        val thumbnails = ReportComposer(variableCaptions, ReportTestFixtures.typography)
             .compose(photoHeavyItemReport(photoCount = 4, note = null), Audience.LANDLORD)
             .itemChunks("item-big")
             .single()
@@ -262,11 +262,10 @@ class ReportComposerPaginationTest {
     @Test
     fun `an individually oversized summary line is refused rather than placed beyond the body`() {
         val oversizedSummary = "room-kitchen · item-poor-2 · POOR"
-        val contentDependent = TextMeasurer { text, _, widthMm ->
-            MeasuredText(
-                text.chunked(ReportTestFixtures.charBudget(widthMm)).ifEmpty { listOf(" ") },
-                if (text == oversizedSummary) 258 else 4,
-            )
+        val contentDependent = TextMeasurer { text, language, style, widthMm ->
+            ReportTestFixtures.measured(text, language, style, widthMm).let { measured ->
+                if (text == oversizedSummary) measured.copy(lineHeightMm = 258) else measured
+            }
         }
 
         val base = ReportTestFixtures.report()
@@ -284,21 +283,18 @@ class ReportComposerPaginationTest {
             },
         )
         val failure = assertFailsWith<IllegalArgumentException> {
-            ReportComposer(contentDependent).compose(report, Audience.LANDLORD)
+            ReportComposer(contentDependent, ReportTestFixtures.typography).compose(report, Audience.LANDLORD)
         }
-        listOf("summary row item-poor-2", "258mm", "257mm").forEach {
-            assertTrue(failure.message!!.contains(it), "the refusal never mentions '$it': ${failure.message}")
-        }
+        assertTrue(failure.message!!.contains("line height"), "the mismatch was not diagnosed: ${failure.message}")
     }
 
     @Test
     fun `an individually oversized supplement line is refused rather than placed beyond the body`() {
         val oversizedSupplement = "oversized supplement"
-        val contentDependent = TextMeasurer { text, _, widthMm ->
-            MeasuredText(
-                text.chunked(ReportTestFixtures.charBudget(widthMm)).ifEmpty { listOf(" ") },
-                if (text == oversizedSupplement) 258 else 4,
-            )
+        val contentDependent = TextMeasurer { text, language, style, widthMm ->
+            ReportTestFixtures.measured(text, language, style, widthMm).let { measured ->
+                if (text == oversizedSupplement) measured.copy(lineHeightMm = 258) else measured
+            }
         }
         val report = ReportTestFixtures.report().copy(
             remediations = emptyList(),
@@ -309,11 +305,9 @@ class ReportComposerPaginationTest {
         )
 
         val failure = assertFailsWith<IllegalArgumentException> {
-            ReportComposer(contentDependent).compose(report, Audience.LANDLORD)
+            ReportComposer(contentDependent, ReportTestFixtures.typography).compose(report, Audience.LANDLORD)
         }
-        listOf("supplement OVERSIZED", "258mm", "257mm").forEach {
-            assertTrue(failure.message!!.contains(it), "the refusal never mentions '$it': ${failure.message}")
-        }
+        assertTrue(failure.message!!.contains("line height"), "the mismatch was not diagnosed: ${failure.message}")
     }
 
     /**
@@ -323,7 +317,8 @@ class ReportComposerPaginationTest {
      */
     @Test
     fun `a line height that cannot hold the fixed disclaimer is refused, naming the style and the value`() {
-        val tall = ReportComposer(ReportTestFixtures.measurerOf(lineHeightMm = 60))
+        val tallTypography = ReportTestFixtures.typographyOf(titleMm = 60, bodyMm = 60, captionMm = 60)
+        val tall = ReportComposer(ReportTestFixtures.measurerOf(tallTypography), tallTypography)
 
         val failure = assertFailsWith<IllegalArgumentException> {
             tall.compose(ReportTestFixtures.report(), Audience.LANDLORD)
@@ -390,21 +385,22 @@ class ReportComposerPaginationTest {
         val cases = listOf(
             // 14mm title + 2 x (108 + 3 x 4 + 2) = 258mm.
             Triple(
-                ReportTestFixtures.measurerOf(titleMm = 6, bodyMm = 4, captionMm = 4),
+                ReportTestFixtures.typographyOf(titleMm = 6, bodyMm = 4, captionMm = 4),
                 listOf("6mm TITLE", "4mm CAPTION", "258mm", "257mm"),
                 "a taller heading than caption",
             ),
             // 18mm title + 2 x (108 + 3 x 8 + 2) = 286mm.
             Triple(
-                ReportTestFixtures.measurerOf(lineHeightMm = 8),
+                ReportTestFixtures.typographyOf(titleMm = 8, bodyMm = 8, captionMm = 8),
                 listOf("8mm TITLE", "8mm CAPTION", "286mm", "257mm"),
                 "a uniformly taller line",
             ),
         )
 
-        cases.forEach { (measurer, expected, label) ->
+        cases.forEach { (typography, expected, label) ->
             val failure = assertFailsWith<IllegalArgumentException>(message = "$label was accepted") {
-                ReportComposer(measurer).compose(ReportTestFixtures.report(), Audience.LANDLORD)
+                ReportComposer(ReportTestFixtures.measurerOf(typography), typography)
+                    .compose(ReportTestFixtures.report(), Audience.LANDLORD)
             }
             expected.forEach {
                 assertTrue(
@@ -415,7 +411,8 @@ class ReportComposerPaginationTest {
         }
         // One millimetre either side of the bound: 12mm title + 244mm = 256mm still composes, so the guard
         // is measuring the appendix page rather than rejecting every non-uniform measurer it is handed.
-        ReportComposer(ReportTestFixtures.measurerOf(titleMm = 5, bodyMm = 4, captionMm = 4))
+        val typography = ReportTestFixtures.typographyOf(titleMm = 5, bodyMm = 4, captionMm = 4)
+        ReportComposer(ReportTestFixtures.measurerOf(typography), typography)
             .compose(ReportTestFixtures.report(), Audience.LANDLORD)
     }
 
@@ -954,27 +951,26 @@ class ReportComposerPaginationTest {
         assertTrue(runs.any { it.language == TextLanguage.EN } && runs.any { it.language == TextLanguage.ZH })
     }
 
+    /* R4 remote: M1 produced the named successful-compose AssertionError; M2 produced [246, 246, 38].
+     * Each compiling mutation restored Composer source SHA-256 5297B78BF90124BD67DE88FCA8FA20853A9139BD4D404BFE8DE24D2D40662293.
+     */
     @Test
     fun `room opening uses its reduced budget only for the first item chunk`() {
         val base = ReportTestFixtures.report()
         val room = base.rooms.single()
         val poor = room.items.single { it.id == "item-poor" }
-        val hugeLabel = BilingualText("oversized room heading", "超高房间标题")
-        val measurer = TextMeasurer { text, _, widthMm ->
-            MeasuredText(
-                text.chunked(ReportTestFixtures.charBudget(widthMm)).ifEmpty { listOf(" ") },
-                if (text == hugeLabel.en || text == hugeLabel.zh) 93 else 4,
-            )
-        }
+        val hugeLabel = BilingualText("e".repeat(23 * 60), "房".repeat(23 * 60))
         val report = base.copy(
             canonical = base.canonical.copy(items = listOf(poor.snapshot)),
             rooms = listOf(room.copy(label = hugeLabel, items = listOf(poor))),
         )
 
-        val plan = ReportComposer(measurer).compose(report, Audience.LANDLORD)
+        val result = runCatching { composer.compose(report, Audience.LANDLORD) }
+        assertTrue(result.isSuccess, "room opening fixture must compose successfully")
+        val plan = result.getOrThrow()
         val chunks = plan.itemChunks("item-poor")
 
-        assertEquals(2, chunks.size, "the 19mm opening budget must split text from the 54mm thumbnail")
+        assertEquals(2, chunks.size, "the 21mm opening budget must split text from the 54mm thumbnail")
         assertTrue(chunks.first().thumbnails.isEmpty())
         assertEquals(listOf("photo-item"), chunks.last().thumbnails.map { it.photoId })
         plan.assertNothingOverflows()
@@ -1021,23 +1017,39 @@ class ReportComposerPaginationTest {
 
     @Test
     fun `section opening uses its reduced budget only for the first flowing chunk`() {
-        val boundaryText = "fresh-page-boundary"
-        val measurer = TextMeasurer { text, _, widthMm ->
-            MeasuredText(
-                text.chunked(ReportTestFixtures.charBudget(widthMm)).ifEmpty { listOf(" ") },
-                if (text == boundaryText) 250 else 4,
-            )
+        val boundaryText = "BOUNDARY"
+        val bodyLines = (0 until 130).map { index ->
+            "line-${index.toString().padStart(3, '0')}-" + "x".repeat(51)
         }
         val report = ReportTestFixtures.report().copy(
             remediations = emptyList(),
-            supplements = listOf(ReportSupplement("BOUNDARY", boundaryText)),
+            supplements = listOf(ReportSupplement(boundaryText, bodyLines.joinToString(""))),
         )
 
-        val plan = ReportComposer(measurer).compose(report, Audience.LANDLORD)
+        val result = runCatching { composer.compose(report, Audience.LANDLORD) }
+        assertTrue(result.isSuccess, "section opening fixture must compose successfully")
+        val plan = result.getOrThrow()
+        val titlePage = plan.pages.single { page ->
+            page.blocks.any { (it.content as? SectionTitleBlock)?.key == "closing" }
+        }
+        val title = titlePage.blocks.single { (it.content as? SectionTitleBlock)?.key == "closing" }
         val chunks = plan.pages.flatMap { it.blocks }.filter { it.content is SupplementBlock }
 
-        assertEquals(listOf(14, 252), chunks.map { it.heightMm })
-        assertEquals(boundaryText, (chunks.last().content as SupplementBlock).textRuns.single().text)
+        assertEquals(listOf(246, 254, 30), chunks.map { it.heightMm })
+        assertEquals(
+            listOf(chunks.first()),
+            titlePage.blocks.filter { it.content is SupplementBlock },
+            "the section title was left alone on page ${titlePage.number}",
+        )
+        assertEquals(title.yMm + title.heightMm, chunks.first().yMm, "the first chunk must follow its title")
+        assertTrue(
+            chunks.drop(1).any { it.heightMm > 247 },
+            "a continuation never exceeded the 247mm first-page remainder",
+        )
+        assertEquals(
+            listOf(boundaryText) + bodyLines,
+            chunks.flatMap { (it.content as SupplementBlock).textRuns }.map { it.text },
+        )
         plan.assertNothingOverflows()
     }
 
