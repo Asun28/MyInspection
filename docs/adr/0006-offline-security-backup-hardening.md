@@ -46,6 +46,8 @@ Android 官方建议离线优先应用以本地数据源为唯一真相源，并
 
 2026-09-24 策略交付（2026-09 reconcile 以此版本取代 origin 的 T1-APP-STORAGE-POLICY-REMOTE 与 T1-APP-STORAGE-POLICY-TESTS 版本，差异见后者卡片的 reconcile note）：`T1-APP-STORAGE-POLICY` 已本地合并（master `f68d7006`，feature `834206a6`）。策略以非重写 merge 吸收前置后，删除内嵌的 `canonicalFile` 判定，改由 `StoragePathBoundary.create` 验证并保存 CE/no-backup 根（DP 环境先转换，转换后仍为 DP 则拒绝），每次 `location` 由 `resolveChild` 检查类别目录并返回所检查的目录；两处拒绝均为固定消息、无 cause，普通异常（含 IOException/SecurityException）不外泄，致命 Error 按身份传播。媒体只消费 app-specific external 端口，四个读数各自失败均闭合为 Unavailable。12 项策略测试（其中 3 项真实 Junction 黑盒接线）、45/45 变异、250 项 app 测试。Codex 配额耗尽期间按用户裁定由全新 Opus 5.5 子代理作 R3：第 1、2 轮 block 共 4 条测试侧缺口（假环境忽略目录参数、转换夹具根过宽、探针失败只覆盖 space、catch 宽度未测），当场修复并补 M36–M45，第 3 轮 pass；合并树与评审树 `448da9cd` 一致。实际 Android getter、卷状态映射与目录可写探针仍归 `T1-APP-STORAGE-ANDROID`。
 
+2026-09-25 Android 适配交付：`T1-APP-STORAGE-ANDROID` 经 PR #351 合并（`0a89bbbf`，合并树=评审树）。`AndroidAppStorageEnvironment` 的标记与各根取自所包装 context 的 getter，DP→CE 转换用不带存储标志的 `createPackageContext`，普通异常转为固定消息且无 cause；卷状态、可写性与空间只依据给定目录。debug-only 探针在 SM-A346E（API 33）与 API 35 模拟器上 31 项自验证通过，19/19 适配器变异检出；证据绑定 `android/` tree `ca633498`，复现方法见 `docs/storage-android-probe.md`。只读卷与 `canWrite()` 为 false 的目录只由 JVM 测试覆盖；系统默认 DP 存储未复现，由合成 false-marker wrapper 代替并被前置策略拒绝。`T1-LOCAL-DATA-SECURITY` 的前置由此全部合并。
+
 - SQLite、设置、回执、Keystore 密文信封、恢复 journal 和 staging 元数据放 credential-encrypted **internal storage**；device-protected storage 不放租客数据。
 - 体积较大的照片/音频可放 app-specific external storage，但不可成为 DB、恢复 journal 或密钥的唯一落点。启动和每次媒体操作都处理卷不可用/空间不足。
 - 临时明文只放 internal cache/staging，使用不可预测名称；成功、失败、崩溃恢复后都清理。文件名、日志和通知不含地址、姓名、备注或租客信息。
