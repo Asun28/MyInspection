@@ -58,4 +58,4 @@ doc_sync: 仅将本收尾卡标为merged并归档；业务功能卡保持原状�
 
 ## Reconcile note (2026-09-24)
 
-Origin delivered this audit's card and interface changes before the 2026-09 local/origin reconcile, as `T7-AUDIT-REMOTE-FOUNDATION` ([PR #240](https://github.com/Asun28/MyInspection/pull/240)) and `T7-AUDIT-REMOTE-CARDS` ([PR #247](https://github.com/Asun28/MyInspection/pull/247)); both are archived there as merged. `status: merged` records closure through those remote cards. Local master merged its own version of this card later, on 2026-09-07 (`d6e22084`), which the next reconcile slice carries.
+Local master had already merged this card on 2026-09-07 (`d6e22084`, 16:45 NZ time). Origin later re-submitted the same audit from its own baseline as `T7-AUDIT-REMOTE-FOUNDATION` ([PR #240](https://github.com/Asun28/MyInspection/pull/240)) and `T7-AUDIT-REMOTE-CARDS` ([PR #247](https://github.com/Asun28/MyInspection/pull/247)), both archived there as merged. `status: merged` with `superseded_by` records closure through those remote cards. The next reconcile slice carries the local merge.
