@@ -55,3 +55,36 @@ the same pattern.
 - The CI check is lighter than the ship's: the PR's `required` check on the exact head plus the ci.yml run's
   head SHA. That matches what was done by hand for #349 and #350.
 - Estimate: about 500 changed lines (script with SelfCheck about 380, docs about 20, this card about 100).
+
+## Implementation record (2026-09-25)
+
+- Change: a new `scripts/post-merge.ps1` with `r5`, `prune` and `-SelfCheck`. `CLAUDE.md`'s R5 bullet names the
+  script, and its execution boundary records the prune exception and the direct-merge scope (A6). The task-loop
+  skill's R5 step and the post-merge command block in `docs/DEVOPS-WORKFLOW.md` point at it.
+- RED (A5): the SelfCheck was written first against one-line stubs. `task.ps1 -Phase red` exited 1, with all 42
+  cases then present failing on their own assertions. A first attempt crashed on a stub called outside a case; that
+  was fixed before the receipt was taken.
+- GREEN: `-SelfCheck` passes 45 cases and prints `[POST-MERGE-SELF-CHECK-PASS]`.
+- R4 (A5): 29 single-statement mutants (M1 to M26, plus M16b, M18b and M18c) cover the guards in A1, A2 and A4.
+  Each one made `-SelfCheck` exit 1 by failing the case named for it, and none failed by a parse error. The file was
+  restored and its SHA-256 checked after each mutant; the final bytes are SHA-256
+  `DAF7CE2E03990365CD8EC94A8C1F79C1612839694453B283FDBDAAF980FB68B5`. An earlier batch was void, because the
+  runner wrote a second BOM and every mutant died of a parse error. The runner now starts with a control run,
+  which must reproduce the file byte for byte and pass.
+- A4 on real GitHub state: `prune` kept a missing branch ("no such remote branch") and the branch of open PR #323
+  ("PR #323 is OPEN", tip unchanged). It deleted `register-T0-POST-MERGE-R5-GUARDS` only after PR #366 had
+  merged at that tip, and the branch was gone afterwards.
+- A1 to A3 before merge: a development build of this script that had a preview switch built this card's own R5
+  change in a fresh worktree from origin. Its diff added two lines under the current-stage heading, changed only
+  this card's board row, and changed the card; the allowlist judge, check-cards and check-secrets passed, and the
+  worktree and branch were removed. The same build refused an already merged card with `[POST-MERGE-ANCHOR]` and a
+  malformed id with `[POST-MERGE-INPUT]`. The preview switch itself moved to `T0-POST-MERGE-R5-GUARDS`. The push,
+  PR, CI-wait and merge path runs for the first time on this card's own R5, recorded in its R5 section.
+- Pre-review: DeepSeek V4 Flash round 1 blocked on four points. The user split three of them (the main-table
+  board rule, the wiring self-check and a preview switch) into `T0-POST-MERGE-R5-GUARDS`; the fourth, the missing
+  mutation record, is this record.
+- Tier-1 acceptance: `selftest.ps1 -TaskId T0-POST-MERGE-DOCS-PR` from this worktree exited 0 with
+  `[SELFTEST-TIER-PASS] task=T0-POST-MERGE-DOCS-PR tier=1 gates=1,2,3,4,5,7,8,9,10,11,13,14,15,16` (no gate failed,
+  1010.7 s). It ran on `scripts/post-merge.ps1` SHA-256 `DAF7CE2E03990365CD8EC94A8C1F79C1612839694453B283FDBDAAF980FB68B5`
+  and the doc edits as they ship. DeepSeek V4 Flash round 2, given round 1's findings and their dispositions,
+  passed with no findings. Only this record changed in the card after the run.
