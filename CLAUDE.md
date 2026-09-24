@@ -75,7 +75,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **2026-09-24 R5 补记**：`T1-STORAGE-PATH-BOUNDARY` 已于 2026-09-17 本地合并（master `115138a4`，feature `c201c793`，正式 Sol R3 首轮 pass），当时未做 R5。`StoragePathBoundary` 交付检查时的真实路径归属（Junction/符号链接按真实目标比较，不靠 `canonicalFile`）、保存的根快照与逐次子目录检查；20 项真实文件系统测试、35/35 变异。不含后续 I/O 权限或消除 TOCTOU；`T1-APP-STORAGE-POLICY` 由此解锁。
 
-**2026-09-23 本地交付**：`T3-PDF-IMAGE-BRIDGE`（master `fee6451f`，feature `4993e073`）是图片 bridge 拆分的第三张、也是最后一张：`AndroidPdfImagePort` 把已交付端口绑到 BitmapFactory/Canvas（bounds 用 inJustDecodeBounds、-1 返回 null，inSampleSize 原样转交，两个矩形原样交给 drawBitmap）。设备代码无法在 JVM 执行（L280），两轮 Opus R3 证明「源码扫描」可被字符串里的伪注释、链式 apply 等绕过，用户裁定改为**精确源码钉住**：唯一测试断言适配器文件逐字等于评审文本，22/22 变异。Opus R3 第 3 轮 pass，合并树与评审树 `3a61ec1e` 一致。三卡齐，`T3-PDF-RENDER-DEVICE` 可接。遗留 [FOLLOW-UP]：`:app` 测试任务未把源码读取型测试所读文件声明为输入。
+**2026-09-23 本地交付**：`T3-PDF-IMAGE-BRIDGE`（master `fee6451f`，feature `4993e073`）是图片 bridge 拆分的第三张、也是最后一张：`AndroidPdfImagePort` 把已交付端口绑到 BitmapFactory/Canvas（bounds 用 inJustDecodeBounds、-1 返回 null，inSampleSize 原样转交，两个矩形原样交给 drawBitmap）。设备代码无法在 JVM 执行（L280），两轮 Opus R3 证明「源码扫描」可被字符串里的伪注释、链式 apply 等绕过，用户裁定改为**精确源码钉住**：唯一测试断言适配器文件逐字等于评审文本，22/22 变异。Opus R3 第 3 轮 pass，合并树与评审树 `3a61ec1e` 一致。三卡齐，`T3-PDF-RENDER-DEVICE` 的图片 bridge 前置已满足，但它仍待 `T3-PDF-TEXT-METRICS-OPS` 与 `T3-PDF-ANDROID-TEXT-MEASURER`。遗留 [FOLLOW-UP]：`:app` 测试任务未把源码读取型测试所读文件声明为输入。
 
 **2026-09-23 本地交付**：`T3-PDF-IMAGE-OWNERSHIP`（master `1558594d`，feature `17060f81`）是图片 bridge 拆分的第二张：窄端口上的 bounds → 已交付采样 → decode → FIT 绘制 → recycle，每条打开的流都有 close 尝试、每张解码图都有 recycle 尝试，清理失败挂为 suppressed 不顶替原失败，单次 draw 至多持有一张解码图。20 项测试、23/23 变异。DeepSeek V4 Flash 两轮预审 + 全新 Opus 5.5 R3 首轮 pass，合并树与评审树 `b85231ae` 一致。
 
@@ -517,8 +517,8 @@ SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）�
 > **轮次上限三次经用户裁定 `ResetRounds`**：每轮都是互不相同的真缺陷、都被接受修复、都带来新的击杀变异，
 > 不属该闸要止住的「同一争点拉锯」；计数被清零，评审本身一次没跳过。
 
-**当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（其 `T1-SPIKE-PLATFORM` 真机 spike 前置**已满足**，master `e8c2359a`）·
-`T5-BACKUP-IO`（依 backup-format）。
+**当前已解锁待做**（按 depends_on 核对，2026-09-24）：前置均已合并的产品卡包括 `T1-APP-STORAGE-ANDROID`、`T1-LOCAL-DATA-SECURITY`、`T2-GHOST-EDGE-OVERLAY` 与 `T3-REPORT-IMPORT-COMMIT`。`T3-PDF-RENDER-DEVICE` 的图片 bridge 与 `T1-SPIKE-PLATFORM` 真机 spike 前置已满足（master `e8c2359a`），但仍待 `T3-PDF-TEXT-METRICS-OPS` 与 `T3-PDF-ANDROID-TEXT-MEASURER`；
+`T5-BACKUP-IO` 仍待 `T1-SHARE-SCREEN-PRIVACY`、`T1-LOCAL-DATA-SECURITY` 与 `T1-APP-BOUNDARY-ASSEMBLY`。
 
 **T0-GATE-HARDENING 的事后 R3 已结清**：其合并 `5ba3319` 未经 `task.ps1 ship`（`-SkipRed` ×2），post-hoc R3
 block ×2 且经复核属实；用户裁定 **fix-forward 不 revert**，承接卡 `T0-GATE-FIXFORWARD` 已 **merged**
