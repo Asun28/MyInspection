@@ -128,7 +128,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **2026-09-16 本地交付**：`T0-PREREVIEW-FACTS-LIB`（master `b675d6a6`，首轮 R3 pass、零 finding）交付八个事实函数：worktree/base、临时 index 快照、基线原始字节 policy hash、带 hunk 序号的 units、live_allowed、运行时模型路由及 temp root。31 项自检通过，18/18 定向变异检出，verify/范围/许可/防泄露闸及常规完整 selftest 三分片通过；工作树及分支已按合并凭据清理。TD183 登记后续删除文件 candidate 锚点文案契约，须在 worker/prompt 接线前单独修订。
 
-**2026-09-16 本地合并**：`T0-PREREVIEW-UNIT-ID-REVISION`（master `71895645`，首轮 R3 pass、零 finding）落实用户批准的本地 TD176（本地计划的来源编号，不是 tech-debt-tracker 中的 TD176）前置修订：schema_revision 1，hunk ID 为 `path#bodyHash12-ordinal`（同文件 diff 顺序从 1 起），`path#file` 保留；投影、schema/RECORDS 夹具与协议同步，10/10 定向变异检出。FACTS-LIB A3/A5、快照 Git 对象写入例外及固定快照的 Units 输入已先在 master 登记（`704fbd69` / `1220f108`）。前置卡完整 selftest 三分片 PASS，工作树及分支已按合并凭据清理。
+**2026-09-16 本地合并**：`T0-PREREVIEW-UNIT-ID-REVISION`（master `71895645`，首轮 R3 pass、零 finding）落实用户批准的本地 TD176（从未提交进本地 master 的 tracker 行，只在主检出的未提交改动里；不是 tech-debt-tracker 中的 TD176；仍开放两项见 TD187）前置修订：schema_revision 1，hunk ID 为 `path#bodyHash12-ordinal`（同文件 diff 顺序从 1 起），`path#file` 保留；投影、schema/RECORDS 夹具与协议同步，10/10 定向变异检出。FACTS-LIB A3/A5、快照 Git 对象写入例外及固定快照的 Units 输入已先在 master 登记（`704fbd69` / `1220f108`）。前置卡完整 selftest 三分片 PASS，工作树及分支已按合并凭据清理。
 
 **2026-09-16 本地交付**：`T0-PREREVIEW-RECORDS` 已合并（master `dec30514`，R3 第 **7** 轮 pass 零 finding；三次用户裁定 `-ResetRounds`，
 六轮 block 共 13 条 finding 全部属实、全部当场修）——`scripts/_prereview-records.ps1`（`-AsLibrary` / `-SelfCheck`，67 条断言）+

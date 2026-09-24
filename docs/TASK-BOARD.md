@@ -6,7 +6,7 @@
 
 ## PR review v2
 
-> 2026-09 reconcile：本地 1a 链的本地独有部分（PROTOCOL-DOC、CHECKLISTS、RECORDS、FACTS-LIB、STATE-1A）随 reconcile 并入 master（schema 与校验器保留 origin 经 T0-PREREVIEW-REMOTE-SCHEMA 采纳的版本），记录见下方「PR review v2：本地 1a 链记录」一节。`docs/PREREVIEW-PROTOCOL.md`、`docs/PREREVIEW-CHECKLISTS.md` 与 `scripts/_prereview-facts.ps1` 因此已在 master 上；T0-PREREVIEW-REMOTE-POLICY、T0-PREREVIEW-REMOTE-FACTS、T0-PREREVIEW-POLICY-SOURCE、T0-PREREVIEW-POLICY-SOURCE-CHECK 与 T0-PREREVIEW-SOURCE-REGISTRATION 的处置待用户裁定。
+> 2026-09 reconcile：本地 1a 链的本地独有部分（PROTOCOL-DOC、CHECKLISTS、RECORDS、FACTS-LIB、STATE-1A）随 reconcile 并入 master（schema 与校验器保留 origin 经 T0-PREREVIEW-REMOTE-SCHEMA 采纳的版本），记录见下方「PR review v2：本地 1a 链记录」一节。`docs/PREREVIEW-PROTOCOL.md`、`docs/PREREVIEW-CHECKLISTS.md` 与 `scripts/_prereview-facts.ps1` 因此已在 master 上；T0-PREREVIEW-REMOTE-POLICY、T0-PREREVIEW-REMOTE-FACTS、T0-PREREVIEW-POLICY-SOURCE、T0-PREREVIEW-POLICY-SOURCE-CHECK 与 T0-PREREVIEW-SOURCE-REGISTRATION 的处置待用户裁定。origin 经 #303 登记的待发布卡 T0-PREREVIEW-RECORDS 与 T0-PREREVIEW-STATE-1A 与本地已交付卡同 ID，reconcile 以本地归档卡取代，其远端发布判据未单独执行，处置同样待用户裁定；三个本地 prereview 库都加了 gate 1h 自检入口，因而 FACTS-LIB 与 STATE-1A 卡钉住的 SHA 描述的是 reconcile 前的文件。
 
 远端采纳按 [交付计划](plans/PREREVIEW-REMOTE-ADOPTION.md) 顺序执行：T0-PREREVIEW-REMOTE-SCHEMA → T0-PREREVIEW-REMOTE-POLICY → T0-PREREVIEW-REMOTE-FACTS。只采纳最终 revision 1 契约、策略与 FACTS-LIB；原始本地卡图及其它实现不计为远端完成。作者沿用当前 Astra，正式 R3 为 Sol。
 

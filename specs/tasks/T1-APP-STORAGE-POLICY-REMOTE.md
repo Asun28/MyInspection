@@ -58,3 +58,7 @@ Preserve the original fd1dd18c branch/worktree and all five BLOCK verdicts. This
 ## Delivery (R5, 2026-09-24)
 
 Merged by [PR #316](https://github.com/Asun28/MyInspection/pull/316): reviewed head `afffd3836a2d47521bbec338d2a1a435983e9a47`, CI run `35318686041` (verify and required succeeded), merge `15f3931b77924f5d1ae3e55cb0c866bc36e85946`, Codex R3 pass. R5 was not recorded at the time; this note closes it. Test gaps later found on a twin implementation of this card are handled by `T1-APP-STORAGE-POLICY-TESTS`; production behaviour is not in question.
+
+## Reconcile note (2026-09-24)
+
+The 2026-09 local/origin reconcile replaced this card's production file (SHA-256 `C031E652...`) with local master's later version (`f68d7006`); see the reconcile note on `T1-APP-STORAGE-POLICY-TESTS` for the differences.

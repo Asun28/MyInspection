@@ -64,4 +64,4 @@ Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md
 
 ## Reconcile note (2026-09-24)
 
-Origin closed this card on 2026-09-11 as merged and superseded by `T0-SCAFFOLD-UPSTREAM-ADOPTION`. Local work continued afterwards under explicit user grants (the policy candidate `a9506225`, reviewed on its own branch), so the 2026-09 local/origin reconcile keeps the card live with its latest local text. Whether it stays open or is closed again is a user decision.
+Origin closed this card on 2026-09-11 as merged and superseded by `T0-SCAFFOLD-UPSTREAM-ADOPTION`. Local work continued afterwards under explicit user grants (card revisions `b817ea7e` and `410c7021` on 2026-09-24, and its own branch), so the 2026-09 local/origin reconcile keeps the card live with its latest local text. Whether it stays open or is closed again is a user decision.
