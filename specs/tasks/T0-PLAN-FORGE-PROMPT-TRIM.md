@@ -1,7 +1,7 @@
 ---
 id: T0-PLAN-FORGE-PROMPT-TRIM
 title: Trim the plan-forge prompts for Claude Opus 5.5 (drop emphasis markers, boosts, pipeline mechanics and ticket ids the agents do not need; keep every audit criterion)
-status: todo
+status: merged
 depends_on: []
 parallelizable_with: []
 branch: T0-PLAN-FORGE-PROMPT-TRIM
@@ -104,3 +104,46 @@ The card computes tier 1, so the acceptance run is `selftest.ps1 -TaskId`, not t
 ```
 - Expected exit code: 0
 - Assertion: see `dod_assert`; the closed list is `acceptance:` above.
+
+## R5 (2026-09-25)
+
+Merged by PR #360 as squash commit `76d77385` on origin/master, pinned to reviewed head `1c1b3d34`. CI run
+36053787556 passed `verify` and `required` on that head. The merged `plan-forge.mjs` is byte-identical to the
+reviewed one; the merged tree differs from the reviewed tree only by two card-only commits from other sessions
+(#359, #361). The card was registered by PR #348 and amended before ship by #355 and #357.
+
+- **R3 route.** Codex was out of quota until 10:56 (probe at 00:28 and the ship's stderr). By the user's ruling,
+  a fresh Claude Opus 5.5 instance (`--effort medium`, read-only tools) reviewed through a temporary
+  `ReviewCommand` in the main checkout's `_config.ps1`, following L337. The ship's own R3 leg reads the
+  reviewer bundle from base `53be6be9`, so it called Codex and stopped with `[R3-NO-OUTPUT]`. After diagnosis
+  the round was reset, and `review.ps1 -PostStatus -PrNumber 360` ran from the checkout. That checkout's
+  `scripts/` at `3f75d89a` equals the bundle base `53be6be9` apart from the two temporary config lines. Those
+  lines were reverted after the review and never committed. The `codex-review` status on #360 therefore comes
+  from Opus 5.5.
+- **Round 1 passed** with 0 findings on both axes. The local review record lists `effort=low`: that is the
+  size-derived value `review.ps1` passes in `REVIEW_EFFORT`, which the wrapper ignores; it ran `--effort medium`.
+- **Pre-review before ship.** Two fresh-context passes checked the diff against this card.
+  - The first reported twelve points. Two cuts lacked a reference entry: the prior-review rule's exclusion
+    and reason, and rule 5. Three smaller rewordings had also slipped in. The ticket-id and rule-4 cuts needed
+    their citations, and four DoD anchors matched more than once. All were fixed: in the code, and in the card
+    by #355.
+  - The second found three lines that changed more than A3 allowed. Those were fixed in the code, and the card
+    text was corrected by #357.
+- **DoD.** Exit 0 inside the ship (274 s), with `selftest -Only 1,14` passing.
+- **R4 hygiene.** On the final candidate (`plan-forge.mjs` SHA-256 `0EF41B76…`, the committed file), all six
+  mutants exit 1, each on its own arm, and the file was restored to the same hash:
+  - M1: one 【】 pair back in the dod lens → `still present 【`
+  - M2: the 铁律 header back → `still present 铁律`
+  - M3: the budget bullet deleted → `anchor count 0 for check-budget.ps1`
+  - M4: the filter-step reason deleted → `anchor count 0 for 好过漏掉一个真问题`
+  - M5: T233/TD235 back in the decomposition lens → `still present T233`
+  - M6: the soft-delete unique-index check deleted → `anchor count 0 for 唯一索引是否包含 deleted`
+- **Tier-1 acceptance.** `selftest.ps1 -TaskId T0-PLAN-FORGE-PROMPT-TRIM` gave `[SELFTEST-TIER-PASS]` for gates
+  1, 2, 8, 9, 11, 13, 14 and 16 (291 s) on the same file, over base `2f9c363e`. The branch then absorbed
+  `3f75d89a`, a card-only commit.
+- **Size.** 60 changed lines of the 120 declared.
+- **Left as non-goals.**
+  - `docs/PLAN-FORGE.md` still describes the Decompose and Card-Audit stages TD180 removed.
+  - `decompose-cards.mjs` carries six emphasis-marked lines and has had no wording pass; `scout-options.mjs` has
+    had none either.
+  - The upstream scaffold report is offered to the user.
