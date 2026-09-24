@@ -14953,12 +14953,13 @@ if (-not $fail -and -not $gitPost) {
   Write-Host '  17ib skipped (git absent; the hermetic review repo cannot be built)' -ForegroundColor DarkGray
 }
 elseif (-not $fail) {
-  # The repository's deployed policy deliberately remains tier-0=advisory under an armed required gate.
-  # The hermetic cases below exercise a stricter synthetic map; assert the live policy separately so that
-  # fixture setup cannot silently redefine what this checkout actually ships.
+  # The repository's deployed policy is tier-0=adversarial under an armed required gate
+  # (T0-REVIEW-GOVERNING-DOCS raised it from advisory, so docs that define the gates keep the full class).
+  # The hermetic cases below exercise a synthetic map with all three classes; assert the live policy
+  # separately so that fixture setup cannot silently redefine what this checkout actually ships.
   $ibProductionIntensity = Get-ScaffoldReviewIntensityByTier
-  if (([string]$ibProductionIntensity['0'] -ne 'advisory') -or (([string]$ScaffoldConfig.ReviewGate).Trim() -ne 'required')) {
-    Fail "17ib production-policy drift: expected ReviewIntensityByTier['0']='advisory' with ReviewGate='required'; fixture-only skip routing must not mask a changed local policy."
+  if (([string]$ibProductionIntensity['0'] -ne 'adversarial') -or (([string]$ScaffoldConfig.ReviewGate).Trim() -ne 'required')) {
+    Fail "17ib production-policy drift: expected ReviewIntensityByTier['0']='adversarial' with ReviewGate='required'; fixture-only skip routing must not mask a changed local policy."
   }
   $ibRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("st17ib_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
   $ibSavedPath = $env:PATH

@@ -80,3 +80,28 @@ stays and keeps failing on any value but the decided one.
 
 The allow_paths serve A and C alike. This card's own tier is S (`scripts/_config.ps1` is in `TierSPaths`).
 Estimate: under 40 changed lines for C or A.
+
+## Implementation record (2026-09-24, base `0f0c4b52`)
+
+The change was first written on base `734732b0`. Origin then gained two commits (#334, #346) that also edit
+`scripts/_config.ps1` and `scripts/selftest.ps1`, in hunks that do not overlap this card's. After fast-forwarding
+onto `0f0c4b52`, every result below was re-run on the merged bytes.
+
+- Change: `scripts/_config.ps1` sets tier `0` to `adversarial`, and the comment above the map names this card.
+  `scripts/selftest.ps1` gate 17ib expects `adversarial`; its comment now states the deployed policy.
+  `docs/SCAFFOLD-SYNC.md` records the override in its "deliberately forked" section (A5).
+- RED (A2): `task.ps1 -Phase red` on the base exited 1 with `[DOD-FAIL] docs/QUALITY-RUBRIC.md tier=0 class=advisory`.
+- GREEN (A2, A3): the dod_command, run through `Get-ScaffoldDodPayload`, exits 0 with `[DOD-PASS]`. Its last check
+  is that `docs/research/example.md` still computes tier 0.
+- A4 mutant: tier `0` set back to `advisory` in `scripts/_config.ps1` alone makes the dod_command exit 1 with the
+  RED line above. The file was restored byte for byte (SHA-256 `0D415124...58D6FF5B`).
+- A6 mutant: the same revert, with the new `scripts/selftest.ps1`, makes `selftest.ps1 -Only 17post` exit 1 in
+  156.7 s. Its one failure is `17ib production-policy drift: expected ReviewIntensityByTier['0']='adversarial' with
+  ReviewGate='required'`. The file was restored and its SHA-256 matched.
+- Pre-review: DeepSeek V4 Flash, round 1 (on the `734732b0` candidate), pass with no findings.
+- Full selftest (tier-S bar, A6): `selftest.ps1 -Parallel` from this worktree exited 0. All 5 shards exited 0
+  (their union covers all 17 gates), 1158.2 s wall, and 17ib reported OK. It ran on these bytes (SHA-256):
+  `scripts/_config.ps1` `0D415124683063D8E6F9A954678125E4AC6EA4EFD513979566C3F4CD58D6FF5B`,
+  `scripts/selftest.ps1` `3D32CC422B5F14C532FACB0BF55F096D618DF0DBE7882F4B55FE3FDB3A966BC2`,
+  `docs/SCAFFOLD-SYNC.md` `B0D8DB4F51F96F6634C5DD5851615D532C590E8428C4C19BB8D0B5385EC5DEC5`.
+  Only this record was changed in the card after the run.
