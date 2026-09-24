@@ -25,8 +25,10 @@ never accepts. Check names say which kind of fact they rest on: `pre` and the un
 | A3 controlled | `NameNotFoundException` and `SecurityException` from package-context creation become the fixed message without a cause; an `Error` propagates as the same instance |
 | cleanup | the external fixture is gone after the checks |
 
-Read-only and unknown raw states, and a directory without write permission, are covered only by the JVM tests: an
-ordinary APK cannot mount a read-only volume. Device-protected default storage is not reproduced: this app does not
+The read-only raw state and a directory without write permission are covered only by the JVM tests: an ordinary APK
+cannot mount a read-only volume, and the probe does not change directory permissions. The unknown raw state is
+covered on the devices too, where the internal directory reads `unknown` and must map to UNMOUNTED, as well as by
+the JVM test. Device-protected default storage is not reproduced: this app does not
 request it and the card treats it as system-only, so the synthetic false-marker wrapper stands in for a context that
 claims CE while holding DP roots.
 
@@ -38,7 +40,7 @@ passed check, then `DONE <runId>`, `FAIL <check> java.lang.AssertionError` (`unn
 name) or `ERROR <exception class>`. It holds no paths and no file content.
 
 The probe creates and deletes the external fixture `app-storage-probe-<runId>`; a process killed mid-run leaves it
-behind. The host script removes the run's receipt but leaves the empty `files/app-storage-probe/` directory. Reading
+behind. The host script removes the run's receipt but leaves the `files/app-storage-probe/` directory. Reading
 the DP context's `noBackupFilesDir` makes the platform create an empty `no_backup` directory in device-protected
 storage. The activity is exported only to callers holding `android.permission.DUMP`, which `adb shell` holds and
 ordinary apps cannot obtain on their own.
@@ -49,10 +51,13 @@ Build the candidate with the card DoD, save the script below as `.secrets\storag
 repository root once per device. It checks the APK's application id and, when the app is already installed, that both
 are signed by the same certificate; installs with `install -r` only (app data kept); starts only the probe activity
 with a fresh run id; reads and removes that run's receipt; force-stops the app and requires `pidof` to report no
-process. It prints the device model, API level, build type, emulator flag and the SHA-256 of the APK, the adapter
-source and the probe source, then exits 0 only when the receipt is, line for line, the one expected for this run id
-and APK: every check in order ending in `DONE`, or (`-Expect <check>`) the checks before `<check>` followed by that
-check failing with `java.lang.AssertionError`.
+process. It prints the device model, API level, build type, emulator flag, the SHA-256 of the APK, the adapter
+source and the probe source, the Git tree id of the committed `android/` directory and the number of `android/`
+paths that differ from it (0 for the candidate itself, 1 for a mutant). It exits 0 only when the receipt has exactly
+the expected lines for this run id and APK: every check in order ending in `DONE`, or (`-Expect <check>`) the checks
+before `<check>` followed by that check failing with `java.lang.AssertionError`. Every line must equal its expected
+text except the `STATE` line, which must match the `STATE name=value …` pattern; its values are asserted inside the
+probe by `A2.pre.rawStates`.
 
 ```powershell
 param([Parameter(Mandatory)][string]$Serial, [Parameter(Mandatory)][string]$Apk, [string]$Expect = 'pass',
@@ -84,9 +89,12 @@ function CertDigest([string]$path) {
 }
 if (-not (Same $Expect 'pass') -and [array]::IndexOf($checks, $Expect) -lt 0) { Fail "unknown check $Expect" }
 $apkSha = Sha $Apk
+$tree = ((git -C $Repo rev-parse 'HEAD:android') -join '').Trim()
+$dirty = @(git -C $Repo status --porcelain -- android).Count
 $identity = "model=$(Prop ro.product.model) sdk=$(Prop ro.build.version.sdk) type=$(Prop ro.build.type) " +
     "qemu=$(Prop ro.kernel.qemu) apk=$apkSha src=$(Sha "$Repo/$platform/AndroidAppStorageEnvironment.kt") " +
-    "probe=$(Sha "$Repo/android/app/src/debug/kotlin/nz/myinspection/app/platform/AppStorageProbeActivity.kt")"
+    "probe=$(Sha "$Repo/android/app/src/debug/kotlin/nz/myinspection/app/platform/AppStorageProbeActivity.kt") " +
+    "android-tree=$tree android-dirty=$dirty"
 Write-Output "[PROBE-ID] $identity"
 if (-not (Same ((& "$tools\aapt2.exe" dump packagename $Apk) -join '').Trim() $package)) { Fail 'application id' }
 $installed = (& $adb -s $Serial shell pm path $package) -replace '^package:', ''

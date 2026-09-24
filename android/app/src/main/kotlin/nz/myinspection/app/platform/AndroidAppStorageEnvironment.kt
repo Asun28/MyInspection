@@ -7,9 +7,9 @@ import java.io.File
 /**
  * Android implementation of [AppStorageEnvironment]. The marker and root members read the wrapped context's getters
  * (the device-protected root through its device-protected context), conversion creates a package context, and the
- * state, writability and space members read only the directory they are given. Choosing the protected root,
- * converting a device-protected context first and refusing one that stays device protected are [AppStoragePolicy]'s
- * job. AppStorageProbeActivity (debug) checks this class on devices.
+ * state, writability and space members use the directory they are given, not the context. Choosing the protected
+ * root, converting a device-protected context first and refusing one that stays device protected are
+ * [AppStoragePolicy]'s job. AppStorageProbeActivity (debug) checks this class on devices.
  */
 class AndroidAppStorageEnvironment(private val context: Context) : AppStorageEnvironment {
     override val isDeviceProtectedStorage: Boolean

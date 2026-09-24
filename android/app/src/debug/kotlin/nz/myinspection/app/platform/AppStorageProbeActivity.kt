@@ -13,7 +13,8 @@ import java.security.MessageDigest
  * Debug-only device probe for [AndroidAppStorageEnvironment]; recipe in docs/storage-android-probe.md. Expected values
  * are platform getters called by the probe itself, never the adapter's results. Checks named `synthetic` or
  * `controlled` run the real adapter over a wrapper or a File subclass and say in a comment what it substitutes. The
- * receipt holds the run id, the installed APK digest, raw volume-state constants and check names only.
+ * receipt holds the run id, the installed APK digest, raw volume-state constants, check names and, when a run fails,
+ * an exception class name; it holds no paths and no file content.
  */
 class AppStorageProbeActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
