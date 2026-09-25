@@ -158,3 +158,11 @@ A3 real run: run 1 must stop start. 15 of 15 killed.
 | M13 | hook: `cd` no longer moves the target | hook: cd <dirty> && git reset --hard asks |
 | M14 | task.ps1: the start stop -> `if ($false)` | A3 run 1: exit 0, worktree created |
 | M15 | task.ps1: `-not $TakeOver` -> `-not $true` | A3 run 1: exit 0, worktree created |
+
+**Tier-S full selftest** (`selftest.ps1 -Parallel` from this worktree). Run 1 on `c3674b0b` was red on gate 14f
+only: `_config.ps1` `DocSyncMap` couples `scripts/task.ps1` to `docs/DEVOPS-WORKFLOW.md`, which the first sweep
+had left out; its R1 row now names start's live-work check (#426 added the doc to `allow_paths`). Run 2 on
+`749ad6b4` (after merging origin/master) passed every shard but `seed-post`, which stopped with "You cannot call a
+method on a null-valued expression" right after `T37-CIGATE/DEADLINE OK`; that shard had passed on run 1 and the
+merge changed none of its inputs (only `scripts/post-merge.ps1` among scripts). Run 3 on the same `749ad6b4`
+passed all five shards (light, e2e, seed-pre, seed-post, seed-b; 1079 s parallel wall).
