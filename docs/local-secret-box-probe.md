@@ -223,12 +223,13 @@ Each mutant changes `AndroidSecretKeys.kt`. A device mutant counts as detected o
 
 | Id | Change | Detected by |
 |---|---|---|
-| D01 | `KeyGenerator` without the AndroidKeyStore provider | `A5.roundTrip`, both devices |
+| D01 | `KeyGenerator` without the AndroidKeyStore provider name | equivalent, not counted: Android selects AndroidKeyStore from the `KeyGenParameterSpec`, so the key is still a Keystore key |
+| D01b | a software AES key instead of an AndroidKeyStore key | `A5.roundTrip`, both devices |
 | D02 | key size 128 | `A4.key.size256`, both devices |
 | D03 | block mode CBC | `A5.roundTrip`, both devices |
 | D04 | padding PKCS7 | `A5.roundTrip`, both devices |
 | D05 | user authentication required | `A5.roundTrip`, both devices |
-| D06 | `setUnlockedDeviceRequired(true)` added | lock-screen script `locked.open.whileScreenLocked`, emulator; the first script cannot see it and passes |
+| D06 | `setUnlockedDeviceRequired(true)` added | phone: `A5.roundTrip` (the SM-A346E refuses the key while unlocked too); emulator: the first script passes and the lock-screen script fails at `locked.open.whileScreenLocked` |
 | D07 | seal treats every existing key as unusable | `A4.sameKeyAcrossSeals`, both devices |
 | D08 | seal treats the device as locked, so an unusable key is kept | `A7.unusableKeyRebuiltOnSeal`, both devices |
 | D09 | randomized encryption not required | `A4.keystore.callerIvRefused`, both devices |
@@ -243,4 +244,18 @@ Each mutant changes `AndroidSecretKeys.kt`. A device mutant counts as detected o
 
 ## Evidence
 
-EVIDENCE-PENDING
+Run 2026-09-25 on a Samsung SM-A346E (API 33, `user` build, `KEYINFO securityLevel=1 insideSecureHardware=true`) and
+an `sdk_gphone64_x86_64` emulator (API 35, `userdebug`, `ro.kernel.qemu=1`, `securityLevel=0`, not in secure
+hardware). Every APK run on the devices was built from commit `261be5a0` of this branch, whose `android/` tree id is
+`a5b7d7592d8689c0127c67d3aa1f0ae708d1899f`; the script prints the tree id of the checkout it runs in and each receipt's
+`apk=` line names the APK that ran. The debug build is not byte-reproducible (the baseline APK was `5c3f2d49…`, the
+final one `6cf8227d…`, from the same tree). Source SHA-256 at that commit: adapter `5b2569a4…`, box `0e9074ac…`, probe
+`5161e327…`; scripts as extracted from this file: `17441a6e…` and `855dd1c3…`.
+
+| Step | Result |
+|---|---|
+| RED, on base `3482be50` before the adapter existed | DoD exit 1: unresolved `chooseSealKey` |
+| Baseline | DoD exit 0; both devices `[PROBE-OK]` 21/21 with `android-dirty=0`; lock-screen script `[LOCKED-OK]` |
+| Control: unmodified APK with `-Expect A5.roundTrip` (API 33) | script exit 1, receipt does not match |
+| Mutation batch | 17/17 detected: D01b–D05 and D07–D11 built (exit 0) and matched their `-Expect` on both devices, each run with `android-dirty=1`; D06 built and was detected as its row says; J01–J06 compiled and failed the named test with `java.lang.AssertionError`; D01 equivalent and not counted. The phone locked partway through the first batch, so D01b and D06 were rerun with it unlocked; the other device mutants use keys the lock does not affect. Adapter restored to `5b2569a4…` |
+| Final, restored | DoD exit 0 (298 app JVM tests, 0 failures); both devices `[PROBE-OK]` 21/21 with `android-dirty=0`, APK `6cf8227d…`; lock-screen script `[LOCKED-OK]` |
