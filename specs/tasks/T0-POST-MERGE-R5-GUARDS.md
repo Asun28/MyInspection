@@ -1,7 +1,7 @@
 ---
 id: T0-POST-MERGE-R5-GUARDS
 title: Add -DryRun to post-merge.ps1 r5, the last of the three hardening PRs
-status: todo
+status: merged
 depends_on: [T0-POST-MERGE-R5-WIRING]
 parallelizable_with: []
 allow_paths:
@@ -69,3 +69,19 @@ R3: Opus 5.5 through `ReviewCommand` instead of Codex (user ruling 2026-09-25).
   -DryRun applies to r5 only, and nothing was pruned` and exited 1. Run again with `git.cmd` and `gh.cmd` stubs first
   on PATH (each logs its arguments and exits 1), it logged no call; the same command without `-DryRun` logged
   `gh api user -q .login` (the account check) and stopped there when the stub failed.
+
+## R5
+
+- Merged by PR #398 as `390bb3aa` (reviewed head `bb765b44`; the merged tree equals the reviewed tree). CI run
+  `36125330154` succeeded, and the tier-1 selftest passed (`[SELFTEST-TIER-PASS]`, gates 1, 2, 7, 9, 10, 11, 13, 14, 15, 16)
+  on `15dedc0d`, whose three changed files are byte-identical to the merged ones.
+- R3: Opus 5.5 through `ReviewCommand` (user ruling 2026-09-25), run the same way as for the two earlier cards. The
+  first review, of `15dedc0d`, passed with no finding. origin/master then gained five commits from other sessions
+  (#394, #399, #400, #401, #402) that touch none of this card's files; the branch took them as
+  `bb765b44`, and CI and R3 were rerun on that head before the merge: pass, no finding. The reviewer had no shell;
+  the ship's DoD gate ran the SelfCheck, and it passed again on `bb765b44`.
+- Before the formal review, a fresh-context pre-review found that A3's "the synopsis names -DryRun" did not hold
+  (only the description and an example did) and that one comment overstated what had not yet left the machine. Both
+  were fixed, and the no-call proof for `prune -DryRun` was recorded.
+- A stale worktree of this card from another session, with uncommitted pre-split edits of all three fixes, was
+  removed with the user's approval; its diff and files are kept in the main checkout's `_local/`.
