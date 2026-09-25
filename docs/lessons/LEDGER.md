@@ -415,7 +415,7 @@
 - refs: session 2026-07 TD12；PR #21
 
 ## L59
-- date: 2026-07-04 ｜ tags: git,worktree,stash,parallel-agents ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-07-04 ｜ tags: git,worktree,stash,parallel-agents ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 并行多 worktree 时一个 agent git stash push/pop 弹出了另一 worktree 的 stash——两侧未提交改动互换/丢失
 - root_cause: git stash 栈是 repo 级共享（所有 worktree 共用 refs/stash），并发 push/pop 竞态弹错条目
 - rule: 并行 agent 环境禁用 git stash 做基线对比——用 git show HEAD:路径 或 git diff HEAD 替代；已弹错时用 git fsck 找 dangling commit 恢复
