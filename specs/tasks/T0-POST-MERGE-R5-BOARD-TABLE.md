@@ -1,7 +1,7 @@
 ---
 id: T0-POST-MERGE-R5-BOARD-TABLE
 title: post-merge.ps1 r5 edits a card's board row only in a main card table
-status: todo
+status: merged
 depends_on: [T0-POST-MERGE-DOCS-PR]
 parallelizable_with: []
 allow_paths:
@@ -77,3 +77,15 @@ R3: Opus 5.5 through `ReviewCommand` instead of Codex (user ruling 2026-09-25).
 - After a fresh-context pre-review, two cases were added to pin behaviour the first batch did not reach: a header
   narrower than the row (B8, the count comparison must come first under StrictMode) and a board that opens with its
   table and has no final newline (B9, the walk up must stop at line 0). SelfCheck: 75 of 75.
+
+## R5
+
+- Merged by PR #393 as `5ea3ea2d` (reviewed head `5cf25719`; the merged tree equals the reviewed tree `24870022`).
+  CI run `36117231819` succeeded, and the tier-1 selftest passed on the final head (`[SELFTEST-TIER-PASS]`, gates
+  1, 2, 7, 10, 11, 13, 14, 16).
+- R3: Opus 5.5 through `ReviewCommand` (user ruling 2026-09-25). The ship's own R3 leg ran with codex off PATH and
+  stopped before invoking a reviewer. The control checkout's `review.ps1`, identical to the base blob, then reviewed
+  PR #393 with `-PostStatus`: pass, no finding on either axis. That run kept only the reviewer's last message, so it
+  was rerun with the full transcript kept (12 turns, 16 tool calls, reads of `scripts/post-merge.ps1` and
+  `docs/TASK-BOARD.md`): pass again, no finding. The reviewer had no shell; the ship's DoD gate ran the SelfCheck.
+- The decorated card ids in the main tables (the implementation record's follow-up) go to specs/tech-debt-tracker.md.
