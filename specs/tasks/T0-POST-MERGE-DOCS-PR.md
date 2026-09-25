@@ -58,18 +58,16 @@ the same pattern.
 
 ## Implementation record (2026-09-25)
 
-- Change: a new `scripts/post-merge.ps1` with `r5`, `prune` and `-SelfCheck`. `CLAUDE.md`'s R5 bullet names the
-  script, and its execution boundary records the prune exception and the direct-merge scope (A6). The task-loop
-  skill's R5 step and the post-merge command block in `docs/DEVOPS-WORKFLOW.md` point at it.
-- RED (A5): the SelfCheck was written first against one-line stubs. `task.ps1 -Phase red` exited 1, and the
-  SelfCheck printed `[POST-MERGE-SELF-CHECK-FAIL] 42 of 42 cases failed`, each on its own assertion. A first
-  attempt crashed on a stub called outside a case; that was fixed before the receipt was taken.
-- GREEN: `-SelfCheck` passes 60 cases and prints `[POST-MERGE-SELF-CHECK-PASS]`.
-- R4 (A5): 42 single-statement mutants, listed below with the line each changes in the final file (SHA-256
-  `71A21B8EB65CF3175A122CC51B7A362E037D561DD49DD47250234390E6875128`). Each made `-SelfCheck` exit 1 by failing
-  the case named for it, and none failed by a parse error. The file was restored and its SHA-256 checked after
-  each. The runner first rewrites the unmutated file through the same write path and requires identical bytes
-  and a passing SelfCheck; an earlier batch without that control was void, because it wrote a second BOM.
+- Change: new `scripts/post-merge.ps1` (`r5`, `prune`, `-SelfCheck`); `CLAUDE.md`'s R5 bullet and execution
+  boundary (A6), the task-loop R5 step and `docs/DEVOPS-WORKFLOW.md` point at it.
+- RED (A5): SelfCheck written first against one-line stubs; `task.ps1 -Phase red` exited 1 with
+  `[POST-MERGE-SELF-CHECK-FAIL] 42 of 42 cases failed`, each on its own assertion.
+- GREEN: `-SelfCheck` passes 67 cases (`[POST-MERGE-SELF-CHECK-PASS]`).
+- R4 (A5): 48 single-statement mutants below, with the line each changes in the final file (SHA-256
+  `8C421ECEC0DDDA6B5A1FA207A6FA8B897D8594738A04EAD3121E42A56D2974A9`). Each made `-SelfCheck` exit 1 by failing its
+  named case, none by a parse error; the file was restored and SHA-checked after each. The runner first rewrites
+  the unmutated file and requires identical bytes and a passing SelfCheck (an earlier batch without that control
+  wrote a second BOM and was void).
 
 | id | line | mutation | killing case |
 |---|---|---|---|
@@ -115,35 +113,30 @@ the same pattern.
 | M37 | 200 | drop `status -ceq 'completed'` | ci: an in-progress run is pending |
 | M38 | 171 | condition → `$false` | ci: a pending CheckRun is not failure |
 | M39 | 177 | state check → always `pending` | ci: a StatusContext ERROR is failure |
+| M40 | 212 | MERGED test → `$false` | recovery: a merged PR is pruned |
+| M41 | 212 | drop `$prs.Count -eq 1` | recovery: two PRs are not pruned |
+| M42 | 213 | condition → `$false` | recovery: an unreadable PR list is unknown and not pruned |
+| M43 | 213 | drop the `-not $TipKnown` half | recovery: an unreadable branch tip is unknown |
+| M44 | 214 | condition → `$false` | recovery: nothing on the remote means a clean rerun |
+| M45 | 86 | condition → `$false` | stage: empty entry |
 
-- A4 on real GitHub state: `prune` kept a missing branch ("no such remote branch") and the branch of open PR #323
-  ("PR #323 is OPEN", tip unchanged). It deleted `register-T0-POST-MERGE-R5-GUARDS` only after PR #366 had
-  merged at that tip, and the branch was gone afterwards.
-- A1 to A3 before merge: a development build of this script with a preview switch built this card's own R5
-  change in a fresh worktree from origin. Its diff added two lines under the current-stage heading, changed only
-  this card's board row, and changed the card; the allowlist judge, check-cards and check-secrets passed, and the
-  worktree and branch were removed. The same build refused an already merged card with `[POST-MERGE-ANCHOR]` and a
-  malformed id with `[POST-MERGE-INPUT]`. The preview switch itself moved to `T0-POST-MERGE-R5-GUARDS`. The push,
-  PR, CI-wait and merge path runs for the first time on this card's own R5, recorded in its R5 section.
-- Pre-review: DeepSeek V4 Flash round 1 blocked on four points. The user split three of them (the main-table
-  board rule, the wiring self-check and a preview switch) into `T0-POST-MERGE-R5-GUARDS`; the fourth, the missing
-  mutation record, is this record. Round 2, given those dispositions, passed with no findings.
-- R3 round 1 (Opus 5.5 through `ReviewCommand`, Codex out of quota) on `4592f31b` blocked on four points and
-  recorded one follow-up; all four were fixed. (1) The mutants named by count only and left guard pieces without a
-  killing case: six cases were added (a prose line carrying the id, a two-cell row, two rows removed and one added,
-  a row rewritten in each direction, an added line that is the next heading) with M27 to M33, and the table above
-  replaced the count. (2) The empty-section guard in `Add-PostMergeCardSection` duplicated the heading check and
-  was deleted. (3) The CI wait read the ci.yml run once, so an unfinished run counted as red after the push, and
-  NEUTRAL or SKIPPED counted as a successful fan-in: `Test-PostMergeFanInSuccess` (exactly SUCCESS) and
-  `Get-PostMergeRunDecision` (pending until a run for the head completes) are now pure and tested (M34 to M39),
-  the run list is polled inside the same deadline, and a failure after the push prints
-  `[POST-MERGE-LEFT-BEHIND]` with the branch and PR. (4) Cleanup failures in r5's finally block were silent: they
-  now print `[POST-MERGE-CLEANUP-FAIL]`, and the comments that claimed every native call is exit-code checked were
-  narrowed. The follow-up (A3's live path has no self-verifying test) is the reason for the R5 record above and for
-  `T0-POST-MERGE-R5-GUARDS`.
-- Tier-1 acceptance on the fixed candidate: `selftest.ps1 -TaskId T0-POST-MERGE-DOCS-PR` from this worktree exited 0
-  with `[SELFTEST-TIER-PASS] task=T0-POST-MERGE-DOCS-PR tier=1 gates=1,2,3,4,5,7,8,9,10,11,13,14,15,16` (no gate failed,
-  1096.3 s) on `scripts/post-merge.ps1` SHA-256 `71A21B8EB65CF3175A122CC51B7A362E037D561DD49DD47250234390E6875128`. An
-  earlier rerun was stopped by the host for low memory before it finished and is not counted. DeepSeek V4 Flash
-  round 3 raised one finding (that M33 survives), which the fixture's line numbers and the mutation log refuted;
-  round 4, given that evidence, passed. Only this record changed in the card after the run.
+- A4 on real state: `prune` kept a missing branch and the branch of open PR #323 (tip unchanged), and deleted
+  `register-T0-POST-MERGE-R5-GUARDS` only after PR #366 had merged at its tip.
+- Before merge, a development build with a preview switch built this card's R5 change from origin: two lines
+  under the current-stage heading, this card's board row, the card; judge, check-cards and check-secrets passed.
+  The preview switch moved to `T0-POST-MERGE-R5-GUARDS`; the live push/PR/CI/merge path runs first in this card's R5.
+- Pre-review (DeepSeek V4 Flash): round 1 blocked on four points, three split by the user into
+  `T0-POST-MERGE-R5-GUARDS` and one answered by this record; round 2 passed; round 3's one finding (M33 survives)
+  was refuted by the fixture's line numbers and the mutation log; round 4 passed.
+- R3 round 1 (Opus 5.5, Codex out of quota) blocked on four points, all fixed: killing cases for the board-row,
+  two-cell, row-rewrite and next-heading guards (M27 to M33) and this table; a redundant empty-section guard
+  deleted; the CI wait (fan-in must be exactly SUCCESS, the ci.yml run is polled within the deadline, M34 to M39);
+  cleanup failures reported as `[POST-MERGE-CLEANUP-FAIL]`. Its follow-up (A3's live path) is the R5 run below.
+- R3 round 2 (Codex) passed the spec axis and blocked on one standards point: after a failure past the push, the
+  report came from local flags and advised merging by hand. Now `Get-PostMergeRecoveryReport` decides from
+  probed remote state (unknown stays unknown, a merge that landed is pruned, the advice is close, delete and
+  rerun, never a hand merge), with cases and M40 to M44. Rounds reset by user ruling for round 3.
+- Tier-1 acceptance: `selftest.ps1 -TaskId T0-POST-MERGE-DOCS-PR` from this worktree exited 0 with
+  `[SELFTEST-TIER-PASS] task=T0-POST-MERGE-DOCS-PR tier=1 gates=1,2,3,4,5,7,8,9,10,11,13,14,15,16` (no gate failed,
+  848.2 s) on `scripts/post-merge.ps1` SHA-256 `8C421ECE...2974A9`. DeepSeek round 5 found M45 missing from the
+  table (added, 48/48); round 6 passed. Only this record changed in the card after the run.
