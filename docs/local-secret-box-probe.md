@@ -8,24 +8,24 @@ green build is not device acceptance.
 ## What the probe checks
 
 The probe runs once per launch against the installed candidate APK. It uses key version 201, so its alias
-`myinspection.secret.backup-passphrase.v201` is never a production alias, and keeps envelopes in memory, so no
+`myinspection.secret.backup-passphrase.v201` is not a production alias (production seals version 1), and keeps envelopes in memory, so no
 production envelope file is touched. Expected values come from AndroidKeyStore, `KeyInfo` and `UserManager` read by
 the probe itself. A failed check throws a `java.lang.AssertionError` named after the check and ends the run; any other
 exception ends it as `ERROR`, which the host script never accepts.
 
 | Group | Checks |
 |---|---|
-| pre, unlock | the probe alias is absent at start; the adapter's unlock state equals `UserManager.isUserUnlocked` and is true |
+| pre, unlock | the probe alias is absent at start; the adapter's unlock state and `UserManager.isUserUnlocked` are both true (the app is not direct-boot aware, so it never runs before first unlock) |
 | A5 round trip | seal returns STORED and open returns the sealed text |
 | A4 key | the key is in AndroidKeyStore; `encoded` is null; `KeyInfo`: 256 bits, purposes exactly encrypt and decrypt, block modes exactly GCM, paddings exactly none, no user authentication; a caller-supplied GCM IV is refused with `InvalidAlgorithmParameterException` (randomized encryption) |
 | A4 same key | an envelope from the first seal still opens after a second seal |
-| A5 envelopes | two seals give different nonces and ciphertexts; a flipped bit in the nonce, the ciphertext and the tag each gives AUTHENTICATION_FAILED with the bytes unchanged; a 5-byte envelope gives ENVELOPE_CORRUPT; deleting the alias gives KEY_MISSING with the envelope unchanged |
-| A7 rebuild | a decrypt-only key planted at the alias is refused for encryption; seal replaces it (STORED), open succeeds, and the new key's purposes are encrypt and decrypt |
+| A5 envelopes | two seals give different nonces and ciphertexts; a flipped bit in the nonce, the ciphertext and the tag each gives AUTHENTICATION_FAILED with the bytes unchanged; a 5-byte envelope gives ENVELOPE_CORRUPT with the bytes unchanged; deleting the alias gives KEY_MISSING with the envelope unchanged |
+| A7 rebuild | a decrypt-only key planted at the alias is refused for encryption; seal replaces it (STORED), open succeeds, and the new key's purposes are encrypt and decrypt. An EC signing key planted at the alias makes open report KEY_UNUSABLE, and seal replaces it the same way |
 | cleanup | the probe alias is gone |
 
 `KeyInfo` on API 33 and 35 has no unlocked-device-required getter, so that property is shown by behavior instead:
-the `LocalSecretBoxLockedProbeReceiver` check below opens an envelope while the screen is locked. Security level and
-secure-hardware placement are recorded on a `KEYINFO` line and never asserted, because hardware Keystore is not a
+the `LocalSecretBoxLockedProbeReceiver` check below opens an envelope while the screen is locked. Security level, secure-hardware
+placement and `KeyguardManager.isDeviceLocked` are recorded on a `KEYINFO` line and never asserted, because hardware Keystore is not a
 guarantee on every device (ADR-0006).
 
 ## Lock-screen check (emulator only)
@@ -33,7 +33,7 @@ guarantee on every device (ADR-0006).
 A DUMP-gated debug receiver, run by the second script. With a temporary PIN set, `prepare` seals under key version
 202 into a probe-owned file while the screen is unlocked; the screen is then turned off, which locks it; `open` must
 find `KeyguardManager.isDeviceLocked` true and still open the envelope, the property the weekly background backup
-depends on (ADR-0006 §3). The PIN is always cleared and `cleanup` deletes the alias and the file. It runs only when
+depends on (ADR-0006 §3). The script clears the PIN and prints `[LOCKED-OK]` only after `locksettings verify` reports no credential; `cleanup` deletes the alias and the file. It runs only when
 `ro.kernel.qemu=1`: locking a personal phone needs its owner present. Lock-screen removal, credential clearing and key
 invalidation on the phone stay with `T7-SMOKE-POLISH` A7.
 
@@ -55,7 +55,7 @@ prints the device, the SHA-256 of the APK and of the three sources, the `android
 number of `git status --porcelain` entries under `android/`, and exits 0 only when the receipt matches line by line
 (`-Expect <check>`: the checks before it, then that check failing with `java.lang.AssertionError`).
 
-````powershell
+```powershell
 param([Parameter(Mandatory)][string]$Serial, [Parameter(Mandatory)][string]$Apk, [string]$Expect = 'pass',
     [string]$Repo = (Get-Location).Path)
 $ErrorActionPreference = 'Stop'
@@ -65,7 +65,8 @@ $checks = @(
     'A4.key.notExportable', 'A4.key.size256', 'A4.key.purposesEncryptDecrypt', 'A4.key.gcmOnly', 'A4.key.noPadding',
     'A4.key.noUserAuthentication', 'A4.keystore.callerIvRefused', 'A4.sameKeyAcrossSeals', 'A5.freshNonceAndCiphertext',
     'A5.tamper.nonce', 'A5.tamper.ciphertext', 'A5.tamper.tag', 'A5.corruptEnvelope', 'A5.keyMissing',
-    'A7.plantedKeyCannotEncrypt', 'A7.unusableKeyRebuiltOnSeal', 'cleanup.aliasRemoved')
+    'A7.plantedKeyCannotEncrypt', 'A7.unusableKeyRebuiltOnSeal', 'A7.nonSecretEntryIsUnusable', 'A7.nonSecretEntryReplacedOnSeal',
+    'cleanup.aliasRemoved')
 $adb = Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
 $tools = Join-Path $env:ANDROID_HOME 'build-tools\35.0.0'
 $platform = 'android/app/src/main/kotlin/nz/myinspection/app/platform'
@@ -133,7 +134,7 @@ if (Same $Expect 'pass') { $lines += "DONE $runId" } else {
 $ok = $receipt.Count -eq $lines.Count
 for ($i = 0; $ok -and $i -lt $lines.Count; $i++) {
     $ok = if (Same $lines[$i] '<KEYINFO>') {
-        $receipt[$i] -cmatch '^KEYINFO securityLevel=-?[0-9]+ insideSecureHardware=(true|false)$'
+        $receipt[$i] -cmatch '^KEYINFO securityLevel=-?[0-9]+ insideSecureHardware=(true|false) deviceLocked=(true|false)$'
     } else { Same $receipt[$i] $lines[$i] }
 }
 if (-not $ok) { Fail "receipt does not match expect=$Expect" }
@@ -143,7 +144,7 @@ Write-Output "[PROBE-OK] expect=$Expect run=$runId $identity"
 Save the second script as `.secrets\secret-probe-locked.ps1`; it requires the installed APK to be byte-identical to
 the candidate, so run it after the first script on the emulator.
 
-````powershell
+```powershell
 param([Parameter(Mandatory)][string]$Serial, [Parameter(Mandatory)][string]$Apk, [string]$Expect = 'pass')
 $ErrorActionPreference = 'Stop'
 $package = 'nz.myinspection.app'
@@ -174,6 +175,7 @@ function Phase([string]$name, [string[]]$checks, [string]$failAt) {
     }
     if (-not $receipt) { return $false }
     & $adb -s $Serial shell run-as $package rm -f $path
+    if ($LASTEXITCODE -ne 0) { return $false }
     $receipt | ForEach-Object { Write-Host "  $_" }
     $lines = @("run=$runId phase=$name")
     foreach ($check in $checks) {
@@ -196,6 +198,8 @@ try {
     $ok = $prepared -and $opened
 } finally {
     & $adb -s $Serial shell locksettings clear --old $pin | Out-Null
+    $clearExit = $LASTEXITCODE
+    $verify = ((& $adb -s $Serial shell locksettings verify) -join '').Trim()
     & $adb -s $Serial shell input keyevent KEYCODE_WAKEUP
     & $adb -s $Serial shell wm dismiss-keyguard
     Start-Sleep -Seconds 1
@@ -203,13 +207,14 @@ try {
     & $adb -s $Serial shell am force-stop $package
     $pidProbe = @(& $adb -s $Serial shell "pidof $package; echo rc=`$?")
 }
+if ($clearExit -ne 0 -or -not (Same $verify 'Lock credential verified successfully')) { Fail 'the temporary PIN is still set' }
 if (-not $cleaned) { Fail 'cleanup phase' }
 if (-not (Same $pidProbe[-1] 'rc=1')) { Fail 'app process still running' }
 if (-not $ok) { Fail "receipts do not match expect=$Expect" }
 Write-Output "[LOCKED-OK] expect=$Expect run=$runId apk=$installedSha"
 ```
 
-````powershell
+```powershell
 cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug
 pwsh -NoProfile -File .secrets\secret-probe.ps1 -Serial <adb serial> -Apk android\app\build\outputs\apk\debug\app-debug.apk
 pwsh -NoProfile -File .secrets\secret-probe-locked.ps1 -Serial emulator-5554 -Apk android\app\build\outputs\apk\debug\app-debug.apk
@@ -223,39 +228,37 @@ Each mutant changes `AndroidSecretKeys.kt`. A device mutant counts as detected o
 
 | Id | Change | Detected by |
 |---|---|---|
-| D01 | `KeyGenerator` without the AndroidKeyStore provider name | equivalent, not counted: Android selects AndroidKeyStore from the `KeyGenParameterSpec`, so the key is still a Keystore key |
 | D01b | a software AES key instead of an AndroidKeyStore key | `A5.roundTrip`, both devices |
 | D02 | key size 128 | `A4.key.size256`, both devices |
 | D03 | block mode CBC | `A5.roundTrip`, both devices |
 | D04 | padding PKCS7 | `A5.roundTrip`, both devices |
 | D05 | user authentication required | `A5.roundTrip`, both devices |
-| D06 | `setUnlockedDeviceRequired(true)` added | phone: `A5.roundTrip` (the SM-A346E refuses the key while unlocked too); emulator: the first script passes and the lock-screen script fails at `locked.open.whileScreenLocked` |
+| D06 | `setUnlockedDeviceRequired(true)` added | phone: `A5.roundTrip`; emulator: the first script passes and the lock-screen script fails at `locked.open.whileScreenLocked` |
 | D07 | seal treats every existing key as unusable | `A4.sameKeyAcrossSeals`, both devices |
 | D08 | seal treats the device as locked, so an unusable key is kept | `A7.unusableKeyRebuiltOnSeal`, both devices |
 | D09 | randomized encryption not required | `A4.keystore.callerIvRefused`, both devices |
-| D10 | unlock state is always false | `unlock.adapterMatchesUserManager`, both devices |
 | D11 | `existingKey` returns null | `A5.roundTrip`, both devices |
+| D12 | an entry that is not a secret key reads as missing | `A7.nonSecretEntryIsUnusable`, both devices |
 | J01 | a locked device replaces an unusable key | `a key that cannot encrypt is replaced only while the device is unlocked` |
 | J02 | an unlocked device keeps an unusable key | `a key that cannot encrypt is replaced only while the device is unlocked` |
 | J03 | a key that can encrypt is replaced | `a missing seal key is created and a key that can encrypt is kept` |
 | J04 | redaction keeps the cause | `keystore failures become one fixed message without a cause and an Error keeps its identity` |
 | J05 | redaction copies the message | `keystore failures become one fixed message without a cause and an Error keeps its identity` |
 | J06 | redaction catches `Throwable` | `keystore failures become one fixed message without a cause and an Error keeps its identity` |
+| J07 | a load failure is rethrown while unlocked | `an entry that cannot be loaded is replaced only while the device is unlocked` |
+| J08 | a load failure is replaced while locked | `an entry that cannot be loaded is replaced only while the device is unlocked` |
+| J09 | `existingKey` without redaction | `the adapter redacts failures at each entry point and reports the unlock state it reads` |
+| J10 | `keyForSeal` without redaction | `the adapter redacts failures at each entry point and reports the unlock state it reads` |
+| J11 | `isUnlocked` without redaction | `the adapter redacts failures at each entry point and reports the unlock state it reads` |
+| J12 | `isUnlocked` always true | `the adapter redacts failures at each entry point and reports the unlock state it reads` |
+| J13 | `isUnlocked` always false | `the adapter redacts failures at each entry point and reports the unlock state it reads` |
+
+Not counted, with the reason: D01 (`KeyGenerator` without the provider name) is equivalent, because Android selects
+AndroidKeyStore from the `KeyGenParameterSpec`; its run passed every check on both devices. Passing `true` instead of
+the unlock state to the seal decision is equivalent in practice, because the app is not direct-boot aware and the
+state is always true while app code runs. Removing `doFinal()` from the usability check and `@Synchronized` from
+`keyForSeal` change nothing a single-threaded probe can observe.
 
 ## Evidence
 
-Run 2026-09-25 on a Samsung SM-A346E (API 33, `user` build, `KEYINFO securityLevel=1 insideSecureHardware=true`) and
-an `sdk_gphone64_x86_64` emulator (API 35, `userdebug`, `ro.kernel.qemu=1`, `securityLevel=0`, not in secure
-hardware). Every APK run on the devices was built from commit `261be5a0` of this branch, whose `android/` tree id is
-`a5b7d7592d8689c0127c67d3aa1f0ae708d1899f`; the script prints the tree id of the checkout it runs in and each receipt's
-`apk=` line names the APK that ran. The debug build is not byte-reproducible (the baseline APK was `5c3f2d49…`, the
-final one `6cf8227d…`, from the same tree). Source SHA-256 at that commit: adapter `5b2569a4…`, box `0e9074ac…`, probe
-`5161e327…`; scripts as extracted from this file: `17441a6e…` and `855dd1c3…`.
-
-| Step | Result |
-|---|---|
-| RED, on base `3482be50` before the adapter existed | DoD exit 1: unresolved `chooseSealKey` |
-| Baseline | DoD exit 0; both devices `[PROBE-OK]` 21/21 with `android-dirty=0`; lock-screen script `[LOCKED-OK]` |
-| Control: unmodified APK with `-Expect A5.roundTrip` (API 33) | script exit 1, receipt does not match |
-| Mutation batch | 17/17 detected: D01b–D05 and D07–D11 built (exit 0) and matched their `-Expect` on both devices, each run with `android-dirty=1`; D06 built and was detected as its row says; J01–J06 compiled and failed the named test with `java.lang.AssertionError`; D01 equivalent and not counted. The phone locked partway through the first batch, so D01b and D06 were rerun with it unlocked; the other device mutants use keys the lock does not affect. Adapter restored to `5b2569a4…` |
-| Final, restored | DoD exit 0 (298 app JVM tests, 0 failures); both devices `[PROBE-OK]` 21/21 with `android-dirty=0`, APK `6cf8227d…`; lock-screen script `[LOCKED-OK]` |
+EVIDENCE-PENDING

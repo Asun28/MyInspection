@@ -13,6 +13,7 @@ import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
 import java.io.File
 import java.security.InvalidAlgorithmParameterException
+import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.MessageDigest
 import javax.crypto.Cipher
@@ -24,7 +25,7 @@ import javax.crypto.spec.GCMParameterSpec
 /**
  * Debug-only device probe for [AndroidSecretKeys] driving the production [LocalSecretBox]; recipe in
  * docs/local-secret-box-probe.md. It uses its own key version, so its alias is never a production alias, and keeps
- * envelopes in memory, so no production envelope file is touched. Expected values come from AndroidKeyStore and
+ * envelopes in memory, so no production envelope file is touched (production seals key version 1). Expected values come from AndroidKeyStore and
  * UserManager read by the probe itself. The receipt holds the run id, the installed APK digest, one KEYINFO line of
  * recorded (not asserted) hardware facts, check names and, on failure, an exception class name; never key material.
  */
@@ -58,6 +59,7 @@ private class SecretBoxChecks(context: Context, private val receipt: StringBuild
     private val alias = secretKeyAlias(PURPOSE, PROBE_VERSION)
     private val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     private val userManager = context.getSystemService(UserManager::class.java)
+    private val keyguard = context.getSystemService(KeyguardManager::class.java)
 
     fun run() {
         try {
@@ -68,6 +70,7 @@ private class SecretBoxChecks(context: Context, private val receipt: StringBuild
             keyFacts()
             sealsAndTamper()
             unusableKeyRebuilt()
+            nonSecretEntryReplaced()
         } finally {
             keyStore.deleteEntry(alias)
         }
@@ -87,7 +90,7 @@ private class SecretBoxChecks(context: Context, private val receipt: StringBuild
         @Suppress("DEPRECATION")
         val inside = info.isInsideSecureHardware
         val level = if (Build.VERSION.SDK_INT >= 31) info.securityLevel else -1
-        receipt.append("KEYINFO securityLevel=$level insideSecureHardware=$inside\n")
+        receipt.append("KEYINFO securityLevel=$level insideSecureHardware=$inside deviceLocked=${keyguard.isDeviceLocked}\n")
         expect("A4.keystore.callerIvRefused", callerIvRefused(key))
     }
 
@@ -109,7 +112,7 @@ private class SecretBoxChecks(context: Context, private val receipt: StringBuild
             expect("A5.tamper.$part", refused(SecretFailureReason.AUTHENTICATION_FAILED) && envelopes.current().contentEquals(tampered))
         }
         envelopes.put(ByteArray(5))
-        expect("A5.corruptEnvelope", refused(SecretFailureReason.ENVELOPE_CORRUPT))
+        expect("A5.corruptEnvelope", refused(SecretFailureReason.ENVELOPE_CORRUPT) && envelopes.current().contentEquals(ByteArray(5)))
         envelopes.put(two)
         keyStore.deleteEntry(alias)
         expect("A5.keyMissing", refused(SecretFailureReason.KEY_MISSING) && envelopes.current().contentEquals(two))
@@ -134,6 +137,17 @@ private class SecretBoxChecks(context: Context, private val receipt: StringBuild
             "A7.unusableKeyRebuiltOnSeal",
             rebuilt && keyInfo(current).purposes == KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
         )
+    }
+
+    private fun nonSecretEntryReplaced() {
+        KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore").run {
+            initialize(KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN).setDigests(KeyProperties.DIGEST_SHA256).build())
+            generateKeyPair()
+        }
+        expect("A7.nonSecretEntryIsUnusable", refused(SecretFailureReason.KEY_UNUSABLE))
+        val sealed = seal() && openedText() == SAMPLE
+        val current = keyStore.getKey(alias, null) as? SecretKey
+        expect("A7.nonSecretEntryReplacedOnSeal", sealed && current != null && keyInfo(current).purposes == KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
     }
 
     private fun seal(): Boolean = box.seal(PURPOSE, SAMPLE.toCharArray()) == SecretSealResult.STORED
