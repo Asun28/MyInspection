@@ -73,3 +73,76 @@ covering the cards whose PR never merges.
 (`post-merge.ps1` and the task-loop skill). `T0-POST-MERGE-LESSONS` edits them too; whichever of the two starts second
 rebases on the other. Estimate: about 280 changed lines (audit about 70, retire about 60 by sharing r5's tail, SelfCheck
 cases about 90, skill and workflow text about 15, this card's R5 note about 45).
+
+## Evidence (A6, R4)
+
+All runs on 2026-09-26 except the replay use the candidate `scripts/post-merge.ps1` in the card worktree, SHA-256 `9890F68268FF718DFC3D3DDB9DFF2B8C788CA38823C4165807DE3BE654EDA831`.
+
+- **Live audit.** Origin/master `490999a9`, run from outside the repo with `GH_REPO=cli/cli`: `[CARD-DRIFT-NONE]`, exit 0; refs, `FETCH_HEAD` and `packed-refs` unchanged. A clone whose `origin/master` sat 5 commits behind kept that ref and got no `FETCH_HEAD`.
+- **Replay.** `Get-PostMergeCardDrift` (unchanged since it ran at SHA `B79E5543`) on the cards of `0cf55f83` with the PR list of 2026-09-26 reports the seven R5-MISSING and two CLOSED cards above, plus #398 and #394, merged after that measurement.
+- **retire and r5, live.** Refused (`[POST-MERGE-RETIRE-REFUSED]`, exit 1, nothing left) for a merged card, an open PR (#321) and an unknown successor. `retire -DryRun` built the A2 shape and passed check-cards and check-secrets; `r5 -DryRun` still changes CLAUDE.md, the card and the row; `r5 -SupersededBy` exits 1.
+- **Plumbing in the SelfCheck.** Recording stubs replace `git`, `gh`, `pwsh` and `Assert-PersonalAccount`; the temp repos run without the caller's `GIT_*` variables or git config, and each run starts from `GH_REPO=cli/cli`. Every subcommand runs through `Invoke-PostMergeCommand` and is judged by exit code, printed text and calls: the `dispatch:` and `plumbing:` cases below. It also passes with `GIT_DIR` set to a throwaway repo, which it leaves untouched.
+- **R4.** SelfCheck 127 cases, baseline pass. 60 single-statement mutants, 60 killed, each by the case in its row. The runner rewrote the unmutated file through its write path first (identical bytes, pass); a mutant that failed to parse would have been void; 60 executed of 60 declared; file restored to the SHA above.
+
+| Id | Mutant | Case that failed |
+|---|---|---|
+| M1 | count an OPEN PR as absent | audit: an open PR suppresses both kinds |
+| M2 | ignore superseded_by | audit: superseded_by suppresses both kinds |
+| M3 | report NONE when gh fails | audit: a gh failure is ERROR, never NONE |
+| M4 | drop the superseding-card existence check | retire: refuses an unknown successor |
+| M5 | let retire's judge accept a CLAUDE.md change | retire judge: a CLAUDE.md change |
+| M6 | insert superseded_by without setting the status | retire: status merged, one superseded_by after it, body untouched |
+| M7 | count a fork PR | audit: a PR from a fork does not count |
+| M8 | compare the head without case | audit: a PR whose head is another card id does not count |
+| M9 | judge a merged card | audit: a merged card has no drift |
+| M10 | accept an empty card list | audit: no card read is ERROR |
+| M11 | retire ignores an open PR | retire: refuses an open PR |
+| M12 | retire ignores a merged card | retire: refuses a merged card |
+| M13 | retire ignores superseded_by | retire: refuses a card with superseded_by |
+| M14 | retire accepts the card as its own successor | retire: refuses the card as its own successor |
+| M15 | retire accepts a card not on the base | retire: refuses a card not in specs/tasks/ |
+| M16 | retire judge skips the card text | retire judge: a further front-matter edit |
+| M17 | retire judge skips the board rule | retire judge: another board row |
+| M18 | read fields past the front matter | audit: a merged PR on a todo card is R5-MISSING |
+| M19 | take the oldest PR | audit: closed PRs alone are CLOSED |
+| M20 | drop the count line | audit: drift lines end with the count, exit 1 |
+| M21 | compare merged by culture | audit: merged is compared ordinally |
+| M22 | treat an empty superseded_by as absent | retire: refuses an empty superseded_by line |
+| M23 | print an empty status | audit: a card without a status line |
+| M24 | accept an origin off github.com | gh repo: an origin off github.com is refused without echoing it |
+| M25 | echo the origin URL | gh repo: an origin off github.com is refused without echoing it |
+| M26 | drop the host from GH_REPO | gh repo: an origin with a token in it gives host/owner/repo |
+| M27 | audit skips the gh pin | plumbing: audit exits 1 on drift after exactly its read-only calls, account first, gh pinned |
+| M28 | audit fetch writes refs | plumbing: audit exits 1 on drift after exactly its read-only calls, account first, gh pinned |
+| M29 | audit reads the moving ref | plumbing: audit exits 1 on drift after exactly its read-only calls, account first, gh pinned |
+| M30 | retire skips its refusals | plumbing: retire exits 1 on an open PR before anything is created |
+| M31 | retire skips the gh pin | plumbing: retire runs r5's route to CI, merge and prune |
+| M32 | skip the CI wait | plumbing: retire runs r5's route to CI, merge and prune |
+| M33 | merge without the head pin | plumbing: retire runs r5's route to CI, merge and prune |
+| M34 | skip the prune | plumbing: retire runs r5's route to CI, merge and prune |
+| M35 | cut the worktree from HEAD | plumbing: retire runs r5's route to CI, merge and prune |
+| M36 | skip the base fetch | plumbing: retire runs r5's route to CI, merge and prune |
+| M37 | look up CI runs by the base name | plumbing: retire runs r5's route to CI, merge and prune |
+| M38 | audit skips the account check | plumbing: audit exits 1 on drift after exactly its read-only calls, account first, gh pinned |
+| M39 | retire skips the account check | plumbing: retire runs r5's route to CI, merge and prune |
+| M40 | drop the pre-merge head and base recheck | plumbing: retire exits 1 without merging or pruning when the PR base moved |
+| M41 | skip audit inside its arm | plumbing: audit exits 1 on drift after exactly its read-only calls, account first, gh pinned |
+| M42 | make the retire arm a no-op | plumbing: retire exits 1 on an open PR before anything is created |
+| M43 | exit 0 from audit whatever it found | plumbing: audit exits 1 on drift after exactly its read-only calls, account first, gh pinned |
+| M44 | exit 0 after a thrown error | plumbing: r5 with -SupersededBy exits 1 before any call |
+| M45 | let r5 take -SupersededBy | plumbing: r5 with -SupersededBy exits 1 before any call |
+| M46 | send r5 down the retire path | plumbing: r5 -DryRun builds and checks its change, then stops before any push |
+| M47 | make the r5 arm call nothing | plumbing: r5 -DryRun builds and checks its change, then stops before any push |
+| M48 | drop the DryRun stop | plumbing: r5 -DryRun builds and checks its change, then stops before any push |
+| M49 | drop the scope stop | plumbing: retire stops with [POST-MERGE-SCOPE] before any push when CLAUDE.md changed |
+| M50 | give retire the r5 judge | plumbing: retire stops with [POST-MERGE-SCOPE] before any push when CLAUDE.md changed |
+| M51 | drop the prune DryRun refusal | plumbing: prune -DryRun exits 1 before any call, and no command exits 2 |
+| M52 | exit 0 on an unknown command | plumbing: prune -DryRun exits 1 before any call, and no command exits 2 |
+| M53 | read cards without the native wrapper | plumbing: audit exits 0 without drift and 2 when gh or git fails |
+| M54 | write a ref during the retire fetch | plumbing: retire runs r5's route to CI, merge and prune |
+| M55 | prune skips the gh pin | plumbing: prune checks the account, pins gh and keeps a branch origin lacks |
+| M56 | run the gates from the main checkout | plumbing: retire runs r5's route to CI, merge and prune |
+| M57 | merge with --admin | plumbing: retire runs r5's route to CI, merge and prune |
+| M58 | r5 skips its CLAUDE.md entry | plumbing: r5 -DryRun builds and checks its change, then stops before any push |
+| M59 | drop the gate stop | plumbing: retire stops with [POST-MERGE-GATE] before any push when a gate fails |
+| M60 | exit 0 whatever the command | dispatch: the script with no subcommand exits 2 |
