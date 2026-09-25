@@ -21,6 +21,7 @@ description: >-
 - **动第一个文件前先读卡的邻域**：`depends_on` 卡（活卡或 `specs/archive/tasks/`）、`allow_paths` 下的现有文件及其测试，
   再 `lessons.ps1 search` 卡片关键词。Opus 5.5 倾向于直接开干，卡写得松时尤其要先读后写（依据：
   `docs/references/claude-opus-5-5-prompting-llms.txt`「多应用工作流：先探索再动手」）。读是为了改对，不是扩范围。
+- **开工、续接、拆卡或改卡前先查别的会话（L218）**：`pwsh -NoProfile -File scripts\live-work.ps1 -TaskId <id>`；有 `[LIVE-WORK-OVERLAP]` 就停下问用户哪个会话持有它。reset、clean 或删除 worktree 前跑 `scripts\live-work.ps1`。`-Phase start` 自带这一查，`-TakeOver` 只在用户同意接手后用。
 - 遵守卡片 `allow_paths` / `forbid`；不发明字段。**所有编辑都在 `<WorktreeRoot>\<id>` 工作树内**，不动主检出。
   （WorktreeRoot 见 scripts/_config.ps1；留空则按 OS 自动取默认：Windows `<系统盘>\wt`（如 `C:\wt`）/ macOS·Linux `~/.wt`。）
 

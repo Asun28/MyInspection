@@ -76,5 +76,8 @@ UPDATED: T1-FOO · step 4/6 · GREEN 后待 ship
 1. 进场：读 SessionStart 打印的 HANDOFF（或 `handoff show`）→ 先跑 `VERIFY` 确认态 → 按
    `[HANDOFF-REVALIDATE]` 重验旧动作仍成立 → 成立才继续，不成立先更新交接。
    卡在 worktree 内施工时三件套在**那个 worktree 的 cwd**；从主检出续接用 `pwsh -NoProfile -File scripts\handoff.ps1 show -Path <WorktreeRoot>\<id>\progress.md` 指过去（triage 心跳的 handoff 探针也会浮出该路径）。
+   同时读 SessionStart 打印的 `[LIVE-WORK]` 行（`scripts/live-work.ps1`）：它列出其他 worktree 未提交/未合并的改动与交接文件。
+   续接、开卡、拆卡或改卡前再跑 `scripts/live-work.ps1 -TaskId <id>`，报出重叠就停下问用户由哪个会话持有（L218）。
+   主检出的 `progress.md` HANDOFF 块若写的是别的任务，它属于另一会话：别覆盖，自己的交接写进 `_local/handoff-<id>.md`（L273），live-work 会列出它。
 2. 干活：随手更新 `task_plan.md` 勾选、`findings.md` 决策/死路、`progress.md` 时间线。
 3. 离场：重写 HANDOFF 块 → `handoff check` 必须 PASS → 才算交接完成。

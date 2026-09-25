@@ -94,3 +94,37 @@ add entries to the same files. Whichever of the two ships second merges origin/m
 both SessionStart hooks and both execution-boundary lines. `T0-POST-MERGE-LESSONS` and
 `T0-POST-MERGE-CARD-DRIFT` edit the task-loop skill's R5 lines; this card adds one line under 前置, so merge
 origin/master before ship.
+
+## Implementation record (2026-09-26)
+
+Delivered through the AIDLC loop on defaults (goal `g-20260925112601-012c7e`, no `aidlc init`, user ruling); the
+card is tier S, so task-loop and `task.ps1` do the work under the goal's card lease.
+
+**`ask` under bypass permissions.** Before relying on `permissionDecision: ask`, a throwaway headless session
+(`claude -p --permission-mode bypassPermissions`, a project hook that always answers `ask`) was told to run
+`echo askprobe > marker.txt`. The hook fired, the command did not run (no `marker.txt`), and the model received
+the reason. The same run with `deny` behaved the same. So `ask` is not approved silently in bypass mode.
+
+**Measured on this machine (43 registered worktrees).** The summary took 5.9 s with no `[LIVE-WORK-UNKNOWN]`
+line after file times were read through `[IO.FileInfo]` (11.1 s and eight unprobed worktrees before). For this
+card's own paths the overlap check found 4 live and 11 stale worktrees; one live one,
+`C:\wt\T0-CLAUDE-MD-L360-TD190`, had changed `CLAUDE.md` minutes earlier. Every git call in the probe and the
+hook runs with `--no-optional-locks`, so probing never rewrites a worktree's index.
+
+**A3 real run.** In a `--shared` clone of this repository (its own main checkout, so the L86 guard allows phase
+commands; worktree root in the scratchpad), carrying the candidate `task.ps1` and `live-work.ps1`, a second
+worktree held an uncommitted edit to `.claude/skills/task-loop/SKILL.md`:
+
+1. `task.ps1 -TaskId T0-POST-MERGE-LESSONS -Phase start` printed `[LIVE-WORK-OVERLAP] worktree=…/a3other
+   branch=other-session uncommitted=1 … paths=.claude/skills/task-loop/SKILL.md`, stopped with
+   `[START-LIVE-WORK]`, exited 1 and created no worktree.
+2. The same start with `-TakeOver` printed the overlap and the `-TakeOver` warning, exited 0 and created the
+   worktree.
+3. With an uncommitted edit in that new worktree, a third start with `-TakeOver` refused: `worktree 已存在: …
+   \T0-POST-MERGE-LESSONS（1 个未提交改动，最新改动 2026-09-25T11:48:07Z）。它可能由另一会话持有：切勿 reset /
+   checkout -- / clean 它，先问用户（L218）。` The worktree kept its uncommitted edit. The clone was removed.
+
+**Selftest gate 15.** `selftest.ps1 -Only 15` on the first candidate failed at four fixture starts (15w, 15g9,
+15h3, 15h4): the fixture's earlier steps leave `README.md` edits in other fixture worktrees and every fixture
+card declares `README.md`. The fixture starts after 15a's first one, and the 15r helper, now pass `-TakeOver`
+(`scripts/selftest.ps1` added to `allow_paths` by #421, user ruling).

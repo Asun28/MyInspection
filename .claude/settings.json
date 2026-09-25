@@ -32,6 +32,15 @@
             "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-frozen.ps1\""
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-dirty-worktree.ps1\""
+          }
+        ]
       }
     ],
     "Stop": [
@@ -54,6 +63,11 @@
           {
             "type": "command",
             "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/handoff-resume.ps1\""
+          },
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/scripts/live-work.ps1\" -RepoPath \"${CLAUDE_PROJECT_DIR}\"",
+            "timeout": 15
           }
         ]
       }
