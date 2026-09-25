@@ -1,6 +1,7 @@
 ﻿<#
 .SYNOPSIS
   Post-merge automation (T0-POST-MERGE-DOCS-PR): the R5 doc-sync PR and the pruning of merged remote branches.
+  r5 -DryRun previews the doc sync without pushing.
 .DESCRIPTION
   r5     Builds a card's R5 doc sync in a new worktree cut from origin/<Base>: the card's status becomes merged,
          its docs/TASK-BOARD.md row gets the given status cell, the given entry goes directly under
@@ -516,8 +517,8 @@ function Invoke-PostMergeR5 {
     }
     $head = @(Invoke-PostMergeNative 'git rev-parse HEAD' { git -C $wt rev-parse HEAD })[-1].Trim()
     Write-Host "[POST-MERGE-SCOPE-OK] $($paths -join ', ') on base $baseOid, head $head" -ForegroundColor DarkGray
-    # The preview ends here, before anything leaves this machine; the finally block below still removes the
-    # worktree and the local branch.
+    # The preview ends here, before the push; the finally block below still removes the worktree and the local
+    # branch.
     if ($DryRun) { Write-Host $diff; Write-Host "[POST-MERGE-DRYRUN] $TaskId doc sync built and checked on base $baseOid; nothing was pushed" -ForegroundColor Yellow; return }
     $pushAttempted = $true
     Invoke-PostMergeNative 'git push' { git -C $wt push origin "refs/heads/${branchName}:refs/heads/$branchName" } | Out-Null
