@@ -2,7 +2,7 @@
 id: T0-LIVE-WORK-GUARD
 title: Show each session the worktrees other sessions hold, stop start from overrunning them, and ask before a git command discards a dirty worktree
 status: todo
-depends_on: [T0-MAIN-CHECKOUT-READONLY]
+depends_on: []
 parallelizable_with: []
 allow_paths:
   - scripts/live-work.ps1
@@ -86,5 +86,8 @@ its own card.
 ## Order with other cards
 
 `T0-MAIN-CHECKOUT-READONLY` also edits `.claude/settings.json` (a SessionStart hook) and CLAUDE.md's execution
-boundary, so this card follows it. `T0-POST-MERGE-LESSONS` and `T0-POST-MERGE-CARD-DRIFT` edit the task-loop
-skill's R5 lines; this card adds one line under 前置, so merge origin/master before ship.
+boundary. The card first depended on it; the user dropped that dependency on 2026-09-25, because the two only
+add entries to the same files. Whichever of the two ships second merges origin/master before ship and keeps
+both SessionStart hooks and both execution-boundary lines. `T0-POST-MERGE-LESSONS` and
+`T0-POST-MERGE-CARD-DRIFT` edit the task-loop skill's R5 lines; this card adds one line under 前置, so merge
+origin/master before ship.
