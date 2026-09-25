@@ -543,7 +543,7 @@
 - refs: TD44 · TD-107 · selftest 15i
 
 ## L79
-- date: 2026-07-07 ｜ tags: powershell,strictmode,testing,tdd,lessons ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: TD24 假 paid 一轮 + 本次重诊断
+- date: 2026-07-07 ｜ tags: powershell,strictmode,testing,tdd,lessons ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: TD24 假 paid 一轮 + 本次重诊断
 - symptom: 空集合/空账本场景的回归种子或自检用【显式构造入参】通过，但生产的【裸调用·默认参数绑定】路径仍崩——假绿。实证 TD24：lessons.ps1 自检调 Next-Id -Lessons @()（显式绑定，空数组保真→Count 0→过），但 add 走裸 Next-Id（默认绑定 =(Get-Lessons)），空 LEDGER 时 Get-Lessons 返回 @() 经 [array] 默认参数绑定 unroll 成 null，@(null).Count==1 绕过 Count-eq-0 守卫，取 .id 抛 PropertyNotFoundStrict。TD24 因此被标 paid 一整轮实为未修、下游首条 add 即崩。
 - root_cause: 自检/种子走了与生产不同的代码路径：显式参数绑定会保真空数组，默认参数绑定 =(func) 在 StrictMode 下把 @() unroll 成 null（@(null) 仍 Count 1，@() 包裹单独不解决）。「函数返回空数组经 [array] 默认值绑定」这一步是隐形的路径分叉——探针没覆盖它就假绿。
 - rule: 回归种子/enforcer 自检必须【真跑生产入口】（如 selftest 真调 lessons.ps1 add / check 子进程），不得用手搓的显式绑定捷径替代——路径不同即假绿。附 PowerShell 修坑：别用 return ,$out 修「函数返回空数组 unroll」——逗号包裹会让整个数组当【单个】管道项，破坏 func | Where-Object 直管调用（消费端取不到成员属性、召回崩）；改在【消费端】写 @($x | Where-Object { $null -ne $_ }) 先滤 null 再判 Count。
@@ -663,7 +663,7 @@
 - refs: 本会话清理 codebase-memory-mcp 注入 ~/.codex/config.toml 的现场（11 行块只删掉 10 行，# <<< 哨兵残留为末行）；rule① 初稿误把「-notmatch 哨兵过滤」当通用解，被 R3（codex）在 PR #101 当场证伪并实测复现（哨兵没了、块体三行全活）——该缺陷此前逃过了 fresh-context 子代理复核，因其只在「块内每行都匹中」的偏置样例上验过；关联 L93（同为 PowerShell 静默假绿：命令自称成功、结果已错）、L25（确定性闸 exit 0/1）
 
 ## L95
-- date: 2026-07-11 ｜ tags: task-loop,dod,tdd,powershell,red ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 2
+- date: 2026-07-11 ｜ tags: task-loop,dod,tdd,powershell,red ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 3
 - symptom: `-Phase red` 打印「RED 已确认（dod 退出 1）」并写下 .review/<id>.red 证据，但那个 1 其实来自 ParserError「Missing expression after unary operator '-not'」——DoD 命令根本没跑起来，一条断言都没执行；该 dod_command 的 GREEN 永远不可达。
 - root_cause: task.ps1 用 `& pwsh -NoProfile -Command <卡片 dod_command 原文>` 执行 DoD，而卡片惯用写法自身又是 `pwsh -NoProfile -Command "..."`。双层包裹下，内层双引号串里的 `$ok` 被子 shell 先行内插成空串，孙 shell 只收到 ` = (...); if (-not ) {...}`。`-Phase red` 只看退出码非零，遂把「语法坏了」当「测试红了」收下 = vacuous RED。
 - rule: dod_command 里一律不写 `$变量`——用 T9-DOCS-DRIFT 的无变量写法 `pwsh -NoProfile -Command "if (-not ((Select-String ...) -and (...))) { exit 1 }"`。跑完 -Phase red 必须读一眼 DoD 的实际输出，确认非零退出来自断言失败而非 ParserError/CommandNotFound；「RED 已确认」这行字不是证据。已合并的 T10-R3-PIN-MODEL 卡即误用 `$ok` 形态，其 DoD 至今无法执行断言（TD69）。
@@ -895,7 +895,7 @@
 - refs: 
 
 ## L131
-- date: 2026-07-17 ｜ tags: review,report-layer,recovery,scope ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-07-17 ｜ tags: review,report-layer,recovery,scope ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: T26 saga 报告层（本意只是失败时刻打印进度+恢复提示）被 codex R3 连续 6 轮 block：每轮都在恢复命令文案里找到真缺陷（错误重跑建议→选项丢失→PR 状态误断→待办清单吞项→文案嗅探误分类→闸门旁路），diff 从 66 行滚到 300+ 行。
 - root_cause: 报告输出的「恢复命令」会被对抗评审当**可执行契约**逐失败状态审查——给命令=写代码，状态矩阵（commit 前/后 × 推送前/后 × PR 各态 × 合并各态 × -SkipRed/-Local）必须完整正确，远超「打印一行提示」的直觉工作量；且恢复语义会牵出系统级缺口（TD85/TD89），评审器会顺藤要求重设计系统契约（超卡范围）。
 - rule: 设计「给恢复/操作命令」的输出层时：① 先画完整失败状态矩阵再写文案，每条命令按该状态可执行正确性自审；② 能引权威锚点就不复制命令正文（免双源+免逐态审查面）；③ 评审发现流从「文案错」转向「要求重设计系统契约」即触发人裁+登记 TD 划界（本例 TD89），别无限迭代；④ 状态判定用机器状态（HEAD 前移/MERGE_HEAD/已解析 PR 号）不嗅探异常文案；⑤ 划界的可操作检测信号：R3 逐轮要求改另一张卡的文件/建新独立机制（如可执行独立范围闸入口）/上 gh-mock e2e，即已到边界——此时把 checker 遗留下沉到计划已分配的卡（更新其 charter），人裁划定范围线，对卡契约合规的核心做人裁 override 合并；核心机制达 selftest 全绿即视为该卡「完成」，长文/e2e 归属其它已分卡负责（第二次现场：T35 撞 13 轮同一模式）。
@@ -1343,7 +1343,7 @@
 - refs: 
 
 ## L190
-- date: 2026-08-03 ｜ tags: verification,regex,unicode,oracle ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- date: 2026-08-03 ｜ tags: verification,regex,unicode,oracle ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
 - symptom: r7 我用 `[CharUnicodeInfo]::GetUnicodeCategory()` 验出 U+1BCA0/U+E0001 属 `Cf`，据此断定「正则的 `\p{Cf}` 已覆盖增补平面」并写进权威注释与 rubric；r8 实测 `$s -match '\p{Cf}'` 对这四个增补标量**全 False**，整段增补面其实一个都没被剥，伪造码照样拼得出来
 - root_cause: **验证用的 oracle 与被测实现不是同一套判据**：`GetUnicodeCategory` 按 **Unicode 标量**判类目，而 .NET 正则按 **UTF-16 码元**匹配——增补标量在正则眼里是一对 `Cs` 代理，永远进不了 `\p{Cf}`/`\p{Mn}` 之类的类目类。用前者去证后者，等于拿另一台机器的读数当本机结论。这比不验证更坏：它产生**有据可依的错误自信**，还会被写进文档变成下一轮的假前提
 - rule: 验证一个断言时，**必须用被测代码实际使用的那套机制去验**，不能用「语义上等价」的另一个 API：正则覆盖面就用 `-match` 实测、别查类目 API；编码/落盘行为就真写一遍文件再读回、别推理；渲染层行为就看渲染器实际输出。判断法：问「我的验证脚本和生产代码，是不是同一个引擎在做同一个判断？」不是就换写法。**且断言的对象若是一个「类目/属性」（`Cf`、default-ignorable 之类），取样证不了它——必须把全集从权威表枚举出来逐个比对**（2026-08-03 r13 更正：本条原写「逐点实测代表码位（BMP 与增补各取样）」，那正是又栽一次的原因——r8 照它取样补完仍漏 18 个增补面 `Cf`，r13 才由全码位枚举挖出）。落地形态：用**标量级** API（`Rune.GetUnicodeCategory`）枚举出「应该命中的全集」，再用**生产代码那套机制**（正则）逐个验它是否真命中；两套 oracle 各司其职、谁也不替谁。好处是 Unicode 升版新增码位时断言会自己红，而不必等下一个评审者发现
@@ -2319,7 +2319,7 @@
 - refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
 
 ## L309
-- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 13
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 14
 - symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
@@ -2671,3 +2671,19 @@
 - rule: Have the R4 runner record the failure type of the named test and accept only java.lang.AssertionError as a kill. Where the contract is that a call succeeds, wrap it in runCatching and assert isSuccess before checking its result.
 - enforced_by: 
 - refs: specs/tasks/T1-LOCAL-SECRET-STORE.md (R5 delivery); PR #377
+
+## L359
+- date: 2026-09-25 ｜ tags: r3,diff-budget,markdown ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: T0-POST-MERGE-DOCS-PR neared the 60000-character R3 diff limit although its doc edits were small: one edit to a long task-loop SKILL.md line cost about 5700 characters, and after moving the text to its own sub-bullet the insertion still cost about 4300, because the three context lines around it are also very long.
+- root_cause: The R3 diff counts the old and new copy of every changed line and the full text of each context line, so the cost of an edit is set by the length of the lines it changes and sits beside, not by the words added.
+- rule: When a diff will be near the R3 character budget, add doc text as a new line instead of editing a long line, place it where the neighbouring lines are short when the structure allows, and measure with review.ps1 -SizeOnly (L246) after each doc edit.
+- enforced_by: 
+- refs: 
+
+## L360
+- date: 2026-09-25 ｜ tags: mutation,r4,evidence,powershell ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: Two mutation batches for T0-POST-MERGE-DOCS-PR produced wrong evidence. The first reported 27 of 29 mutants void because every mutant died of a parse error: the runner decoded the file with its BOM and wrote a second one. A later batch ran 47 mutants while 48 were declared: a here-string inserted without a trailing newline joined the array's closing parenthesis to the previous entry, so M45 sat outside the array and never ran, and nothing reported it.
+- root_cause: A mutation runner is itself untested code that writes the file under test; a broken write path or a malformed mutant list makes every result look like evidence while proving nothing.
+- rule: Give every mutation runner two self-checks before the batch: rewrite the unmutated file through the same write path and require identical bytes and a passing run, and require the number of mutants executed to equal the number declared. Treat any parse error in a mutant run as void, never as a kill.
+- enforced_by: 
+- refs: 
