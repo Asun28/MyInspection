@@ -2,7 +2,7 @@
 id: T1-LOCAL-SECRET-STORE
 title: LocalSecretEnvelopeStore - envelope files under the checked no-backup secret-envelope directory, atomic replace and path-free failures
 depends_on: [T1-LOCAL-SECRET-BOX, T1-APP-STORAGE-POLICY]
-status: todo
+status: merged
 branch: T1-LOCAL-SECRET-STORE
 worktree: C:\wt\T1-LOCAL-SECRET-STORE
 allow_paths:
@@ -52,3 +52,15 @@ User ruling 2026-09-25: the fresh-context pre-review of `T1-LOCAL-SECRET-BOX` ad
 About 180 changed lines with the receipt; `budget: 300`.
 
 2026-09-25 user ruling: raised to `budget: 400`. Codex R3 round 1 blocked on one spec finding (the sync and the atomic move were not shown by any test) and two standards findings (an unchecked temporary-file delete; failures without a closed, path-free stage code). The fixes and the tests a fresh-context review asked for measure about 355 lines.
+
+## R5 delivery (2026-09-25)
+
+Merged by [PR #377](https://github.com/Asun28/MyInspection/pull/377) as squash `412f9fb4` (reviewed head `edeef67f`; CI run `36094068454`, `verify` and `required` success; `codex-review` success). The merged `android/` files are byte-identical to the reviewed head. 370 changed lines against `budget: 400`.
+
+- RED: on base `123aab0c` the test class did not compile (`Unresolved reference 'LocalSecretEnvelopeStore'`).
+- Tests: 7 in `LocalSecretEnvelopeStoreTest`; app suite 295 tests, 0 failures.
+- R4: 23/23 single-point mutants killed by their named test with `java.lang.AssertionError`, against production SHA-256 `0E7E827E…`. The receipt is the trailing comment in the test file; the evidence is in `_local/local-secret-store/r4` in the main checkout. Three earlier kills (absent read, file name, missing directory) came from an exception thrown by the mutated code rather than an assertion; the tests now assert success explicitly, and the batch was rerun.
+- R3: Codex `gpt-5.6-sol` high. Round 1 on `cfa358c8` blocked on one spec finding (no test showed the temporary file's sync or the atomic move) and two standards findings (an unchecked temporary-file delete; failures without a closed, path-free stage). A fresh-context review of the fix then found adapter-level mutants that the new seam hid, a suppressed-exception path and stage labels no test could tell apart. The fix: an internal `EnvelopeFileOperations` seam with the platform object tested directly, `Files.deleteIfExists` with a reported `cleanupFailed`, and an internal `EnvelopeStoreException` with a closed stage (LOCATE, READ, WRITE, MOVE). The user raised the budget from 300 to 400 (#382). Round 2 passed with no findings.
+- Follow-up recorded on the card: routing the stage into SafeLog belongs to the first caller that logs store failures (T5-BACKUP-IO), because SafeLog is outside this card.
+- Selftest: tier-1 routing escalated to the full 17 gates and passed in 2771 s on `cfa358c8`; only `android/` files changed after that.
+- Author: the card names GPT-5.6 Terra; the work was done by a Claude Opus 5.5 session.
