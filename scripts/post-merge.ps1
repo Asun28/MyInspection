@@ -518,27 +518,30 @@ function Invoke-PostMergeSelfCheck {
   Check 'wiring: a scoped lower-case Scaffold* variable is checked' { $broken -ccontains 'variable scaffoldLower' }
   Check 'wiring: one run names every break' { ($broken -join '|') -ceq 'command Get-PostMergeNope|command Invoke-PostMergeR9|parameter Write-Host -Nope|variable scaffoldLower|variable ScaffoldNope' }
 
+  $null = & ([Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) -NoProfile -File $PSCommandPath 6>$null
+  Check 'dispatch: the script with no subcommand exits 2' { $LASTEXITCODE -eq 2 }
   # audit and retire through the real plumbing. Functions named git, gh and pwsh shadow the executables and record
   # each call; git calls on the temp worktree go to real git over a temp repo, so r5's shared route edits, commits
   # and diffs for real, while the account check, remote, push, PR, CI and merge are answered by the stubs.
   $sb = Join-Path ([IO.Path]::GetTempPath()) "post-merge-selfcheck-$PID"; $tpl = Join-Path $sb 'tpl'; $wtr = Join-Path $sb 'retire-T9-DEMO'
   $realGit = @(Get-Command git -CommandType Application)[0].Source; $oldGhRepo = $env:GH_REPO; $oldGit = @(); $CiTimeoutSec = 0
-  $script:pmLog = [System.Collections.Generic.List[string]]::new(); $script:pmOpen = '[]'; $script:pmMerged = $false; $script:pmHead = ''; $script:pmBase = 'master'
+  $script:pmLog = [System.Collections.Generic.List[string]]::new(); $script:pmOpen = '[]'; $script:pmMerged = $false; $script:pmHead = ''; $script:pmBase = 'master'; $script:pmGhFail = $false; $script:pmGitFail = $false; $script:pmTamper = $false; $script:pmGateFail = $false; $script:pmPrs = '[{"number":3,"state":"MERGED","headRefName":"T9-DEMO","isCrossRepository":false}]'
   function Assert-PersonalAccount { param($RepoRoot, [switch]$CheckRemote) $script:pmLog.Add("assert -CheckRemote:$CheckRemote") }
   function Get-ScaffoldWorktreeRoot { $sb }
-  function pwsh { $script:pmLog.Add("pwsh $args"); $global:LASTEXITCODE = 0 }
+  function pwsh { $script:pmLog.Add("pwsh $args"); $global:LASTEXITCODE = [int]$script:pmGateFail }
   function git {
     $a = @($args | ForEach-Object { $_ -join ',' }) -join ' '; $script:pmLog.Add("git $a"); $global:LASTEXITCODE = 0
-    if ($args[2] -ceq 'worktree' -and $args[3] -ceq 'add') { & $realGit clone -q -c core.autocrlf=false -c user.name=t -c user.email=t@t $tpl $args[6]; return }
+    if ($args[2] -ceq 'worktree' -and $args[3] -ceq 'add') { & $realGit clone -q -c core.autocrlf=false -c user.name=t -c user.email=t@t $tpl $args[6]
+      if ($script:pmTamper) { $cf = Join-Path $args[6] 'CLAUDE.md'; [IO.File]::WriteAllText($cf, [IO.File]::ReadAllText($cf).Replace("$script:StageHeading`n", "$script:StageHeading`n`nx`n")) }; return }
     if ($args[2] -ceq 'worktree' -and $args[3] -ceq 'remove') { Remove-Item -LiteralPath $args[5] -Recurse -Force; return }
-    if ($args[1] -ceq $wtr -and $args[2] -cne 'push') { & $realGit @args; return }
+    if ("$($args[1])".StartsWith($sb) -and $args[2] -cne 'push') { & $realGit @args; return }
     switch -Regex ($a) { 'remote get-url' { 'https://github.com/o/r.git' } 'rev-parse refs/remotes/origin/master' { & $realGit -C $tpl rev-parse HEAD }
       'ls-remote origin refs/heads/master' { "$(& $realGit -C $tpl rev-parse HEAD)`trefs/heads/master" } 'ls-remote origin refs/heads/retire-' { if ($script:pmMerged) { "$script:pmHead`trefs/heads/retire-T9-DEMO" } }
-      'ls-tree' { 'specs/tasks/T9-DEMO.md'; 'specs/archive/tasks/T9-B.md' } ' show ' { $rc } }
+      'ls-tree' { 'specs/tasks/T9-DEMO.md'; 'specs/archive/tasks/T9-B.md' } ' show ' { if ($script:pmGitFail) { $global:LASTEXITCODE = 128; return }; $rc } }
   }
   function gh {
-    $a = @($args | ForEach-Object { $_ -join ',' }) -join ' '; $script:pmLog.Add("gh $a [$env:GH_REPO]"); $global:LASTEXITCODE = 0; $h = $script:pmHead
-    switch -Regex ($a) { '^pr list --state all --limit' { '[{"number":3,"state":"MERGED","headRefName":"T9-DEMO","isCrossRepository":false}]' } '^pr list --state open' { $script:pmOpen }
+    $a = @($args | ForEach-Object { $_ -join ',' }) -join ' '; $script:pmLog.Add("gh $a [$env:GH_REPO]"); $global:LASTEXITCODE = 0; $h = $script:pmHead; if ($script:pmGhFail) { $global:LASTEXITCODE = 1; return }
+    switch -Regex ($a) { '^pr list --state all --limit' { $script:pmPrs } '^pr list --state open' { $script:pmOpen }
       '^pr list --state all --head' { "[{`"number`":7,`"state`":`"MERGED`",`"headRefOid`":`"$h`",`"baseRefName`":`"master`"}]" } '^pr create' { $script:pmHead = & $realGit -C $wtr rev-parse HEAD; $script:pmPaths = @(& $realGit -C $wtr diff --name-only HEAD~1 HEAD) -join ','; 'https://github.com/o/r/pull/7' }
       '^pr view 7 --json headRefOid,statusCheckRollup' { "{`"headRefOid`":`"$h`",`"statusCheckRollup`":[{`"name`":`"$ScaffoldCiFanInJob`",`"status`":`"COMPLETED`",`"conclusion`":`"SUCCESS`"}]}" }
       '^run list' { "[{`"databaseId`":9,`"headSha`":`"$h`",`"status`":`"completed`",`"conclusion`":`"success`"}]" } '^pr view 7 --json headRefOid,baseRefName' { "{`"headRefOid`":`"$h`",`"baseRefName`":`"$script:pmBase`"}" }
@@ -548,27 +551,43 @@ function Invoke-PostMergeSelfCheck {
     # The temp repos must not see the caller's GIT_* variables (GIT_DIR would redirect init) or global or system config.
     $oldGit = @(Get-ChildItem Env:GIT_* | ForEach-Object { ,@($_.Name, $_.Value) }); foreach ($e in $oldGit) { Remove-Item -LiteralPath "Env:$($e[0])" }
     $env:GIT_CONFIG_GLOBAL = Join-Path $sb 'no-gitconfig'; $env:GIT_CONFIG_NOSYSTEM = '1'
-    foreach ($p in @(@('specs/tasks/T9-DEMO.md', $rc), @('docs/TASK-BOARD.md', ($mainHead + "| W0 | T9-DEMO | demo | — | S | a | b | **todo** |`n")), @('CLAUDE.md', $claude), @('bs.txt', '**merged**: retired'), @('cn.md', "## Retired`n`nby T9-B"))) {
+    foreach ($p in @(@('specs/tasks/T9-DEMO.md', $rc), @('docs/TASK-BOARD.md', ($mainHead + "| W0 | T9-DEMO | demo | — | S | a | b | **todo** |`n")), @('CLAUDE.md', $claude), @('bs.txt', '**merged**: retired'), @('cn.md', "## Retired`n`nby T9-B"), @('se.md', '**entry**'))) {
       New-Item -ItemType Directory -Force -Path (Split-Path (Join-Path $tpl $p[0])) | Out-Null; [IO.File]::WriteAllText((Join-Path $tpl $p[0]), $p[1])
     }
     & $realGit -c init.defaultBranch=master init -q $tpl; & $realGit -C $tpl -c core.autocrlf=false add specs docs CLAUDE.md; & $realGit -C $tpl -c core.autocrlf=false -c user.name=t -c user.email=t@t commit -q -m cards
     $TaskId = 'T9-DEMO'; $SupersededBy = 'T9-B'; $Base = 'master'; $DryRun = $false; $BoardStatusFile = Join-Path $tpl 'bs.txt'; $CardNoteFile = Join-Path $tpl 'cn.md'
-    $tip = & $realGit -C $tpl rev-parse HEAD; $env:GH_REPO = 'cli/cli'; $r = Invoke-PostMergeAudit 6>$null; $log = $script:pmLog -join "`n"
-    Check 'plumbing: audit reads the pinned commit through a fetch that writes no ref' { $r.Code -eq 1 -and $r.Lines[0] -ceq '[CARD-DRIFT-R5-MISSING] T9-DEMO todo #3' -and $log.Contains("fetch --no-write-fetch-head --refmap= --no-tags --no-prune --no-recurse-submodules --no-auto-maintenance origin refs/heads/master`n") -and $log.Contains("ls-tree --name-only $tip specs/tasks/") -and $log.Contains("show ${tip}:specs/tasks/T9-DEMO.md") }
-    Check 'plumbing: audit checks the account first and pins every gh call to origin' { $g = @($script:pmLog | Where-Object { $_.StartsWith('gh ') }); $script:pmLog[0] -ceq 'assert -CheckRemote:True' -and $g.Count -eq 1 -and $g[0].EndsWith('[github.com/o/r]') }
-    $script:pmLog.Clear(); $env:GH_REPO = 'cli/cli'; $script:pmOpen = '[{"number":2,"state":"OPEN","headRefName":"T9-DEMO"}]'
-    Throws 'plumbing: retire refuses an open PR' '[POST-MERGE-RETIRE-REFUSED]' { Invoke-PostMergeR5 'retire' 6>$null }
-    Check 'plumbing: the refusal came before anything was created' { -not ($script:pmLog -match 'worktree add| push') }
-    $script:pmLog.Clear(); $env:GH_REPO = 'cli/cli'; $script:pmOpen = '[]'
+    # Every run goes through the dispatch; $run returns the exit code it gave and the text it printed.
+    $run = { param($n) $script:pmLog.Clear(); $env:GH_REPO = 'cli/cli'; $o = @(Invoke-PostMergeCommand $n 6>&1); [pscustomobject]@{ Code = (@($o | Where-Object { $_ -is [int] }) -join ','); Text = (@($o | Where-Object { $_ -isnot [int] }) -join "`n") } }
+    $tip = & $realGit -C $tpl rev-parse HEAD; $a1 = & $run 'audit'; $l1 = @($script:pmLog)
+    $want = @('assert -CheckRemote:True', "git -C $RepoRoot remote get-url origin", "git -C $RepoRoot ls-remote origin refs/heads/master", "git -C $RepoRoot fetch --no-write-fetch-head --refmap= --no-tags --no-prune --no-recurse-submodules --no-auto-maintenance origin refs/heads/master", "git -C $RepoRoot ls-tree --name-only $tip specs/tasks/", "git -C $RepoRoot show ${tip}:specs/tasks/T9-DEMO.md", 'gh pr list --state all --limit 5000 --json number,state,headRefName,isCrossRepository [github.com/o/r]')
+    Check 'plumbing: audit exits 1 on drift after exactly its read-only calls, account first, gh pinned' { $a1.Code -ceq '1' -and $a1.Text -ceq "[CARD-DRIFT-R5-MISSING] T9-DEMO todo #3`n[CARD-DRIFT-COUNT] 1" -and ($l1 -join "`n") -ceq ($want -join "`n") }
+    $script:pmPrs = '[]'; $a0 = & $run 'audit'; $script:pmGhFail = $true; $a2 = & $run 'audit'; $script:pmGhFail = $false; $script:pmGitFail = $true; $a3 = & $run 'audit'; $script:pmGitFail = $false
+    Check 'plumbing: audit exits 0 without drift and 2 when gh or git fails' { $a0.Code -ceq '0' -and $a0.Text -ceq '[CARD-DRIFT-NONE]' -and $a2.Code -ceq '2' -and $a2.Text.StartsWith('[CARD-DRIFT-ERROR] ') -and $a3.Code -ceq '2' -and $a3.Text.StartsWith('[CARD-DRIFT-ERROR] ') }
+    $x = & $run 'r5'
+    Check 'plumbing: r5 with -SupersededBy exits 1 before any call' { $x.Code -ceq '1' -and $x.Text.Contains('-SupersededBy applies to retire only') -and $script:pmLog.Count -eq 0 }
+    $SupersededBy = ''; $DryRun = $true; $StageEntryFile = Join-Path $tpl 'se.md'; $x = & $run 'r5'; $SupersededBy = 'T9-B'; $DryRun = $false
+    Check 'plumbing: r5 -DryRun builds and checks its change, then stops before any push' { $x.Code -ceq '0' -and $x.Text.Contains('[POST-MERGE-DRYRUN]') -and $x.Text.Contains('+++ b/CLAUDE.md') -and $x.Text.Contains('+**entry**') -and @($script:pmLog -match 'worktree add -b r5-T9-DEMO ').Count -eq 1 -and -not ($script:pmLog -match ' push|^gh ') -and -not (Test-Path -LiteralPath (Join-Path $sb 'r5-T9-DEMO')) }
+    $DryRun = $true; $x = & $run 'prune'; $pl = $script:pmLog.Count; $DryRun = $false; $y = & $run ''
+    Check 'plumbing: prune -DryRun exits 1 before any call, and no command exits 2' { $x.Code -ceq '1' -and $x.Text.Contains('prune has no preview') -and $pl -eq 0 -and $y.Code -ceq '2' -and $y.Text.StartsWith('usage:') }
+    $Branch = @('T9-DEMO'); $x = & $run 'prune'; $want = @('assert -CheckRemote:True', "git -C $RepoRoot remote get-url origin", "git -C $RepoRoot ls-remote origin refs/heads/T9-DEMO", 'gh pr list --state all --head T9-DEMO --json number,state,headRefOid [github.com/o/r]')
+    Check 'plumbing: prune checks the account, pins gh and keeps a branch origin lacks' { $x.Code -ceq '0' -and $x.Text -ceq '[POST-MERGE-PRUNE-KEEP] T9-DEMO: no such remote branch' -and ($script:pmLog -join "`n") -ceq ($want -join "`n") }
+    $script:pmOpen = '[{"number":2,"state":"OPEN","headRefName":"T9-DEMO"}]'; $x = & $run 'retire'; $script:pmOpen = '[]'
+    Check 'plumbing: retire exits 1 on an open PR before anything is created' { $x.Code -ceq '1' -and $x.Text.Contains('[POST-MERGE-RETIRE-REFUSED]') -and -not ($script:pmLog -match 'worktree add| push') }
+    $script:pmGateFail = $true; $x = & $run 'retire'; $script:pmGateFail = $false
+    Check 'plumbing: retire stops with [POST-MERGE-GATE] before any push when a gate fails' { $x.Code -ceq '1' -and $x.Text.Contains('[POST-MERGE-GATE]') -and -not ($script:pmLog -match ' push|^gh pr create') }
+    $script:pmTamper = $true; $x = & $run 'retire'; $script:pmTamper = $false
+    Check 'plumbing: retire stops with [POST-MERGE-SCOPE] before any push when CLAUDE.md changed' { $x.Code -ceq '1' -and $x.Text.Contains('[POST-MERGE-SCOPE]') -and -not ($script:pmLog -match ' push|^gh pr create') -and -not (Test-Path -LiteralPath $wtr) }
+    # Every call of the retire route must be one of these; anything else (an extra ref write, say) fails the case.
+    $rr = [regex]::Escape($RepoRoot); $rw = [regex]::Escape($wtr)
+    $allowed = @('^assert -CheckRemote:True$', "^git -C $rr (remote get-url origin|fetch origin master|rev-parse refs/remotes/origin/master|ls-tree -r --name-only \S+ (-- )?specs/tasks specs/archive/tasks|show \S+:specs/tasks/T9-DEMO\.md|rev-parse --verify --quiet refs/heads/retire-T9-DEMO|ls-remote origin refs/heads/retire-T9-DEMO|worktree add -b retire-T9-DEMO $rw \S+|worktree remove --force $rw|branch -D retire-T9-DEMO|push --force-with-lease=refs/heads/retire-T9-DEMO:\S+ origin :refs/heads/retire-T9-DEMO)$", "^git -C $rw (add (-- )?.+|commit -q -F .+|-c core\.quotepath=false diff .+|rev-parse HEAD|push origin refs/heads/retire-T9-DEMO:refs/heads/retire-T9-DEMO)$", "^pwsh -NoProfile -File $rw[\\/]scripts[\\/]check-(cards\.ps1 -TaskId T9-DEMO|secrets\.ps1)$", '^gh (pr merge 7 --squash --match-head-commit [0-9a-f]{40}|(pr list --state open --head T9-DEMO|pr create --base master --head retire-T9-DEMO|pr view 7|run list --commit|pr list --state all --head retire-T9-DEMO) .+) \[github\.com/o/r\]$')
     Check 'plumbing: retire runs r5''s route to CI, merge and prune' {
-      $null = Invoke-PostMergeR5 'retire' 6>$null; $h = $script:pmHead; $l = @($script:pmLog)
-      $at = { param($s) [Array]::FindIndex([string[]]$l, [Predicate[string]] { param($x) $x.Contains($s) }) }
+      $x = & $run 'retire'; $h = $script:pmHead; $l = @($script:pmLog)
+      $at = { param($s) [Array]::FindIndex([string[]]$l, [Predicate[string]] { param($y) $y.Contains($s) }) }
       $steps = @((& $at 'assert -CheckRemote:True'), (& $at 'fetch origin master'), (& $at "worktree add -b retire-T9-DEMO $wtr $tip"), (& $at 'check-cards.ps1 -TaskId T9-DEMO'), (& $at 'check-secrets.ps1'), (& $at 'push origin refs/heads/retire-T9-DEMO:refs/heads/retire-T9-DEMO'), (& $at 'pr create --base master --head retire-T9-DEMO'), (& $at "run list --commit $h --workflow ci.yml"), (& $at "pr merge 7 --squash --match-head-commit $h"), (& $at 'worktree remove --force'), (& $at "push --force-with-lease=refs/heads/retire-T9-DEMO:$h origin :refs/heads/retire-T9-DEMO"))
-      (($steps -join ',') -ceq (@($steps | Sort-Object) -join ',')) -and $steps[0] -ge 0 -and $script:pmPaths -ceq 'docs/TASK-BOARD.md,specs/tasks/T9-DEMO.md' -and -not (Test-Path -LiteralPath $wtr) -and $h -match '^[0-9a-f]{40}$' -and @($l | Where-Object { $_.StartsWith('gh ') -and -not $_.EndsWith('[github.com/o/r]') }).Count -eq 0
+      $x.Code -ceq '0' -and (($steps -join ',') -ceq (@($steps | Sort-Object) -join ',')) -and $steps[0] -ge 0 -and $script:pmPaths -ceq 'docs/TASK-BOARD.md,specs/tasks/T9-DEMO.md' -and -not (Test-Path -LiteralPath $wtr) -and $h -match '^[0-9a-f]{40}$' -and @($l | Where-Object { $c = $_; -not @($allowed | Where-Object { $c -cmatch $_ }).Count }).Count -eq 0
     }
-    $script:pmLog.Clear(); $env:GH_REPO = 'cli/cli'; $script:pmMerged = $false; $script:pmBase = 'main'
-    Throws 'plumbing: retire stops when the PR base moved before the merge' '[POST-MERGE-HEAD-MOVED]' { Invoke-PostMergeR5 'retire' 6>$null }
-    Check 'plumbing: nothing was merged or pruned after the base moved' { -not ($script:pmLog -match 'pr merge|force-with-lease') -and -not (Test-Path -LiteralPath $wtr) }
+    $script:pmMerged = $false; $script:pmBase = 'main'; $x = & $run 'retire'
+    Check 'plumbing: retire exits 1 without merging or pruning when the PR base moved' { $x.Code -ceq '1' -and $x.Text.Contains('[POST-MERGE-HEAD-MOVED]') -and -not ($script:pmLog -match 'pr merge|force-with-lease') -and -not (Test-Path -LiteralPath $wtr) }
   } finally {
     $env:GH_REPO = $oldGhRepo; Remove-Item -LiteralPath $sb -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item Env:GIT_CONFIG_GLOBAL, Env:GIT_CONFIG_NOSYSTEM -ErrorAction SilentlyContinue; foreach ($e in $oldGit) { Set-Item -LiteralPath "Env:$($e[0])" -Value $e[1] }
@@ -779,22 +798,28 @@ function Invoke-PostMergeR5([string]$Kind = 'r5') {
   throw $failure
 }
 
+# The subcommand dispatch, as a function so the SelfCheck can drive it. It returns the exit code: audit's 0, 1 or 2,
+# 1 for any thrown error, 2 for an unknown command, and 0 otherwise.
+function Invoke-PostMergeCommand([string]$Name) {
+  try {
+    switch ($Name) {
+      'r5' { if ($SupersededBy) { throw '[POST-MERGE-INPUT] -SupersededBy applies to retire only' }; $null = Invoke-PostMergeR5 }
+      'retire' { $null = Invoke-PostMergeR5 'retire' }
+      'audit' { $r = Invoke-PostMergeAudit; $r.Lines | ForEach-Object { Write-Host $_ }; return $r.Code }
+      'prune' {
+        if ($DryRun) { throw '[POST-MERGE-INPUT] prune has no preview: -DryRun applies to r5 and retire only, and nothing was pruned' }
+        Assert-PersonalAccount -RepoRoot $RepoRoot -CheckRemote; Set-PostMergeGhRepo; Invoke-PostMergePrune $Branch
+      }
+      default { Write-Host 'usage: post-merge.ps1 r5 -TaskId <id> -BoardStatusFile <f> -StageEntryFile <f> -CardNoteFile <f> [-DryRun] | retire -TaskId <id> -SupersededBy <id> -BoardStatusFile <f> -CardNoteFile <f> [-DryRun] | audit | prune -Branch <b>[,<b>...] | -SelfCheck' -ForegroundColor Yellow; return 2 }
+    }
+  } catch {
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    return 1
+  }
+  return 0
+}
+
 if ($SelfCheck) { exit (Invoke-PostMergeSelfCheck) }
 . (Join-Path $PSScriptRoot '_guard.ps1')   # loads _config.ps1 too: Assert-PersonalAccount, Get-ScaffoldWorktreeRoot
 . (Join-Path $PSScriptRoot '_ci.ps1')      # $ScaffoldCiFanInJob, the single name of the CI fan-in check
-try {
-  switch ($Command) {
-    'r5' { if ($SupersededBy) { throw '[POST-MERGE-INPUT] -SupersededBy applies to retire only' }; Invoke-PostMergeR5 }
-    'retire' { Invoke-PostMergeR5 'retire' }
-    'audit' { $r = Invoke-PostMergeAudit; $r.Lines | ForEach-Object { Write-Host $_ }; exit $r.Code }
-    'prune' {
-      if ($DryRun) { throw '[POST-MERGE-INPUT] prune has no preview: -DryRun applies to r5 and retire only, and nothing was pruned' }
-      Assert-PersonalAccount -RepoRoot $RepoRoot -CheckRemote; Set-PostMergeGhRepo; Invoke-PostMergePrune $Branch
-    }
-    default { Write-Host 'usage: post-merge.ps1 r5 -TaskId <id> -BoardStatusFile <f> -StageEntryFile <f> -CardNoteFile <f> [-DryRun] | retire -TaskId <id> -SupersededBy <id> -BoardStatusFile <f> -CardNoteFile <f> [-DryRun] | audit | prune -Branch <b>[,<b>...] | -SelfCheck' -ForegroundColor Yellow; exit 2 }
-  }
-} catch {
-  Write-Host $_.Exception.Message -ForegroundColor Red
-  exit 1
-}
-exit 0
+exit (Invoke-PostMergeCommand $Command)

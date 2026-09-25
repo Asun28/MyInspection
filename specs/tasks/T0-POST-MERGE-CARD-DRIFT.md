@@ -76,36 +76,73 @@ cases about 90, skill and workflow text about 15, this card's R5 note about 45).
 
 ## Evidence (A6, R4)
 
-All runs on 2026-09-26 except the replay use the candidate `scripts/post-merge.ps1` in the card worktree, SHA-256 `C96F50D3B8F709F77A97F2688FA84C629CE84BAA39369AED332341B89B11C7BB`.
+All runs on 2026-09-26 except the replay use the candidate `scripts/post-merge.ps1` in the card worktree, SHA-256 `9890F68268FF718DFC3D3DDB9DFF2B8C788CA38823C4165807DE3BE654EDA831`.
 
-- **Live audit.** The SHA above, origin/master `cb517bde`, run from a directory outside the repo with `GH_REPO=cli/cli`: `[CARD-DRIFT-NONE]`, exit 0, and `git for-each-ref`, `FETCH_HEAD` and `packed-refs` were unchanged. In a throwaway clone whose `origin/master` was set 5 commits behind the remote, audit left that ref at the old commit and created no `FETCH_HEAD`. That output cannot show the gh pin, since origin has no drift to find; the SelfCheck's plumbing cases show it (below).
-- **The measurement above, replayed.** The seven R5-MISSING cards had been settled by other sessions since `0cf55f83`. `Get-PostMergeCardDrift` on the cards of `0cf55f83`, with the PR list of 2026-09-26, reports those seven, the two CLOSED cards, and `T0-POST-MERGE-R5-GUARDS` (#398) and `T1-LOCAL-DATA-SECURITY` (#394), whose PRs merged after that measurement. (The function is unchanged since that replay, which ran at SHA `B79E5543`.)
-- **retire, live.** Refused with `[POST-MERGE-RETIRE-REFUSED]`, exit 1, leaving no branch or worktree: a merged card (`T0-POST-MERGE-R5-GUARDS`), an open PR (#321), an unknown successor (`T0-NOPE`). `retire -DryRun` on `T0-POST-MERGE-LESSONS` built the A2 shape (status merged, `superseded_by` after it, an appended section, the card's board row), passed check-cards and check-secrets, and pushed nothing. `r5 -DryRun` on the same card still changes CLAUDE.md, the card and the row; `r5 -SupersededBy` stops with `[POST-MERGE-INPUT]`.
-- **Plumbing in the SelfCheck.** Functions named `git`, `gh`, `pwsh` and `Assert-PersonalAccount` shadow the real commands and record every call; the temp repos run with the caller's `GIT_*` variables removed and no global or system git config, and a decoy `GH_REPO=cli/cli` is set before each run. audit, through its real reader, returns the expected R5-MISSING line with code 1, checks the account before anything else, fetches with `--no-write-fetch-head --refmap= --no-tags --no-prune --no-recurse-submodules --no-auto-maintenance`, reads the cards at the pinned commit, and makes its one gh call pinned to origin. retire with an open PR throws `[POST-MERGE-RETIRE-REFUSED]` before any `worktree add` or push. retire without one runs over a temp repo through the account check, the base fetch, a worktree cut from the fetched base commit, check-cards, check-secrets, push, `pr create`, the CI run lookup for the exact head, `pr merge --match-head-commit`, worktree removal and the leased prune, in that order, commits only the card and its board row, and pins every gh call. When the PR's base reads as another branch before the merge, retire throws `[POST-MERGE-HEAD-MOVED]` and neither merges nor prunes. The same SelfCheck passes with `GIT_DIR` set to a throwaway repo, which it leaves untouched.
-- **R4.** SelfCheck 122 cases, baseline pass. 40 single-statement mutants, 40 killed by the case named below. The runner first rewrote the unmutated file through its own write path and got identical bytes and a pass; a mutant that failed to parse would have counted as void; 40 executed of 40 declared; the file was restored to the SHA above.
+- **Live audit.** Origin/master `490999a9`, run from outside the repo with `GH_REPO=cli/cli`: `[CARD-DRIFT-NONE]`, exit 0; refs, `FETCH_HEAD` and `packed-refs` unchanged. A clone whose `origin/master` sat 5 commits behind kept that ref and got no `FETCH_HEAD`.
+- **Replay.** `Get-PostMergeCardDrift` (unchanged since it ran at SHA `B79E5543`) on the cards of `0cf55f83` with the PR list of 2026-09-26 reports the seven R5-MISSING and two CLOSED cards above, plus #398 and #394, merged after that measurement.
+- **retire and r5, live.** Refused (`[POST-MERGE-RETIRE-REFUSED]`, exit 1, nothing left) for a merged card, an open PR (#321) and an unknown successor. `retire -DryRun` built the A2 shape and passed check-cards and check-secrets; `r5 -DryRun` still changes CLAUDE.md, the card and the row; `r5 -SupersededBy` exits 1.
+- **Plumbing in the SelfCheck.** Recording stubs replace `git`, `gh`, `pwsh` and `Assert-PersonalAccount`; the temp repos run without the caller's `GIT_*` variables or git config, and each run starts from `GH_REPO=cli/cli`. Every subcommand runs through `Invoke-PostMergeCommand` and is judged by exit code, printed text and calls: the `dispatch:` and `plumbing:` cases below. It also passes with `GIT_DIR` set to a throwaway repo, which it leaves untouched.
+- **R4.** SelfCheck 127 cases, baseline pass. 60 single-statement mutants, 60 killed, each by the case in its row. The runner rewrote the unmutated file through its write path first (identical bytes, pass); a mutant that failed to parse would have been void; 60 executed of 60 declared; file restored to the SHA above.
 
-| Mutant | Case that failed |
-|---|---|
-| count an OPEN PR as absent | audit: an open PR suppresses both kinds |
-| ignore superseded_by | audit: superseded_by suppresses both kinds |
-| report NONE when gh fails | audit: a gh failure is ERROR, never NONE |
-| drop the superseding-card existence check | retire: refuses an unknown successor |
-| let retire's judge accept a CLAUDE.md change | retire judge: a CLAUDE.md change |
-| insert superseded_by without setting the status | retire: status merged, one superseded_by after it, body untouched |
-| count a fork PR | audit: a PR from a fork does not count |
-| compare the head branch without case | audit: a PR whose head is another card id does not count |
-| judge a merged card; compare merged by culture | audit: a merged card has no drift; audit: merged is compared ordinally |
-| accept an empty card list; print an empty status | audit: no card read is ERROR; audit: a card without a status line |
-| retire ignores an open PR / a merged card / superseded_by | retire: refuses an open PR / a merged card / a card with superseded_by |
-| treat an empty superseded_by as absent | retire: refuses an empty superseded_by line |
-| retire accepts the card as its own successor / a card not on the base | retire: refuses the card as its own successor / a card not in specs/tasks/ |
-| retire judge skips the card text / the board rule | retire judge: a further front-matter edit / another board row |
-| read front-matter fields past the closing `---` | audit: a merged PR on a todo card is R5-MISSING |
-| take the oldest PR; drop the count line | audit: closed PRs alone are CLOSED; audit: drift lines end with the count, exit 1 |
-| accept an origin off github.com; echo the origin URL | gh repo: an origin off github.com is refused without echoing it |
-| drop the host from GH_REPO | gh repo: an origin with a token in it gives host/owner/repo |
-| audit skips the gh pin / the account check | plumbing: audit checks the account first and pins every gh call to origin |
-| audit's fetch writes refs; audit reads the moving ref | plumbing: audit reads the pinned commit through a fetch that writes no ref |
-| retire skips its refusals | plumbing: retire refuses an open PR |
-| retire skips the account check / the gh pin / the base fetch; worktree cut from HEAD; CI looked up by the base name; the CI wait, the head pin on merge or the prune dropped | plumbing: retire runs r5's route to CI, merge and prune |
-| drop the pre-merge head and base recheck | plumbing: retire stops when the PR base moved before the merge |
+| Id | Mutant | Case that failed |
+|---|---|---|
+| M1 | count an OPEN PR as absent | audit: an open PR suppresses both kinds |
+| M2 | ignore superseded_by | audit: superseded_by suppresses both kinds |
+| M3 | report NONE when gh fails | audit: a gh failure is ERROR, never NONE |
+| M4 | drop the superseding-card existence check | retire: refuses an unknown successor |
+| M5 | let retire's judge accept a CLAUDE.md change | retire judge: a CLAUDE.md change |
+| M6 | insert superseded_by without setting the status | retire: status merged, one superseded_by after it, body untouched |
+| M7 | count a fork PR | audit: a PR from a fork does not count |
+| M8 | compare the head without case | audit: a PR whose head is another card id does not count |
+| M9 | judge a merged card | audit: a merged card has no drift |
+| M10 | accept an empty card list | audit: no card read is ERROR |
+| M11 | retire ignores an open PR | retire: refuses an open PR |
+| M12 | retire ignores a merged card | retire: refuses a merged card |
+| M13 | retire ignores superseded_by | retire: refuses a card with superseded_by |
+| M14 | retire accepts the card as its own successor | retire: refuses the card as its own successor |
+| M15 | retire accepts a card not on the base | retire: refuses a card not in specs/tasks/ |
+| M16 | retire judge skips the card text | retire judge: a further front-matter edit |
+| M17 | retire judge skips the board rule | retire judge: another board row |
+| M18 | read fields past the front matter | audit: a merged PR on a todo card is R5-MISSING |
+| M19 | take the oldest PR | audit: closed PRs alone are CLOSED |
+| M20 | drop the count line | audit: drift lines end with the count, exit 1 |
+| M21 | compare merged by culture | audit: merged is compared ordinally |
+| M22 | treat an empty superseded_by as absent | retire: refuses an empty superseded_by line |
+| M23 | print an empty status | audit: a card without a status line |
+| M24 | accept an origin off github.com | gh repo: an origin off github.com is refused without echoing it |
+| M25 | echo the origin URL | gh repo: an origin off github.com is refused without echoing it |
+| M26 | drop the host from GH_REPO | gh repo: an origin with a token in it gives host/owner/repo |
+| M27 | audit skips the gh pin | plumbing: audit exits 1 on drift after exactly its read-only calls, account first, gh pinned |
+| M28 | audit fetch writes refs | plumbing: audit exits 1 on drift after exactly its read-only calls, account first, gh pinned |
+| M29 | audit reads the moving ref | plumbing: audit exits 1 on drift after exactly its read-only calls, account first, gh pinned |
+| M30 | retire skips its refusals | plumbing: retire exits 1 on an open PR before anything is created |
+| M31 | retire skips the gh pin | plumbing: retire runs r5's route to CI, merge and prune |
+| M32 | skip the CI wait | plumbing: retire runs r5's route to CI, merge and prune |
+| M33 | merge without the head pin | plumbing: retire runs r5's route to CI, merge and prune |
+| M34 | skip the prune | plumbing: retire runs r5's route to CI, merge and prune |
+| M35 | cut the worktree from HEAD | plumbing: retire runs r5's route to CI, merge and prune |
+| M36 | skip the base fetch | plumbing: retire runs r5's route to CI, merge and prune |
+| M37 | look up CI runs by the base name | plumbing: retire runs r5's route to CI, merge and prune |
+| M38 | audit skips the account check | plumbing: audit exits 1 on drift after exactly its read-only calls, account first, gh pinned |
+| M39 | retire skips the account check | plumbing: retire runs r5's route to CI, merge and prune |
+| M40 | drop the pre-merge head and base recheck | plumbing: retire exits 1 without merging or pruning when the PR base moved |
+| M41 | skip audit inside its arm | plumbing: audit exits 1 on drift after exactly its read-only calls, account first, gh pinned |
+| M42 | make the retire arm a no-op | plumbing: retire exits 1 on an open PR before anything is created |
+| M43 | exit 0 from audit whatever it found | plumbing: audit exits 1 on drift after exactly its read-only calls, account first, gh pinned |
+| M44 | exit 0 after a thrown error | plumbing: r5 with -SupersededBy exits 1 before any call |
+| M45 | let r5 take -SupersededBy | plumbing: r5 with -SupersededBy exits 1 before any call |
+| M46 | send r5 down the retire path | plumbing: r5 -DryRun builds and checks its change, then stops before any push |
+| M47 | make the r5 arm call nothing | plumbing: r5 -DryRun builds and checks its change, then stops before any push |
+| M48 | drop the DryRun stop | plumbing: r5 -DryRun builds and checks its change, then stops before any push |
+| M49 | drop the scope stop | plumbing: retire stops with [POST-MERGE-SCOPE] before any push when CLAUDE.md changed |
+| M50 | give retire the r5 judge | plumbing: retire stops with [POST-MERGE-SCOPE] before any push when CLAUDE.md changed |
+| M51 | drop the prune DryRun refusal | plumbing: prune -DryRun exits 1 before any call, and no command exits 2 |
+| M52 | exit 0 on an unknown command | plumbing: prune -DryRun exits 1 before any call, and no command exits 2 |
+| M53 | read cards without the native wrapper | plumbing: audit exits 0 without drift and 2 when gh or git fails |
+| M54 | write a ref during the retire fetch | plumbing: retire runs r5's route to CI, merge and prune |
+| M55 | prune skips the gh pin | plumbing: prune checks the account, pins gh and keeps a branch origin lacks |
+| M56 | run the gates from the main checkout | plumbing: retire runs r5's route to CI, merge and prune |
+| M57 | merge with --admin | plumbing: retire runs r5's route to CI, merge and prune |
+| M58 | r5 skips its CLAUDE.md entry | plumbing: r5 -DryRun builds and checks its change, then stops before any push |
+| M59 | drop the gate stop | plumbing: retire stops with [POST-MERGE-GATE] before any push when a gate fails |
+| M60 | exit 0 whatever the command | dispatch: the script with no subcommand exits 2 |
