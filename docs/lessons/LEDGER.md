@@ -2655,3 +2655,19 @@
 - rule: Delete a PR head branch only after gh pr view <n> --json state reads MERGED, in the same command that deletes it. If a PR was closed this way, push its head commit back to the same branch name and gh pr reopen it.
 - enforced_by: 
 - refs: 
+
+## L357
+- date: 2026-09-25 ｜ tags: testing,mutation,seams,r4 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A recording seam added so tests could see the sync and the atomic move killed the store-level mutants, but a fresh-context review found three one-line mutants in the platform implementation behind the seam (sync removed, ATOMIC_MOVE dropped, delete result ignored) that left every test green: the exact defects the seam was added to prove.
+- root_cause: Once tests talk to a recording or injecting double, the real implementation behind the seam is no longer executed by them, so the mutation surface moves from the call site into the platform object.
+- rule: When you add a test seam, test the platform object behind it directly (make each operation fail loudly on a real input: an invalid descriptor for sync, an occupied directory for delete, an atomic move onto a directory) and put one-line mutants of that object into the R4 batch next to the call-site mutants.
+- enforced_by: 
+- refs: specs/tasks/T1-LOCAL-SECRET-STORE.md (R5 delivery); PR #377
+
+## L358
+- date: 2026-09-25 ｜ tags: testing,mutation,r4,assertions ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: Three R4 mutants counted as killed because the named test ended in an exception thrown by the mutated production code (a raising read, a missing file, a missing directory), not in a failed assertion.
+- root_cause: A test that errors proves only that something went wrong somewhere; the named contract was never compared, and the same test can error for reasons unrelated to the mutant.
+- rule: Have the R4 runner record the failure type of the named test and accept only java.lang.AssertionError as a kill. Where the contract is that a call succeeds, wrap it in runCatching and assert isSuccess before checking its result.
+- enforced_by: 
+- refs: specs/tasks/T1-LOCAL-SECRET-STORE.md (R5 delivery); PR #377
