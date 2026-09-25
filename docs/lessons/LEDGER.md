@@ -1567,12 +1567,12 @@
 - refs: 
 
 ## L218
-- date: 2026-08-16 ｜ tags: worktree,concurrency,multi-session,coordination ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-08-16 ｜ tags: worktree,concurrency,multi-session,coordination ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 两个会话同时在同一张卡的 worktree 里改码：A 会话按新 R3 verdict 开始修复，B 会话（早前驱动该卡、仍存活）正在跑变异批——A 读到的文件内容其实是 B 植入变异的中间态，A 的编辑随后又被 B 的变异还原（git checkout）静默抹掉；四个文件的 mtime 在同一分钟内交错
 - root_cause: 「每卡一棵 worktree」隔离的是卡与卡，隔不开同一张卡的两个会话；卡的所有权没有显式声明，谁都能续接。verdict/counter 等状态落在 worktree 里，两个会话都会对同一个 block 各自启动修复
 - rule: 动手改任何 worktree 前先核「是否已有活跃写者」：看目标文件 mtime 是否新于自己最后一次操作、git status 里是否有非本会话产生的 M；有迹象即停，问用户哪个会话持有这张卡。接手已有分支/worktree 的卡时，此检查是续接第一步（与 L196 的 SHA 核对同拍做）。被判出局的一方：残留编辑核实清零后完全撤手，不做任何「顺手帮忙」的写操作
 - enforced_by: 
-- refs: 
+- refs: 2026-09-25 recurrence: a session moved the branch of C:/wt/T0-POST-MERGE-R5-GUARDS and ran git reset there while another session held uncommitted work in it (reflog 22:17:57-58 NZST); fix card specs/tasks/T0-LIVE-WORK-GUARD.md
 
 ## L219
 - date: 2026-08-16 ｜ tags: review,r3,scope,adjudication ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
