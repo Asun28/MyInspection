@@ -2400,12 +2400,12 @@
 - refs: 
 
 ## L319
-- date: 2026-09-08 ｜ tags: mutation,evidence,powershell ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-09-08 ｜ tags: mutation,evidence,powershell ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 2
 - symptom: 变异批报告「27/27 全杀」，但其中若干枚植入的根本不是条目所写的那个改动：三枚把整行替换成了一个裸换行（看起来仍像「删掉该行」故不易察觉），一枚退化成 no-op、只因 runner 里有一句「植入后文本必须与基线不同」才当场抛错暴露。
 - root_cause: PowerShell 的逗号列表里，未加括号的字符串拼接会被折进列表本身：@(a, b, c, x + y + z) 解析成 6 个元素而非 4 个，于是 $m[3] 取到的是拼接的第一个操作数、不是拼接结果。批只校验了「选择器命中一次」与「DoD 变红」，两者在错误的变异下同样成立——变红的原因对不上条目声称造坏的东西。
 - rule: 变异批必须证明每个 mutant 就是条目所写的那一个，而不只是证明它让闸变红：① 条目表在 runner 里做元数自检（元素个数/字段齐全），② 植入后立刻断言 mutant != baseline，③ 数组字面量里每个 + 拼接与每个函数调用各自加括号（同 L267 的括号规矩，扩到 + 表达式）。判据：DoD 变红只证明「有东西坏了」，不证明「坏的是这条」——L318 说剪枝的可靠性不超过变异集的完整性，本条说批的可靠性不超过每个 mutant 与其描述的一致性。
 - enforced_by: none（变异 runner 是逐卡的 scratchpad 工具、从不入库，仓内没有它可以挂的闸；本条是 R4 编批时的写法纪律，其守卫必须写进那一份 runner——每条条目断言元素数 == 4，植入后断言 mutant != baseline，两处均 throw）
-- refs: 
+- refs: 2026-09-25 recurrence (T0-UPSTREAM-LESSON-IDS, PR #416): an R4 mutant described as dropping the DoD anchor d991cc92 replaced one of its two occurrences, so the DoD stayed green; the mutant did not match its description and was re-aimed at every occurrence.
 
 ## L320
 - date: 2026-09-08 ｜ tags: android,device,adb,mtp,spike ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
