@@ -132,3 +132,29 @@ worktree held an uncommitted edit to `.claude/skills/task-loop/SKILL.md`:
 15h3, 15h4): the fixture's earlier steps leave `README.md` edits in other fixture worktrees and every fixture
 card declares `README.md`. The fixture starts after 15a's first one, and the 15r helper, now pass `-TakeOver`
 (`scripts/selftest.ps1` added to `allow_paths` by #421, user ruling).
+
+**R4.** One single-statement edit per guard, each file restored after every mutant and checked against its
+SHA-256: `scripts/live-work.ps1` `1680C1FAD619326A7CAD0B1DFC29954123E1C1874DC59181E4EA829715219050`,
+`.claude/hooks/guard-dirty-worktree.ps1` `A0A36D98BE2E27F04CF116E4E9F4C362E16A69306B1D2D48F2BFD50BACB6D758`,
+`scripts/task.ps1` `8ADB00F1C73C2C9DB203183B6470A92D3E0239321679090C3B0285A3801F65D8`. Probe and hook mutants
+are judged by `live-work.ps1 -SelfCheck` (19 cases, all pass unmutated): each exited 1 with
+`[LIVE-WORK-SELF-CHECK-FAIL]` and the named case among its failures. The two `task.ps1` mutants are judged by the
+A3 real run: run 1 must stop start. 15 of 15 killed.
+
+| id | single-statement change | killed by |
+|---|---|---|
+| M1 | overlap test `if ($inside.Count -or $named)` -> `if ($named)` | overlap: a worktree changing the card's allow_paths exits 3 |
+| M2 | `$h.Newest -ge $cutoff` -> `$true` | overlap: an overlap older than -SinceHours is [LIVE-WORK-OVERLAP-STALE] and exits 0 |
+| M3 | branch-name test -> `$named = $false` | overlap: a clean worktree on a branch named after the card exits 3 |
+| M4 | `exit 3` on an overlap -> `exit 0` | overlap: a worktree changing the card's allow_paths exits 3 |
+| M5 | ref arm condition -> `$false` | overlap: a branch r5-<id> whose tip is not on the base exits 3 |
+| M6 | HEAD-time fallback condition -> `$false` | summary: a worktree holding only a deletion gets its HEAD commit time as newest |
+| M7 | hook: delete the clean-worktree skip | hook: the same commands on a clean worktree print nothing |
+| M8 | hook: reset arm -> `(?!)` | hook: git -C <dirty> reset --hard asks |
+| M9 | hook: checkout arm -> `(?!)` | hook: git checkout -- . in a dirty cwd asks |
+| M10 | hook: clean arm -> `(?!)` | hook: git clean -fd in a dirty cwd asks |
+| M11 | hook: worktree arm -> `(?!)` | hook: git worktree remove --force <dirty> asks |
+| M12 | hook: the catch prints an ask | hook: unreadable input prints nothing |
+| M13 | hook: `cd` no longer moves the target | hook: cd <dirty> && git reset --hard asks |
+| M14 | task.ps1: the start stop -> `if ($false)` | A3 run 1: exit 0, worktree created |
+| M15 | task.ps1: `-not $TakeOver` -> `-not $true` | A3 run 1: exit 0, worktree created |

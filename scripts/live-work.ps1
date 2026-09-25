@@ -2,16 +2,17 @@
 <#
 .SYNOPSIS
   Read-only report of the work other sessions hold (T0-LIVE-WORK-GUARD, L218): worktrees with uncommitted or unmerged
-  changes, branches named after a card, and handoff files. It never writes, fetches or pushes.
+  changes, branches named after a card, and handoff files. It never writes to the repository, fetches or pushes.
 .DESCRIPTION
   live-work.ps1 [-RepoPath <dir>] [-Base master] [-SinceHours 48] [-BudgetSec 10]
       One [LIVE-WORK] line per worktree holding work, one [LIVE-WORK-STALE] line counting those whose newest change
       is older than -SinceHours, [LIVE-WORK-NONE] when no worktree holds work, and one [LIVE-WORK-HANDOFF] line for
       the main checkout's progress.md HANDOFF block and for each _local/handoff-*.md. Exit 0.
-  live-work.ps1 -TaskId <id> [-RepoPath <dir>] [-Base master]
-      [LIVE-WORK-OVERLAP] for each worktree whose changed paths fall under the card's allow_paths or whose branch is
-      the card id, and for a branch <id> or r5-<id> (local or origin) whose tip is not on the base. Exit 3 when any,
-      0 when none, 2 when a probe fails.
+  live-work.ps1 -TaskId <id> [-RepoPath <dir>] [-Base master] [-SinceHours 48]
+      [LIVE-WORK-OVERLAP] for each worktree whose changed paths fall under the card's allow_paths and whose newest
+      change is within -SinceHours, for a worktree whose branch is the card id, and for a branch <id> or r5-<id>
+      (local or origin) whose tip is not on the base. An older overlap gets [LIVE-WORK-OVERLAP-STALE], which does not
+      count. Exit 3 when any [LIVE-WORK-OVERLAP] line was printed, 0 when none, 2 when a probe fails.
   live-work.ps1 -SelfCheck
       Builds temporary Git fixtures and checks both modes and the dirty-worktree hook; prints [LIVE-WORK-SELF-CHECK-PASS].
   The worktree the caller runs in is left out, except the main checkout, which every session shares. The base is
