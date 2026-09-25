@@ -1,7 +1,7 @@
 ---
 id: T0-SCAFFOLD-CARD-CONTRACT-REPAIR
 title: Apply five bounded pending-card contract corrections with a self-scoped admin card
-status: todo
+status: merged
 depends_on: []
 branch: T0-SCAFFOLD-CARD-CONTRACT-REPAIR
 worktree: C:\wt\T0-SCAFFOLD-CARD-CONTRACT-REPAIR
@@ -40,3 +40,7 @@ doc_sync: none; this is a bounded pending-card contract correction only.
 This publishable card records the five pending-contract corrections and their management scope. The four capability cards remain pending their own implementation and acceptance. Use standard metadata SkipRed and all other normal project gates.
 
 The authority sweep covered all references to these four pending cards in `CLAUDE.md`, `.claude/`, `docs/`, `specs/tasks/`, and `scripts/`. The relevant current projections are the four cards and the two board rows changed here. Existing RISK/META/SKILL card dependencies retain their meaning; no runtime or archived historical statement is advanced by this repair. `scripts/scaffold-sync.ps1` real-ledger selfcheck pins v0.45 at the exact base, and `scripts/_config.ps1`, `docs/SCAFFOLD-SYNC.md`, and the CLAUDE current-version references agree with that baseline. The v0.46 card keeps immutable origin v0.29 and excludes v0.47 adoption. TRIAGE help defines PASS output as its selfcheck result; the revised card checks that output while preserving the reporter's exit contract. The scoped exact-transform oracle covers both board rows and the CLAUDE allow/doc_sync projections together, so leaving either old projection unchanged fails acceptance.
+
+## Status recorded (2026-09-25)
+
+PR #275 merged on 2026-09-09 as `b376a0b3`, but R5 never set this card's status. The card-status check that opened `T0-POST-MERGE-CARD-DRIFT` found it. Its DoD passes at the merge commit (`CARD-CONTRACT-REPAIR-PASS`); on origin/master `8146d794` it fails only because `specs/tasks/T0-SELFTEST-NIGHTLY-META.md`, which it reads, was archived later. This commit changes only the status line and adds this note.
