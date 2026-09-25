@@ -1,7 +1,8 @@
 ﻿<#
 .SYNOPSIS
-  Post-merge automation (T0-POST-MERGE-DOCS-PR): the R5 doc-sync PR and the pruning of merged remote branches.
-  r5 -DryRun previews the doc sync without pushing.
+  Post-merge automation (T0-POST-MERGE-DOCS-PR, T0-POST-MERGE-CARD-DRIFT): the R5 doc-sync PR, the retire PR for a card
+  whose PR closed unmerged, the card drift audit, and the pruning of merged remote branches.
+  r5 -DryRun and retire -DryRun preview the change without pushing.
 .DESCRIPTION
   r5     Builds a card's R5 doc sync in a new worktree cut from origin/<Base>: the card's status becomes merged,
          its docs/TASK-BOARD.md row gets the given status cell, the given entry goes directly under
@@ -12,20 +13,33 @@
          With -DryRun, r5 builds and checks the same change (edits, allowlist judge, check-cards,
          check-secrets), prints its diff and stops before the push, then removes its worktree and branch.
          prune has no preview and refuses -DryRun.
+  retire Finishes a card whose PR closed without a merge (T0-POST-MERGE-CARD-DRIFT): r5's path, minus CLAUDE.md. It
+         refuses with [POST-MERGE-RETIRE-REFUSED] before creating anything unless the card is in specs/tasks/ on
+         origin/<Base>, not merged, without a superseded_by line, has no open PR, and -SupersededBy names another card
+         in specs/tasks/ or specs/archive/tasks/ there. Its allowlist: status merged plus one superseded_by line,
+         an appended section, and the card's board row.
+  audit  One [CARD-DRIFT-R5-MISSING] or [CARD-DRIFT-CLOSED] line per card in specs/tasks/ of origin/<Base> that is
+         neither merged nor superseded although its PRs say it should be; exit 0 [CARD-DRIFT-NONE], 1
+         [CARD-DRIFT-COUNT] <n>, 2 [CARD-DRIFT-ERROR] when git or gh fails. It writes no ref and no file of its own;
+         the fetch adds objects to the object store.
   prune  Deletes a remote branch only when exactly one PR has it as head, that PR is MERGED, and the remote tip
          still equals the PR's head, using a lease on that tip. Every other state is reported and kept.
-  The main checkout's working tree and local master are never touched: r5 works in its own temporary worktree
-  and removes it, with its local branch, at the end; a removal that fails is reported as [POST-MERGE-CLEANUP-FAIL].
+  gh is pinned to origin's repository through GH_REPO, whatever the caller's directory.
+  The main checkout's working tree and local master are never touched: r5 and retire work in a temporary worktree
+  and remove it, with its local branch, at the end; a removal that fails is reported as [POST-MERGE-CLEANUP-FAIL].
 .EXAMPLE
   pwsh -NoProfile -File scripts\post-merge.ps1 r5 -TaskId T0-FOO -BoardStatusFile s.txt -StageEntryFile e.md -CardNoteFile n.md -DryRun
   pwsh -NoProfile -File scripts\post-merge.ps1 r5 -TaskId T0-FOO -BoardStatusFile s.txt -StageEntryFile e.md -CardNoteFile n.md
+  pwsh -NoProfile -File scripts\post-merge.ps1 retire -TaskId T0-FOO -SupersededBy T0-BAR -BoardStatusFile s.txt -CardNoteFile n.md
+  pwsh -NoProfile -File scripts\post-merge.ps1 audit
   pwsh -NoProfile -File scripts\post-merge.ps1 prune -Branch T0-FOO
   pwsh -NoProfile -File scripts\post-merge.ps1 -SelfCheck
 #>
 [CmdletBinding()]
 param(
-  [Parameter(Position = 0)][ValidateSet('r5', 'prune')][string]$Command,
+  [Parameter(Position = 0)][ValidateSet('r5', 'retire', 'audit', 'prune')][string]$Command,
   [string]$TaskId,
+  [string]$SupersededBy,
   [string]$BoardStatusFile,
   [string]$StageEntryFile,
   [string]$CardNoteFile,
@@ -45,8 +59,9 @@ $script:StageHeading = '## 当前阶段'
 # Edits keep the file's own line ending, so a CRLF file is not rewritten as LF.
 function Get-PostMergeNewline([string]$Text) { if ($Text.Contains("`r`n")) { return "`r`n" } return "`n" }
 
-# The status line is looked for only inside the front matter: a body line reading 'status: todo' is prose.
-function Set-PostMergeCardStatus([string]$CardText) {
+# The status line is looked for only inside the front matter: a body line reading 'status: todo' is prose. retire
+# also puts one superseded_by line right after it.
+function Set-PostMergeCardStatus([string]$CardText, [string]$SupersededBy = '') {
   $nl = Get-PostMergeNewline $CardText
   $lines = $CardText -split '\r?\n'
   if ($lines[0] -cne '---') { throw '[POST-MERGE-ANCHOR] the card has no front matter' }
@@ -57,6 +72,7 @@ function Set-PostMergeCardStatus([string]$CardText) {
   if ($hits.Count -ne 1) { throw "[POST-MERGE-ANCHOR] the card front matter has $($hits.Count) status lines, expected 1" }
   if ($lines[$hits[0]] -cmatch '^status:\s*merged\b') { throw '[POST-MERGE-ANCHOR] the card is already merged' }
   $lines[$hits[0]] = 'status: merged'
+  if ($SupersededBy) { $lines = @($lines[0..$hits[0]]) + @("superseded_by: $SupersededBy") + @($lines[($hits[0] + 1)..($lines.Count - 1)]) }
   return ($lines -join $nl)
 }
 
@@ -174,6 +190,64 @@ function Get-PostMergeScopeIssues([string]$TaskId, [string[]]$ChangedPaths, [obj
   return $issues.ToArray()
 }
 
+# The first token of a front-matter key's value ('' when the value is empty), or $null when the card has no closed
+# front matter or no such key. A '#' comment is not a value, and a body line such as 'status: todo' is prose.
+function Get-PostMergeCardField([string]$CardText, [string]$Key) {
+  $lines = $CardText.TrimStart([char]0xFEFF) -split '\r?\n'
+  $end = [Array]::IndexOf($lines, '---', 1)
+  if ($lines[0] -cne '---' -or $end -lt 0) { return $null }
+  foreach ($l in $lines[1..$end]) { if ($l -cmatch "^${Key}:(.*)$") { return @(($Matches[1] -replace '#.*$', '').Trim() -split '\s+')[0] } }
+  return $null
+}
+
+# audit (A1): a card neither merged nor superseded, judged by the same-repository PRs whose head branch is exactly
+# the card id (task.ps1 ship names the branch so). An open PR means the work is still in flight. Newest PR first.
+function Get-PostMergeCardDrift([object[]]$Cards, [object[]]$Prs) {
+  foreach ($c in $Cards) {
+    $status = Get-PostMergeCardField $c.Text 'status'
+    if ([string]::Equals($status, 'merged', [StringComparison]::Ordinal) -or (Get-PostMergeCardField $c.Text 'superseded_by')) { continue }
+    if (-not $status) { $status = '(none)' }
+    $mine = @($Prs | Where-Object { -not $_.isCrossRepository -and [string]::Equals([string]$_.headRefName, $c.Id, [StringComparison]::Ordinal) } | Sort-Object { [int]$_.number } -Descending)
+    if (@($mine | Where-Object { [string]$_.state -ceq 'OPEN' }).Count) { continue }
+    $m = @($mine | Where-Object { [string]$_.state -ceq 'MERGED' }); $x = @($mine | Where-Object { [string]$_.state -ceq 'CLOSED' })
+    if ($m.Count) { "[CARD-DRIFT-R5-MISSING] $($c.Id) $status #$($m[0].number)" } elseif ($x.Count) { "[CARD-DRIFT-CLOSED] $($c.Id) $status #$($x[0].number)" }
+  }
+}
+
+# audit's lines and exit code. A reader that throws (git or gh failing) or reads no card gives ERROR, never NONE.
+function Get-PostMergeAuditResult([scriptblock]$ReadCards, [scriptblock]$ReadPrs) {
+  try {
+    $cards = @(& $ReadCards)
+    if (-not $cards.Count) { throw 'no card was read' }
+    $drift = @(Get-PostMergeCardDrift $cards @(& $ReadPrs))
+  } catch { return [pscustomobject]@{ Lines = @("[CARD-DRIFT-ERROR] $($_.Exception.Message)"); Code = 2 } }
+  if ($drift.Count) { return [pscustomobject]@{ Lines = $drift + "[CARD-DRIFT-COUNT] $($drift.Count)"; Code = 1 } }
+  return [pscustomobject]@{ Lines = @('[CARD-DRIFT-NONE]'); Code = 0 }
+}
+
+# retire (A2): why it must refuse, or '' to go ahead. $CardText is '' when the card is not in specs/tasks/ on the
+# base; $KnownIds are the ids in specs/tasks/ and specs/archive/tasks/ there.
+function Get-PostMergeRetireRefusal([string]$TaskId, [string]$SupersededBy, [string]$CardText, [string[]]$KnownIds, [object[]]$Prs) {
+  if (-not $CardText) { return "specs/tasks/$TaskId.md is not on the base" }
+  if ([string]::Equals((Get-PostMergeCardField $CardText 'status'), 'merged', [StringComparison]::Ordinal)) { return "$TaskId is already merged" }
+  if ($null -ne (Get-PostMergeCardField $CardText 'superseded_by')) { return "$TaskId already has a superseded_by line; an empty one is removed by hand before retiring" }
+  $open = @($Prs | Where-Object { [string]$_.state -ceq 'OPEN' -and [string]::Equals([string]$_.headRefName, $TaskId, [StringComparison]::Ordinal) })
+  if ($open.Count) { return "PR #$($open[0].number) for $TaskId is open" }
+  if ([string]::Equals($SupersededBy, $TaskId, [StringComparison]::Ordinal) -or [Array]::IndexOf([string[]]$KnownIds, $SupersededBy) -lt 0) { return "-SupersededBy '$SupersededBy' names no other card on the base" }
+  return ''
+}
+
+# retire's allowlist: the card, which must be the base card with only the status and superseded_by edit and an
+# appended '## ' section, and the card's own board row (r5's rule, shown every file but CLAUDE.md). Nothing else.
+function Get-PostMergeRetireScopeIssues([string]$TaskId, [string]$SupersededBy, [string[]]$ChangedPaths, [object[]]$Files, [string]$OldCard, [string]$NewCard) {
+  $ok = [string[]]@("specs/tasks/$TaskId.md", 'docs/TASK-BOARD.md')
+  $issues = @($ChangedPaths | Where-Object { [Array]::IndexOf($ok, [string]$_) -lt 0 } | ForEach-Object { "path outside the retire allowlist: $_" })
+  $issues += @(Get-PostMergeScopeIssues $TaskId $ChangedPaths @($Files | Where-Object { $_.Path -cne 'CLAUDE.md' }) '')
+  $nl = Get-PostMergeNewline $OldCard
+  if (-not $NewCard.StartsWith((Set-PostMergeCardStatus $OldCard $SupersededBy).TrimEnd() + $nl + $nl + '## ', [StringComparison]::Ordinal)) { $issues += "specs/tasks/$TaskId.md may only set status and superseded_by in its front matter and append a section" }
+  return $issues
+}
+
 function Get-PostMergePruneDecision([string]$RemoteTip, [object[]]$Prs) {
   $prs = @($Prs)
   if (-not $RemoteTip) { return [pscustomobject]@{ Delete = $false; Oid = ''; Reason = 'no such remote branch' } }
@@ -235,7 +309,8 @@ function Format-PostMergeRecoveryReport([string]$Branch, [string]$Head, [string]
   $prText = 'none'
   if (@($Prs).Count) { $prText = (@($Prs) | ForEach-Object { "#$($_.number) $($_.state) head $($_.headRefOid) base $($_.baseRefName)" }) -join '; ' }
   if (-not $PrsKnown) { $prText = 'unknown (probe failed)' }
-  return "[POST-MERGE-LEFT-BEHIND] r5 failed after pushing $Branch (head $Head, base $Base). Remote branch tip: $tipText. PRs: $prText. Nothing was pruned and nothing is decided here: inspect the branch and PRs above before acting, never merge a PR by hand (only r5 re-checks head, base and CI), and rerun r5 only after the branch is gone and no PR for it is open."
+  $cmd = $Branch.Split('-')[0]   # the branch is r5-<id> or retire-<id>
+  return "[POST-MERGE-LEFT-BEHIND] $cmd failed after pushing $Branch (head $Head, base $Base). Remote branch tip: $tipText. PRs: $prText. Nothing was pruned and nothing is decided here: inspect the branch and PRs above before acting, never merge a PR by hand (only $cmd re-checks head, base and CI), and rerun $cmd only after the branch is gone and no PR for it is open."
 }
 # The plumbing below cannot run inside -SelfCheck, so the SelfCheck checks its wiring instead: in the given script
 # text, each Verb-Noun command resolves, each named parameter passed to it exists on it, and each Scaffold* variable
@@ -385,9 +460,51 @@ function Invoke-PostMergeSelfCheck {
   Check 'recovery: the advice is inspection-only when nothing is left' { & $inspectOnly (& $rec $true '' $true @()) }
   Check 'ci: a run for another commit is ignored' { (Get-PostMergeRunDecision @((Run 7 ('b' * 40) 'completed' 'success')) $tip).State -ceq 'pending' }
 
+  # audit (A1) and retire (A2) on injected card texts and PR lists. Every card body's status and superseded_by are prose.
+  function CardOf($id, $fm) { [pscustomobject]@{ Id = $id; Text = "---`nid: $id`n$fm`n---`n`nstatus: merged`nsuperseded_by: T9-Z`n" } }
+  function PrOf($n, $s, $h, $fork = $false) { [pscustomobject]@{ number = $n; state = $s; headRefName = $h; isCrossRepository = $fork } }
+  $drift = { param($cards, $prs) @(Get-PostMergeCardDrift @($cards) @($prs)) -join '|' }
+  Check 'audit: a merged PR on a todo card is R5-MISSING' { (& $drift (CardOf 'T9-A' 'status: todo') @((PrOf 3 'CLOSED' 'T9-A'), (PrOf 4 'MERGED' 'T9-A'))) -ceq '[CARD-DRIFT-R5-MISSING] T9-A todo #4' }
+  Check 'audit: closed PRs alone are CLOSED' { (& $drift (CardOf 'T9-A' 'status: in-review') @((PrOf 3 'CLOSED' 'T9-A'), (PrOf 5 'CLOSED' 'T9-A'))) -ceq '[CARD-DRIFT-CLOSED] T9-A in-review #5' }
+  Check 'audit: an open PR suppresses both kinds' { (& $drift @((CardOf 'T9-A' 'status: todo'), (CardOf 'T9-B' 'status: todo')) @((PrOf 1 'MERGED' 'T9-A'), (PrOf 2 'OPEN' 'T9-A'), (PrOf 3 'CLOSED' 'T9-B'), (PrOf 4 'OPEN' 'T9-B'))) -ceq '' }
+  Check 'audit: superseded_by suppresses both kinds' { (& $drift @((CardOf 'T9-A' "status: todo`nsuperseded_by: T9-C"), (CardOf 'T9-B' "status: todo`nsuperseded_by: T9-C")) @((PrOf 1 'MERGED' 'T9-A'), (PrOf 3 'CLOSED' 'T9-B'))) -ceq '' }
+  Check 'audit: a merged card has no drift' { (& $drift (CardOf 'T9-A' 'status: merged') @((PrOf 1 'MERGED' 'T9-A'), (PrOf 2 'CLOSED' 'T9-A'))) -ceq '' }
+  Check 'audit: a PR whose head is another card id does not count' { (& $drift (CardOf 'T9-A' 'status: todo') @((PrOf 1 'MERGED' 'T9-A-X'), (PrOf 2 'CLOSED' 't9-a'))) -ceq '' }
+  Check 'audit: a PR from a fork does not count' { (& $drift (CardOf 'T9-A' 'status: todo') @((PrOf 1 'MERGED' 'T9-A' $true))) -ceq '' }
+  Check 'audit: a card without a status line' { (& $drift (CardOf 'T9-A' 'title: x') @((PrOf 1 'MERGED' 'T9-A'))) -ceq '[CARD-DRIFT-R5-MISSING] T9-A (none) #1' }
+  Check 'audit: merged is compared ordinally' { (& $drift (CardOf 'T9-A' "status: mer$([char]0xAD)ged") @((PrOf 1 'MERGED' 'T9-A'))) -cmatch '^\[CARD-DRIFT-R5-MISSING\] T9-A ' }
+  Check 'audit: drift lines end with the count, exit 1' { $r = Get-PostMergeAuditResult { CardOf 'T9-A' 'status: todo' } { PrOf 1 'MERGED' 'T9-A' }; $r.Code -eq 1 -and ($r.Lines -join '|') -ceq '[CARD-DRIFT-R5-MISSING] T9-A todo #1|[CARD-DRIFT-COUNT] 1' }
+  Check 'audit: no drift is NONE, exit 0' { $r = Get-PostMergeAuditResult { CardOf 'T9-A' 'status: todo' } { }; $r.Code -eq 0 -and ($r.Lines -join '|') -ceq '[CARD-DRIFT-NONE]' }
+  Check 'audit: a gh failure is ERROR, never NONE' { $r = Get-PostMergeAuditResult { CardOf 'T9-A' 'status: todo' } { throw 'gh down' }; $r.Code -eq 2 -and ($r.Lines -join '|') -ceq '[CARD-DRIFT-ERROR] gh down' }
+  Check 'audit: no card read is ERROR' { (Get-PostMergeAuditResult { } { }).Code -eq 2 }
+
+  $rc = "---`nid: T9-DEMO`nstatus: todo`nbranch: T9-DEMO`n---`n`nstatus: todo`n"
+  $retired = "---`nid: T9-DEMO`nstatus: merged`nsuperseded_by: T9-B`nbranch: T9-DEMO`n---`n`nstatus: todo`n"
+  Check 'retire: status merged, one superseded_by after it, body untouched' { (Set-PostMergeCardStatus $rc 'T9-B') -ceq $retired }
+  Check 'retire: a CRLF card keeps CRLF' { (Set-PostMergeCardStatus ($rc -replace "`n", "`r`n") 'T9-B') -ceq ($retired -replace "`n", "`r`n") }
+  $refuse = { param($card, $sup, $prs) Get-PostMergeRetireRefusal 'T9-DEMO' $sup $card @('T9-DEMO', 'T9-B') @($prs) }
+  Check 'retire: a todo card with a known successor and only a closed PR goes ahead' { (& $refuse $rc 'T9-B' @((PrOf 1 'CLOSED' 'T9-DEMO'))) -ceq '' }
+  foreach ($c in @(@('a card not in specs/tasks/', '', 'T9-B', @()), @('a merged card', "---`nstatus: merged`n---`n", 'T9-B', @()),
+      @('a card with superseded_by', "---`nstatus: todo`nsuperseded_by: T9-C`n---`n", 'T9-B', @()), @('an empty superseded_by line', "---`nstatus: todo`nsuperseded_by:`n---`n", 'T9-B', @()),
+      @('an open PR', $rc, 'T9-B', @((PrOf 2 'OPEN' 'T9-DEMO'))),
+      @('an unknown successor', $rc, 'T9-Z', @()), @('the card as its own successor', $rc, 'T9-DEMO', @()), @('no successor', $rc, '', @()))) {
+    Check "retire: refuses $($c[0])" { (& $refuse $c[1] $c[2] $c[3]) -cne '' }
+  }
+  $newRc = Add-PostMergeCardSection $retired "## Retired`n`nby T9-B"
+  $rPaths = @('docs/TASK-BOARD.md', 'specs/tasks/T9-DEMO.md')
+  $judge = { param($paths, $files, $new) @(Get-PostMergeRetireScopeIssues 'T9-DEMO' 'T9-B' $paths @($files) $rc $new).Count }
+  Check 'retire judge: the A2 shape passes' { (& $judge $rPaths @($okBoard, $okCard) $newRc) -eq 0 }
+  Check 'retire judge: a CLAUDE.md change' { (& $judge ($rPaths + 'CLAUDE.md') @($okBoard, $okCard, $okClaude) $newRc) -gt 0 }
+  Check 'retire judge: a second card' { (& $judge ($rPaths + 'specs/tasks/T9-B.md') @($okBoard, $okCard, (FileOf 'specs/tasks/T9-B.md' @())) $newRc) -gt 0 }
+  Check 'retire judge: another board row' { (& $judge $rPaths @((FileOf 'docs/TASK-BOARD.md' @(Hunk 2 1 2 1 @('| W0 | T9-OTHER | d | x |') @('| W0 | T9-OTHER | d | y |'))), $okCard) $newRc) -gt 0 }
+  Check 'retire judge: a further front-matter edit' { (& $judge $rPaths @($okBoard, $okCard) ($newRc -creplace 'branch: T9-DEMO', 'branch: T9-X')) -gt 0 }
+  Check 'retire judge: a body edit' { (& $judge $rPaths @($okBoard, $okCard) ($newRc -creplace '\n\nstatus: todo', "`n`nstatus: done")) -gt 0 }
+
   # Loaded last, so no earlier case runs with the libraries in scope. The defect text is single-quoted: a
   # double-quoted string would put its variable into this file's own AST.
   . (Join-Path $PSScriptRoot '_guard.ps1'); . (Join-Path $PSScriptRoot '_ci.ps1')
+  Check 'gh repo: an origin with a token in it gives host/owner/repo' { (Get-PostMergeGhRepo 'https://Asun28:ghp_FAKE@github.com/Asun28/MyInspection.git') -ceq 'github.com/asun28/myinspection' }
+  Check 'gh repo: an origin off github.com is refused without echoing it' { try { Get-PostMergeGhRepo 'https://tok_FAKE@evil.example/github.com/o/r' | Out-Null; $false } catch { $_.Exception.Message.StartsWith('[POST-MERGE-INPUT]') -and -not $_.Exception.Message.Contains('tok_FAKE') } }
   Check 'wiring: every command, parameter and Scaffold* variable in this file resolves' { $w = @(Get-PostMergeWiringIssues ([IO.File]::ReadAllText($PSCommandPath))); if ($w.Count) { throw "unresolved: $($w -join ', ')" }; $true }
   $broken = @()
   Check 'wiring: the check runs on a script text' { $script:pmBroken = @(Get-PostMergeWiringIssues 'Get-PostMergeNope; Invoke-PostMergeR9; Write-Host -Nope 1; $ScaffoldNope; $script:scaffoldLower'); $true }
@@ -476,18 +593,62 @@ function Invoke-PostMergePrune([string[]]$Names) {
   if ($failed) { throw "[POST-MERGE-PRUNE-FAIL] $failed branch(es) could not be deleted" }
 }
 
-function Invoke-PostMergeR5 {
+# gh follows the caller's directory, GH_REPO and GH_HOST, so every command pins GH_REPO to origin's repository on
+# github.com. The refusal leaves the URL out, because an origin URL can carry a token.
+function Get-PostMergeGhRepo([string]$Url) {
+  $id = Get-ScaffoldRemoteIdentity $Url
+  if (-not $id) { throw '[POST-MERGE-INPUT] origin is not a github.com repository that gh can be pinned to' }
+  return "github.com/$id"
+}
+function Set-PostMergeGhRepo { $env:GH_REPO = Get-PostMergeGhRepo (@(Invoke-PostMergeNative 'git remote get-url' { git -C $RepoRoot remote get-url origin })[-1]) }
+
+# audit pins the tip of origin's <Base> with ls-remote and fetches it without writing a ref, a tag, FETCH_HEAD or maintenance:
+# the fetched objects that A1's "freshly fetched" needs are its only write. Then it reads every card at that one
+# commit and every PR of origin's repository. The pure part decides the lines and the exit code.
+function Invoke-PostMergeAudit {
+  $r = Get-PostMergeAuditResult {
+    Assert-PersonalAccount -RepoRoot $RepoRoot -CheckRemote; Set-PostMergeGhRepo
+    $oid = ("$(@(Invoke-PostMergeNative 'git ls-remote' { git -C $RepoRoot ls-remote origin "refs/heads/$Base" })[0])" -split "`t")[0]
+    if ($oid -cnotmatch '^[0-9a-f]{40}$') { throw "origin has no branch $Base" }
+    Invoke-PostMergeNative "git fetch origin $Base" { git -C $RepoRoot fetch --no-write-fetch-head --refmap= --no-tags --no-prune --no-recurse-submodules --no-auto-maintenance origin "refs/heads/$Base" } | Out-Null
+    foreach ($p in @(Invoke-PostMergeNative 'git ls-tree' { git -C $RepoRoot ls-tree --name-only $oid specs/tasks/ })) {
+      if ($p -cmatch '^specs/tasks/(T\d+-[A-Z0-9]+(?:-[A-Z0-9]+)*)\.md$') { [pscustomobject]@{ Id = $Matches[1]; Text = (Invoke-PostMergeNative "git show $p" { git -C $RepoRoot show "${oid}:$p" }) -join "`n" } }
+    }
+  } {
+    $prs = @((Invoke-PostMergeNative 'gh pr list' { gh pr list --state all --limit 5000 --json number,state,headRefName,isCrossRepository }) -join "`n" | ConvertFrom-Json)
+    if ($prs.Count -ge 5000) { throw 'gh pr list reached its 5000 limit, so the list may be incomplete' }
+    $prs
+  }
+  $r.Lines | ForEach-Object { Write-Host $_ }
+  exit $r.Code
+}
+
+# retire's refusals, read from the base commit and gh before anything is created.
+function Assert-PostMergeRetire([string]$BaseOid) {
+  $paths = @(Invoke-PostMergeNative 'git ls-tree' { git -C $RepoRoot ls-tree -r --name-only $BaseOid -- specs/tasks specs/archive/tasks })
+  $card = ''
+  if ([Array]::IndexOf([string[]]$paths, "specs/tasks/$TaskId.md") -ge 0) { $card = (Invoke-PostMergeNative "git show $TaskId" { git -C $RepoRoot show "${BaseOid}:specs/tasks/$TaskId.md" }) -join "`n" }
+  $ids = @($paths | ForEach-Object { if ($_ -cmatch '^specs/(?:archive/)?tasks/(T\d+-[A-Z0-9]+(?:-[A-Z0-9]+)*)\.md$') { $Matches[1] } })
+  $prs = @((Invoke-PostMergeNative "gh pr list --head $TaskId" { gh pr list --state open --head $TaskId --json number,state,headRefName }) -join "`n" | ConvertFrom-Json)
+  $why = Get-PostMergeRetireRefusal $TaskId $SupersededBy $card $ids $prs
+  if ($why) { throw "[POST-MERGE-RETIRE-REFUSED] $why" }
+}
+
+# r5 and retire share this path; retire checks its refusals first, skips CLAUDE.md and has its own allowlist judge.
+function Invoke-PostMergeR5([string]$Kind = 'r5') {
   if ($TaskId -cnotmatch '^T\d+-[A-Z0-9]+(-[A-Z0-9]+)*$') { throw "[POST-MERGE-INPUT] -TaskId '$TaskId' is not a card id" }
   $in = @{}
-  foreach ($name in @('BoardStatusFile', 'StageEntryFile', 'CardNoteFile')) {
+  $names = @('BoardStatusFile', 'CardNoteFile'); if ($Kind -ceq 'r5') { $names += 'StageEntryFile' }
+  foreach ($name in $names) {
     $p = [string](Get-Variable -Name $name -ValueOnly)
     if (-not $p -or -not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "[POST-MERGE-INPUT] -$name must name an existing file" }
     $in[$name] = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $p).Path)
   }
-  Assert-PersonalAccount -RepoRoot $RepoRoot -CheckRemote
-  $branchName = "r5-$TaskId"
+  Assert-PersonalAccount -RepoRoot $RepoRoot -CheckRemote; Set-PostMergeGhRepo
+  $branchName = "$Kind-$TaskId"
   Invoke-PostMergeNative "git fetch origin $Base" { git -C $RepoRoot fetch origin $Base } | Out-Null
   $baseOid = @(Invoke-PostMergeNative 'git rev-parse' { git -C $RepoRoot rev-parse "refs/remotes/origin/$Base" })[-1].Trim()
+  if ($Kind -ceq 'retire') { Assert-PostMergeRetire $baseOid }
   if (& git -C $RepoRoot rev-parse --verify --quiet "refs/heads/$branchName") { throw "[POST-MERGE-BRANCH-EXISTS] local branch $branchName already exists" }
   if (@(Invoke-PostMergeNative 'git ls-remote' { git -C $RepoRoot ls-remote origin "refs/heads/$branchName" }).Count) { throw "[POST-MERGE-BRANCH-EXISTS] remote branch $branchName already exists" }
   $wt = Join-Path (Get-ScaffoldWorktreeRoot) $branchName
@@ -497,18 +658,23 @@ function Invoke-PostMergeR5 {
   try {
     $cardFile = Join-Path $wt "specs/tasks/$TaskId.md"
     if (-not (Test-Path -LiteralPath $cardFile)) { throw "[POST-MERGE-ANCHOR] specs/tasks/$TaskId.md is not on origin/$Base" }
-    Update-PostMergeFile $cardFile { param($t) Add-PostMergeCardSection (Set-PostMergeCardStatus $t) $in.CardNoteFile }
+    $oldCard = [IO.File]::ReadAllText($cardFile)
+    Update-PostMergeFile $cardFile { param($t) Add-PostMergeCardSection (Set-PostMergeCardStatus $t $SupersededBy) $in.CardNoteFile }
     Update-PostMergeFile (Join-Path $wt 'docs/TASK-BOARD.md') { param($t) Set-PostMergeBoardStatus $t $TaskId $in.BoardStatusFile.Trim() }
-    Update-PostMergeFile (Join-Path $wt 'CLAUDE.md') { param($t) Add-PostMergeStageEntry $t $in.StageEntryFile }
+    if ($Kind -ceq 'r5') { Update-PostMergeFile (Join-Path $wt 'CLAUDE.md') { param($t) Add-PostMergeStageEntry $t $in.StageEntryFile } }
+    $title = "docs: R5 sync for $TaskId"; $what = "the card file, the card's ``docs/TASK-BOARD.md`` row, and lines added under ``$($script:StageHeading)`` in ``CLAUDE.md`` (user ruling 2026-09-25, ``T0-POST-MERGE-DOCS-PR``)"
+    if ($Kind -ceq 'retire') { $title = "docs: retire $TaskId, superseded by $SupersededBy"; $what = "the card's status set to merged with one superseded_by line, a section appended to the card, and the card's ``docs/TASK-BOARD.md`` row (``T0-POST-MERGE-CARD-DRIFT``)" }
     $msg = Join-Path $wt '.git-post-merge-msg'
-    [IO.File]::WriteAllText($msg, "docs: R5 sync for $TaskId`n`nCard status to merged, its docs/TASK-BOARD.md row, and a CLAUDE.md current-stage entry.`nOpened by scripts/post-merge.ps1 r5 and merged on CI alone inside the direct-merge`nallowlist (T0-POST-MERGE-DOCS-PR).`n", [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($msg, "$title`n`nOpened by scripts/post-merge.ps1 $Kind and merged on CI alone inside its direct-merge allowlist:`n$($what.Replace('`', '')).`n", [Text.UTF8Encoding]::new($false))
     try {
       Invoke-PostMergeNative 'git add' { git -C $wt add -- "specs/tasks/$TaskId.md" 'docs/TASK-BOARD.md' 'CLAUDE.md' } | Out-Null
       Invoke-PostMergeNative 'git commit' { git -C $wt commit -q -F $msg } | Out-Null
     } finally { Remove-Item -LiteralPath $msg -ErrorAction SilentlyContinue }
     $paths = @(Invoke-PostMergeNative 'git diff --name-only' { git -C $wt -c core.quotepath=false diff --name-only --no-renames $baseOid HEAD })
     $diff = (Invoke-PostMergeNative 'git diff' { git -C $wt -c core.quotepath=false diff -U0 --no-renames --no-color $baseOid HEAD }) -join "`n"
-    $issues = @(Get-PostMergeScopeIssues $TaskId $paths @(ConvertFrom-PostMergeDiff $diff) ([IO.File]::ReadAllText((Join-Path $wt 'CLAUDE.md'))))
+    $files = @(ConvertFrom-PostMergeDiff $diff)
+    if ($Kind -ceq 'r5') { $issues = @(Get-PostMergeScopeIssues $TaskId $paths $files ([IO.File]::ReadAllText((Join-Path $wt 'CLAUDE.md')))) }
+    else { $issues = @(Get-PostMergeRetireScopeIssues $TaskId $SupersededBy $paths $files $oldCard ([IO.File]::ReadAllText($cardFile))) }
     if ($issues.Count) { throw "[POST-MERGE-SCOPE] $($issues -join '; ')" }
     foreach ($gate in @(@('check-cards.ps1', '-TaskId', $TaskId), @('check-secrets.ps1'))) {
       $gateArgs = @($gate | Select-Object -Skip 1)
@@ -523,8 +689,8 @@ function Invoke-PostMergeR5 {
     $pushAttempted = $true
     Invoke-PostMergeNative 'git push' { git -C $wt push origin "refs/heads/${branchName}:refs/heads/$branchName" } | Out-Null
     $body = Join-Path ([IO.Path]::GetTempPath()) "post-merge-$branchName-$PID.md"
-    [IO.File]::WriteAllText($body, "R5 doc sync for ``$TaskId``, opened by ``scripts/post-merge.ps1 r5``.`n`nIt changes only what the direct-merge allowlist permits (user ruling 2026-09-25, ``T0-POST-MERGE-DOCS-PR``): the card file, the card's ``docs/TASK-BOARD.md`` row, and lines added under ``$($script:StageHeading)`` in ``CLAUDE.md``. It merges once CI passes, without R3.`n", [Text.UTF8Encoding]::new($false))
-    try { $url = @(Invoke-PostMergeNative 'gh pr create' { gh pr create --base $Base --head $branchName --title "docs: R5 sync for $TaskId" --body-file $body })[-1].Trim() }
+    [IO.File]::WriteAllText($body, "$title, opened by ``scripts/post-merge.ps1 $Kind``.`n`nIt changes only what its direct-merge allowlist permits: $what. It merges once CI passes, without R3.`n", [Text.UTF8Encoding]::new($false))
+    try { $url = @(Invoke-PostMergeNative 'gh pr create' { gh pr create --base $Base --head $branchName --title $title --body-file $body })[-1].Trim() }
     finally { Remove-Item -LiteralPath $body -ErrorAction SilentlyContinue }
     if ($url -notmatch '/pull/(\d+)$') { throw "[POST-MERGE-TOOL] gh pr create did not return a PR URL: $url" }
     $pr = [int]$Matches[1]
@@ -560,12 +726,14 @@ if ($SelfCheck) { exit (Invoke-PostMergeSelfCheck) }
 . (Join-Path $PSScriptRoot '_ci.ps1')      # $ScaffoldCiFanInJob, the single name of the CI fan-in check
 try {
   switch ($Command) {
-    'r5' { Invoke-PostMergeR5 }
+    'r5' { if ($SupersededBy) { throw '[POST-MERGE-INPUT] -SupersededBy applies to retire only' }; Invoke-PostMergeR5 }
+    'retire' { Invoke-PostMergeR5 'retire' }
+    'audit' { Invoke-PostMergeAudit }
     'prune' {
-      if ($DryRun) { throw '[POST-MERGE-INPUT] prune has no preview: -DryRun applies to r5 only, and nothing was pruned' }
-      Assert-PersonalAccount -RepoRoot $RepoRoot -CheckRemote; Invoke-PostMergePrune $Branch
+      if ($DryRun) { throw '[POST-MERGE-INPUT] prune has no preview: -DryRun applies to r5 and retire only, and nothing was pruned' }
+      Assert-PersonalAccount -RepoRoot $RepoRoot -CheckRemote; Set-PostMergeGhRepo; Invoke-PostMergePrune $Branch
     }
-    default { Write-Host 'usage: post-merge.ps1 r5 -TaskId <id> -BoardStatusFile <f> -StageEntryFile <f> -CardNoteFile <f> [-DryRun] | prune -Branch <b>[,<b>...] | -SelfCheck' -ForegroundColor Yellow; exit 2 }
+    default { Write-Host 'usage: post-merge.ps1 r5 -TaskId <id> -BoardStatusFile <f> -StageEntryFile <f> -CardNoteFile <f> [-DryRun] | retire -TaskId <id> -SupersededBy <id> -BoardStatusFile <f> -CardNoteFile <f> [-DryRun] | audit | prune -Branch <b>[,<b>...] | -SelfCheck' -ForegroundColor Yellow; exit 2 }
   }
 } catch {
   Write-Host $_.Exception.Message -ForegroundColor Red

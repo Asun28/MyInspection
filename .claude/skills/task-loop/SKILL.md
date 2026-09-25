@@ -21,6 +21,7 @@ description: >-
 - **动第一个文件前先读卡的邻域**：`depends_on` 卡（活卡或 `specs/archive/tasks/`）、`allow_paths` 下的现有文件及其测试，
   再 `lessons.ps1 search` 卡片关键词。Opus 5.5 倾向于直接开干，卡写得松时尤其要先读后写（依据：
   `docs/references/claude-opus-5-5-prompting-llms.txt`「多应用工作流：先探索再动手」）。读是为了改对，不是扩范围。
+- **开新卡前先跑 `pwsh -NoProfile -File scripts\post-merge.ps1 audit`**（不写 ref，只往对象库添加抓取到的对象）：本会话自己交付的卡报了漂移就当场补上（`[CARD-DRIFT-R5-MISSING]` 走 `post-merge.ps1 r5`，`[CARD-DRIFT-CLOSED]` 走 `post-merge.ps1 retire`），其余的报告给用户，不替别的会话改。退出 2 是读取失败，不等于没有漂移。
 - 遵守卡片 `allow_paths` / `forbid`；不发明字段。**所有编辑都在 `<WorktreeRoot>\<id>` 工作树内**，不动主检出。
   （WorktreeRoot 见 scripts/_config.ps1；留空则按 OS 自动取默认：Windows `<系统盘>\wt`（如 `C:\wt`）/ macOS·Linux `~/.wt`。）
 
@@ -57,8 +58,9 @@ Opus 5.5 在长的多段任务里会边做边汇报，其中一些汇报以纯�
 本闭环正是多相位的长任务，按下面判断何时结束回合（依据：`docs/references/claude-opus-5-5-prompting-llms.txt`「无人值守 agentic 运行」）。
 - **完成条件**：一张卡只在这些都成立时才算做完：`ship` 退出 0 且合并落地、R5 文档同步已提交、`cleanup` 退出 0、R5.5 复盘已入账或显式跳过。
   开工时把 R1–R5.5 列进 todo 工具（跨会话用 planning-with-files 三件套），每过一个相位更新一次。
-- **不该停的四种**：① 写一段总结、宣布下一相位却不执行；② 「如无异议我就继续」式的征询；③ 列一串待用户决定的事，而按自己的判断没有一项挡住后续工作；
-  ④ 因回合已长、或刚过一个里程碑（DoD 绿、PR 开出）就停下汇报。状态说明与建议照写，但和下一次工具调用放在同一条消息里，先做不依赖用户答复的部分。
+  PR 未合并就关闭的卡（拆分、被取代、用户退役）用 `post-merge.ps1 retire -TaskId <id> -SupersededBy <id> -BoardStatusFile <f> -CardNoteFile <f>` 收尾（status 置 merged 并加 superseded_by），不留在 todo；retire 必须指定接替它的卡，没有接替卡的交给用户裁定。
+- **不该停的五种**：① 写一段总结、宣布下一相位却不执行；② 「如无异议我就继续」式的征询；③ 列一串待用户决定的事，而按自己的判断没有一项挡住后续工作；
+  ④ 因回合已长、或刚过一个里程碑（DoD 绿、PR 开出）就停下汇报；⑤ 走 PR 的 `ship` 退出 0、合并落地就收尾：合并是 R5 的起点，同一回合接着跑 `post-merge.ps1 r5`、`cleanup` 与 R5.5。状态说明与建议照写，但和下一次工具调用放在同一条消息里，先做不依赖用户答复的部分。
 - **该停的**：下一步离不开用户时——CLAUDE.md「执行边界」要求先停下确认的动作；上方「ship 路由」的 `[BASE-AHEAD-OF-ORIGIN]`；
   `[R3-ROUND-CAP]` 或同一争点两轮互不认可（转人裁）；
   卡片的 `allow_paths` 或验收要改、需要用户裁定；外部失败（如评审配额）确诊后需要授权的回退；受保护的闸或钩子拒绝（如 `L86-WT`、

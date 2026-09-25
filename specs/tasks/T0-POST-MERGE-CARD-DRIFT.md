@@ -73,3 +73,33 @@ covering the cards whose PR never merges.
 (`post-merge.ps1` and the task-loop skill). `T0-POST-MERGE-LESSONS` edits them too; whichever of the two starts second
 rebases on the other. Estimate: about 280 changed lines (audit about 70, retire about 60 by sharing r5's tail, SelfCheck
 cases about 90, skill and workflow text about 15, this card's R5 note about 45).
+
+## Evidence (A6, R4)
+
+Runs on 2026-09-25/26 with the candidate `scripts/post-merge.ps1` in the card worktree, SHA-256 `B79E55439750EA3D3693C9A64D7F6A301CC07C70D29B374A44AF3FAA5CA4BF76`, except the first audit run, which used an earlier version.
+
+- **Live audit.** Earlier version, origin/master `f1d3273a`: `[CARD-DRIFT-R5-MISSING] T0-CLAUDE-MD-L360-TD190 todo #411`, `[CARD-DRIFT-COUNT] 1`, exit 1. #411 had merged minutes earlier in another session, so this card reported it and left it alone. The SHA above, origin/master `6959caf9`, run from a directory outside the repo with `GH_REPO=cli/cli`: `[CARD-DRIFT-NONE]`, exit 0, and `git for-each-ref`, `FETCH_HEAD` and `packed-refs` were unchanged. In a throwaway clone whose `origin/master` was set 5 commits behind the remote, audit left that ref at the old commit and created no `FETCH_HEAD`. That audit output cannot show the gh pin, because origin has no drift to find; the pin is shown by `Set-PostMergeGhRepo` turning `GH_REPO=cli/cli` into `github.com/asun28/myinspection`, after which `gh pr list` returned a MyInspection PR.
+- **The measurement above, replayed.** The seven R5-MISSING cards had been settled by other sessions since `0cf55f83`. `Get-PostMergeCardDrift` at the SHA above, on the cards of `0cf55f83` with the PR list of 2026-09-26, reports those seven, the two CLOSED cards, and `T0-POST-MERGE-R5-GUARDS` (#398) and `T1-LOCAL-DATA-SECURITY` (#394), whose PRs merged after that measurement.
+- **retire, live.** Refused with `[POST-MERGE-RETIRE-REFUSED]`, exit 1, leaving no branch or worktree: a merged card (`T0-POST-MERGE-R5-GUARDS`), an open PR (#321), an unknown successor (`T0-NOPE`). `retire -DryRun` on `T0-POST-MERGE-LESSONS` built the A2 shape (status merged, `superseded_by` after it, an appended section, the card's board row), passed check-cards and check-secrets, and pushed nothing. `r5 -DryRun` on the same card still changes CLAUDE.md, the card and the row; `r5 -SupersededBy` stops with `[POST-MERGE-INPUT]`.
+- **R4.** SelfCheck 115 cases, baseline pass. 26 single-statement mutants, 26 killed by the case named below. The runner first rewrote the unmutated file through its own write path and got identical bytes and a pass; a mutant that failed to parse would have counted as void; 26 executed of 26 declared; the file was restored to the SHA above.
+
+| Mutant | Case that failed |
+|---|---|
+| count an OPEN PR as absent | audit: an open PR suppresses both kinds |
+| ignore superseded_by | audit: superseded_by suppresses both kinds |
+| report NONE when gh fails | audit: a gh failure is ERROR, never NONE |
+| drop the superseding-card existence check | retire: refuses an unknown successor |
+| let retire's judge accept a CLAUDE.md change | retire judge: a CLAUDE.md change |
+| insert superseded_by without setting the status | retire: status merged, one superseded_by after it, body untouched |
+| count a fork PR | audit: a PR from a fork does not count |
+| compare the head branch without case | audit: a PR whose head is another card id does not count |
+| judge a merged card; compare merged by culture | audit: a merged card has no drift; audit: merged is compared ordinally |
+| accept an empty card list; print an empty status | audit: no card read is ERROR; audit: a card without a status line |
+| retire ignores an open PR / a merged card / superseded_by | retire: refuses an open PR / a merged card / a card with superseded_by |
+| treat an empty superseded_by as absent | retire: refuses an empty superseded_by line |
+| retire accepts the card as its own successor / a card not on the base | retire: refuses the card as its own successor / a card not in specs/tasks/ |
+| retire judge skips the card text / the board rule | retire judge: a further front-matter edit / another board row |
+| read front-matter fields past the closing `---` | audit: a merged PR on a todo card is R5-MISSING |
+| take the oldest PR; drop the count line | audit: closed PRs alone are CLOSED; audit: drift lines end with the count, exit 1 |
+| accept an origin off github.com; echo the origin URL | gh repo: an origin off github.com is refused without echoing it |
+| drop the host from GH_REPO | gh repo: an origin with a token in it gives host/owner/repo |
