@@ -519,3 +519,12 @@ Replay code SHA `FA40F78C50CACC0588F5E2859BB4275B94149CA664881271028BD68D9C7FF41
 ## Reconcile note (2026-09-24)
 
 The 2026-09 local/origin reconcile merge is not this card's publication merge. As the section above records, the publication review blocked at `c6a22b07` and no publication merge happened; `status: merged` here reflects local master's card state and does not record a completed publication, which remains open.
+
+## Closed without publication (2026-09-25)
+
+PR #323 was closed unmerged on 2026-09-25 by user decision. Round-2 R3 on its head `e0ec8ca5` blocked with findings that
+are still open, and the round cap was reached. `publication_guard` also no longer passes: reconcile commit `13735e06`
+touched this card after the approved authority commit `eb12b4af`, so finishing would need those fixes plus a new root
+decision and approval. Nothing was published; the retained proof stays under `_local/`. The card keeps the
+`status: merged` it received in the reconcile, so it counts as closed, but that status records no publication.
+`T3-PDF-MEASUREMENT-REQUESTS` was marked merged on the strength of its own DoD, rerun on origin/master `8146d794`.
