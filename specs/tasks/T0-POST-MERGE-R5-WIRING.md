@@ -1,7 +1,7 @@
 ---
 id: T0-POST-MERGE-R5-WIRING
 title: post-merge.ps1 -SelfCheck checks the commands, parameters and variables its plumbing uses
-status: todo
+status: merged
 depends_on: [T0-POST-MERGE-R5-BOARD-TABLE]
 parallelizable_with: []
 allow_paths:
@@ -78,3 +78,15 @@ R3: Opus 5.5 through `ReviewCommand` instead of Codex (user ruling 2026-09-25).
 | W12 | `$u -like 'Scaffold*'` | `$u -clike 'Scaffold*'` | wiring: a scoped lower-case Scaffold* variable is checked |
 | W13 | `$u = $v.VariablePath.UserPath -replace '^(global\|local\|private\|script\|using):', ''` | `$u = $v.VariablePath.UserPath` | wiring: a scoped lower-case Scaffold* variable is checked |
 | W14 | `'r5' { Invoke-PostMergeR5 }` | `'r5' { Invoke-PostMergeR5Renamed }` | wiring: every command, parameter and Scaffold* variable in this file resolves |
+
+## R5
+
+- Merged by PR #396 as `af554598` (reviewed head `ea0db4c0`; the merged tree equals the reviewed tree). CI run
+  `36119448202` succeeded, and the tier-1 selftest passed on the final head (`[SELFTEST-TIER-PASS]`, gates 1, 2, 7,
+  10, 11, 13, 14, 16).
+- R3: Opus 5.5 through `ReviewCommand` (user ruling 2026-09-25), run the same way as for
+  `T0-POST-MERGE-R5-BOARD-TABLE`: the ship's own R3 leg stopped before invoking a reviewer, then the control
+  checkout's `review.ps1`, identical to the base blob, reviewed PR #396 with `-PostStatus`. Pass, no finding on either
+  axis (13 turns, 12 tool calls, full transcript kept). The reviewer had no shell; the ship's DoD gate ran the
+  SelfCheck. One of its non-blocking notes was that the mutation table above follows a list item with no blank line
+  between them; that line is fixed in a later docs PR.
