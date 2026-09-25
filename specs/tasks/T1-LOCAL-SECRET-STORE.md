@@ -15,6 +15,7 @@ forbid:
 non_goals:
   - The Android Keystore adapter, the unlock port and the device probe (T1-LOCAL-DATA-SECURITY); production assembly (T1-APP-BOUNDARY-ASSEMBLY)
   - Removing a temporary file that a killed process left between writing it and the move (it holds ciphertext only, at most one envelope in size); fsync of the directory after the move
+  - Routing EnvelopeStoreException.stage and cleanupFailed into SafeLog: that needs a SafeLog operation outside allow_paths, and belongs to the first caller that logs store failures (T5-BACKUP-IO) [FOLLOW-UP]
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest :app:assembleDebug
 dod_exit: 0
 dod_assert: The app JVM suite and assembleDebug pass, and build/test-results for testDebugUnitTest contains LocalSecretEnvelopeStoreTest with every A1-A3 test present and passing. On the base the test class does not compile (the store does not exist), so the command exits non-zero. LocalSecretBoxTest and the existing platform tests stay green.
@@ -26,7 +27,7 @@ acceptance:
   - "A2 [R1] After the secret-envelope directory is replaced by an alias (the StoragePathFixture junction) that leaves the root, the next read and the next replace fail, and nothing is written through the alias."
   - "A3 [R2] A failed move (the target name is a non-empty directory) fails with an IOException whose message is exactly `secret envelope store failed` and whose cause is null, deletes its temporary file and leaves that directory intact; the A2 failures carry the same message and no cause."
 review_gate: codex {verdict:pass}
-budget: 300
+budget: 400
 hygiene: R4 single-point mutants, each killed by a named test and recorded in a trailing R4 receipt comment in LocalSecretEnvelopeStoreTest.kt with the production-file SHA-256 - location cached at construction, read cap enlarged, absent read raising, envelope file name changed, temporary-file cleanup removed, direct in-place write instead of temp file and move, redaction removed, original exception kept as the cause. Compile-only kills do not count.
 doc_sync: TASK-BOARD row (R5)
 ---
@@ -42,8 +43,12 @@ User ruling 2026-09-25: the fresh-context pre-review of `T1-LOCAL-SECRET-BOX` ad
 - `LocalSecretEnvelopeStore(policy: AppStoragePolicy) : SecretEnvelopeFiles` (the port and `MAX_ENVELOPE_BYTES` come from T1-LOCAL-SECRET-BOX).
 - Read uses a bounded loop instead of `InputStream.readNBytes`, which Android adds only at API 33 (minSdk is 26).
 - Every public call wraps ordinary exceptions into `IOException("secret envelope store failed")` without a cause. `LocalSecretBox` already discards store exceptions; this keeps the store safe for any other caller.
+- Replace goes through an internal `EnvelopeFileOperations` seam (sync, move, delete), so tests can record that the temporary file is synced after its bytes are written and then moved with `ATOMIC_MOVE`, and can inject failures; the platform object is tested directly.
+- Failures are an internal `EnvelopeStoreException`: the message is exactly `secret envelope store failed`, with no cause and no suppressed exceptions, a closed `stage` (LOCATE, READ, WRITE, MOVE) and `cleanupFailed` when a failed replace could not delete its temporary file.
 - One writer at a time is assumed: the temporary file name is unpredictable, and two concurrent replaces of the same purpose leave whichever move ran last.
 
 ## Budget
 
 About 180 changed lines with the receipt; `budget: 300`.
+
+2026-09-25 user ruling: raised to `budget: 400`. Codex R3 round 1 blocked on one spec finding (the sync and the atomic move were not shown by any test) and two standards findings (an unchecked temporary-file delete; failures without a closed, path-free stage code). The fixes and the tests a fresh-context review asked for measure about 355 lines.
