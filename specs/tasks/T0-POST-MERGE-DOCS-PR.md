@@ -61,20 +61,65 @@ the same pattern.
 - Change: a new `scripts/post-merge.ps1` with `r5`, `prune` and `-SelfCheck`. `CLAUDE.md`'s R5 bullet names the
   script, and its execution boundary records the prune exception and the direct-merge scope (A6). The task-loop
   skill's R5 step and the post-merge command block in `docs/DEVOPS-WORKFLOW.md` point at it.
-- RED (A5): the SelfCheck was written first against one-line stubs. `task.ps1 -Phase red` exited 1, with all 42
-  cases then present failing on their own assertions. A first attempt crashed on a stub called outside a case; that
-  was fixed before the receipt was taken.
-- GREEN: `-SelfCheck` passes 45 cases and prints `[POST-MERGE-SELF-CHECK-PASS]`.
-- R4 (A5): 29 single-statement mutants (M1 to M26, plus M16b, M18b and M18c) cover the guards in A1, A2 and A4.
-  Each one made `-SelfCheck` exit 1 by failing the case named for it, and none failed by a parse error. The file was
-  restored and its SHA-256 checked after each mutant; the final bytes are SHA-256
-  `DAF7CE2E03990365CD8EC94A8C1F79C1612839694453B283FDBDAAF980FB68B5`. An earlier batch was void, because the
-  runner wrote a second BOM and every mutant died of a parse error. The runner now starts with a control run,
-  which must reproduce the file byte for byte and pass.
+- RED (A5): the SelfCheck was written first against one-line stubs. `task.ps1 -Phase red` exited 1, and the
+  SelfCheck printed `[POST-MERGE-SELF-CHECK-FAIL] 42 of 42 cases failed`, each on its own assertion. A first
+  attempt crashed on a stub called outside a case; that was fixed before the receipt was taken.
+- GREEN: `-SelfCheck` passes 60 cases and prints `[POST-MERGE-SELF-CHECK-PASS]`.
+- R4 (A5): 42 single-statement mutants, listed below with the line each changes in the final file (SHA-256
+  `71A21B8EB65CF3175A122CC51B7A362E037D561DD49DD47250234390E6875128`). Each made `-SelfCheck` exit 1 by failing
+  the case named for it, and none failed by a parse error. The file was restored and its SHA-256 checked after
+  each. The runner first rewrites the unmutated file through the same write path and requires identical bytes
+  and a passing SelfCheck; an earlier batch without that control was void, because it wrote a second BOM.
+
+| id | line | mutation | killing case |
+|---|---|---|---|
+| M1 | 50 | loop bound `$end` → `$lines.Count` | card: front-matter status becomes merged |
+| M2 | 51 | condition → `$false` | card: two status lines |
+| M3 | 52 | condition → `$false` | card: already merged |
+| M4 | 46 | condition → `$false` | card: a later --- rule is not front matter |
+| M5 | 49 | condition → `$false` | card: front matter not closed |
+| M6 | 68 | ordinal equality → `StartsWith` | board: a longer id is not the card row |
+| M7 | 68 | `Ordinal` → `OrdinalIgnoreCase` | board: the id cell is compared exactly |
+| M8 | 72 | condition → `$false` | board: status with a pipe |
+| M9 | 76 | condition → `$false` | board: two rows |
+| M10 | 91 | condition → `$false` | stage: heading twice |
+| M11 | 87 | condition → `$false` | stage: entry with a heading line |
+| M12 | 111 | drop `$null -eq $hunk -and` | diff: a removed line starting with -- is content, not a header |
+| M13 | 133 | condition → `$false` | scope: nothing changed |
+| M14 | 135 | condition → `$false` | scope: a path outside the allowlist |
+| M15 | 135 | `Ordinal` → `OrdinalIgnoreCase` | scope: path case is compared exactly |
+| M16 | 139 | condition → `$false` | scope: another card's board row |
+| M16b | 139 | delete both count checks | scope: an extra board row |
+| M17 | 148 | condition → `$false` | scope: a CLAUDE.md line removed |
+| M18 | 149 | condition → `$false` | scope: a CLAUDE.md line added outside the section |
+| M18b | 149 | delete the `-ge $next` half | scope: a CLAUDE.md line added outside the section |
+| M18c | 149 | delete the `-le $heads[0]` half | scope: a line added above the heading |
+| M19 | 144 | condition → `$false` | scope: CLAUDE.md without the stage heading |
+| M20 | 162 | condition → `$false` | prune: an open PR is kept |
+| M21 | 163 | condition → `$false` | prune: a moved tip is kept |
+| M22 | 160 | condition → `$false` | prune: two PRs are kept |
+| M23 | 159 | condition → `$false` | prune: no PR is kept |
+| M24 | 157 | condition → `$false` | prune: no remote branch is kept |
+| M25 | 158 | condition → `$false` | prune: a short tip is kept |
+| M26 | 58 | condition → `$false` | card: section without a heading |
+| M27 | 66 | condition → `$false` | board: a prose line carrying the id is not a row |
+| M28 | 68 | delete `$cells.Count -ge 3 -and` | board: a two-cell row is not a row |
+| M29 | 139 | delete `$rem.Count -ne 1 -or` | scope: two rows removed and one added |
+| M30 | 139 | delete `$add.Count -ne 1 -or` | scope: an extra board row |
+| M31 | 139 | delete the `$rem[0]` row check | scope: another card's row rewritten into this card's row |
+| M32 | 139 | delete the `$add[0]` row check | scope: this card's row rewritten into another card's row |
+| M33 | 149 | `-ge $next` → `-gt $next` | scope: an added line that is the next heading |
+| M34 | 191 | also accept NEUTRAL and SKIPPED | ci: a NEUTRAL fan-in check is not success |
+| M35 | 201 | condition → `$false` | ci: a failed ci.yml run is failure |
+| M36 | 199 | drop the `headSha` filter | ci: a run for another commit is ignored |
+| M37 | 200 | drop `status -ceq 'completed'` | ci: an in-progress run is pending |
+| M38 | 171 | condition → `$false` | ci: a pending CheckRun is not failure |
+| M39 | 177 | state check → always `pending` | ci: a StatusContext ERROR is failure |
+
 - A4 on real GitHub state: `prune` kept a missing branch ("no such remote branch") and the branch of open PR #323
   ("PR #323 is OPEN", tip unchanged). It deleted `register-T0-POST-MERGE-R5-GUARDS` only after PR #366 had
   merged at that tip, and the branch was gone afterwards.
-- A1 to A3 before merge: a development build of this script that had a preview switch built this card's own R5
+- A1 to A3 before merge: a development build of this script with a preview switch built this card's own R5
   change in a fresh worktree from origin. Its diff added two lines under the current-stage heading, changed only
   this card's board row, and changed the card; the allowlist judge, check-cards and check-secrets passed, and the
   worktree and branch were removed. The same build refused an already merged card with `[POST-MERGE-ANCHOR]` and a
@@ -82,9 +127,23 @@ the same pattern.
   PR, CI-wait and merge path runs for the first time on this card's own R5, recorded in its R5 section.
 - Pre-review: DeepSeek V4 Flash round 1 blocked on four points. The user split three of them (the main-table
   board rule, the wiring self-check and a preview switch) into `T0-POST-MERGE-R5-GUARDS`; the fourth, the missing
-  mutation record, is this record.
-- Tier-1 acceptance: `selftest.ps1 -TaskId T0-POST-MERGE-DOCS-PR` from this worktree exited 0 with
-  `[SELFTEST-TIER-PASS] task=T0-POST-MERGE-DOCS-PR tier=1 gates=1,2,3,4,5,7,8,9,10,11,13,14,15,16` (no gate failed,
-  1010.7 s). It ran on `scripts/post-merge.ps1` SHA-256 `DAF7CE2E03990365CD8EC94A8C1F79C1612839694453B283FDBDAAF980FB68B5`
-  and the doc edits as they ship. DeepSeek V4 Flash round 2, given round 1's findings and their dispositions,
-  passed with no findings. Only this record changed in the card after the run.
+  mutation record, is this record. Round 2, given those dispositions, passed with no findings.
+- R3 round 1 (Opus 5.5 through `ReviewCommand`, Codex out of quota) on `4592f31b` blocked on four points and
+  recorded one follow-up; all four were fixed. (1) The mutants named by count only and left guard pieces without a
+  killing case: six cases were added (a prose line carrying the id, a two-cell row, two rows removed and one added,
+  a row rewritten in each direction, an added line that is the next heading) with M27 to M33, and the table above
+  replaced the count. (2) The empty-section guard in `Add-PostMergeCardSection` duplicated the heading check and
+  was deleted. (3) The CI wait read the ci.yml run once, so an unfinished run counted as red after the push, and
+  NEUTRAL or SKIPPED counted as a successful fan-in: `Test-PostMergeFanInSuccess` (exactly SUCCESS) and
+  `Get-PostMergeRunDecision` (pending until a run for the head completes) are now pure and tested (M34 to M39),
+  the run list is polled inside the same deadline, and a failure after the push prints
+  `[POST-MERGE-LEFT-BEHIND]` with the branch and PR. (4) Cleanup failures in r5's finally block were silent: they
+  now print `[POST-MERGE-CLEANUP-FAIL]`, and the comments that claimed every native call is exit-code checked were
+  narrowed. The follow-up (A3's live path has no self-verifying test) is the reason for the R5 record above and for
+  `T0-POST-MERGE-R5-GUARDS`.
+- Tier-1 acceptance on the fixed candidate: `selftest.ps1 -TaskId T0-POST-MERGE-DOCS-PR` from this worktree exited 0
+  with `[SELFTEST-TIER-PASS] task=T0-POST-MERGE-DOCS-PR tier=1 gates=1,2,3,4,5,7,8,9,10,11,13,14,15,16` (no gate failed,
+  1096.3 s) on `scripts/post-merge.ps1` SHA-256 `71A21B8EB65CF3175A122CC51B7A362E037D561DD49DD47250234390E6875128`. An
+  earlier rerun was stopped by the host for low memory before it finished and is not counted. DeepSeek V4 Flash
+  round 3 raised one finding (that M33 survives), which the fixture's line numbers and the mutation log refuted;
+  round 4, given that evidence, passed. Only this record changed in the card after the run.

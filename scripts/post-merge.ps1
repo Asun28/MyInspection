@@ -11,7 +11,7 @@
   prune  Deletes a remote branch only when exactly one PR has it as head, that PR is MERGED, and the remote tip
          still equals the PR's head, using a lease on that tip. Every other state is reported and kept.
   The main checkout's working tree and local master are never touched: r5 works in its own temporary worktree
-  and removes it, with its local branch, at the end.
+  and removes it, with its local branch, at the end; a removal that fails is reported as [POST-MERGE-CLEANUP-FAIL].
 .EXAMPLE
   pwsh -NoProfile -File scripts\post-merge.ps1 r5 -TaskId T0-FOO -BoardStatusFile s.txt -StageEntryFile e.md -CardNoteFile n.md
   pwsh -NoProfile -File scripts\post-merge.ps1 prune -Branch T0-FOO
@@ -55,7 +55,6 @@ function Set-PostMergeCardStatus([string]$CardText) {
 }
 
 function Add-PostMergeCardSection([string]$CardText, [string]$Section) {
-  if ([string]::IsNullOrWhiteSpace($Section)) { throw '[POST-MERGE-INPUT] the R5 section is empty' }
   if ($Section.Trim() -cnotmatch '^## \S') { throw '[POST-MERGE-INPUT] the R5 section must start with a ''## '' heading' }
   $nl = Get-PostMergeNewline $CardText
   return ($CardText.TrimEnd() + $nl + $nl + ($Section.Trim() -replace '\r?\n', $nl) + $nl)
@@ -165,6 +164,45 @@ function Get-PostMergePruneDecision([string]$RemoteTip, [object[]]$Prs) {
   return [pscustomobject]@{ Delete = $true; Oid = $RemoteTip.Trim().ToLowerInvariant(); Reason = "PR #$($p.number) is MERGED at this tip" }
 }
 
+# A CheckRun reports status + conclusion, a commit status reports state; both reduce to success/pending/failure.
+function Get-PostMergeCheckState($Check) {
+  $p = $Check.PSObject.Properties
+  if ($p['status']) {
+    if ([string]$Check.status -cne 'COMPLETED') { return 'pending' }
+    if (@('SUCCESS', 'NEUTRAL', 'SKIPPED') -ccontains [string]$Check.conclusion) { return 'success' }
+    return 'failure'
+  }
+  if ($p['state']) {
+    if ([string]$Check.state -ceq 'SUCCESS') { return 'success' }
+    if (@('PENDING', 'EXPECTED') -ccontains [string]$Check.state) { return 'pending' }
+  }
+  return 'failure'
+}
+
+function Get-PostMergeCheckName($Check) {
+  foreach ($n in @('name', 'context')) { if ($Check.PSObject.Properties[$n]) { return [string]$Check.$n } }
+  return '?'
+}
+
+# The fan-in check must end in exactly SUCCESS: NEUTRAL or SKIPPED is not a pass for the one check that stands
+# for the whole CI run (the ship's CI gate accepts only 'success' too).
+function Test-PostMergeFanInSuccess($Check) {
+  $p = $Check.PSObject.Properties
+  if ($p['status']) { return ([string]$Check.status -ceq 'COMPLETED' -and [string]$Check.conclusion -ceq 'SUCCESS') }
+  if ($p['state']) { return ([string]$Check.state -ceq 'SUCCESS') }
+  return $false
+}
+
+# The ci.yml runs for one head: any completed run that did not succeed is a failure, a succeeded one is success,
+# and anything else (not listed yet, queued, in progress) is still pending. Runs for other commits are ignored.
+function Get-PostMergeRunDecision([object[]]$Runs, [string]$Head) {
+  $mine = @($Runs | Where-Object { [string]$_.headSha -ceq $Head })
+  $bad = @($mine | Where-Object { [string]$_.status -ceq 'completed' -and [string]$_.conclusion -cne 'success' })
+  if ($bad.Count) { return [pscustomobject]@{ State = 'failure'; Id = [string]$bad[0].databaseId } }
+  $ok = @($mine | Where-Object { [string]$_.conclusion -ceq 'success' })
+  if ($ok.Count) { return [pscustomobject]@{ State = 'success'; Id = [string]$ok[0].databaseId } }
+  return [pscustomobject]@{ State = 'pending'; Id = '' }
+}
 # ── Self-check ────────────────────────────────────────────────────────────────────────────────────────
 
 function Invoke-PostMergeSelfCheck {
@@ -198,6 +236,8 @@ function Invoke-PostMergeSelfCheck {
   Throws 'board: two rows' '[POST-MERGE-ANCHOR]' { Set-PostMergeBoardStatus ($board + "| W1 | T9-DEMO | again | — | S | a | b | x |`n") 'T9-DEMO' 'x' }
   Check 'board: a longer id is not the card row' { -not (Test-PostMergeBoardRow '| W0 | T9-DEMO-X | other | x |' 'T9-DEMO') }
   Check 'board: the id cell is compared exactly' { -not (Test-PostMergeBoardRow '| W0 | t9-demo | other | x |' 'T9-DEMO') }
+  Check 'board: a prose line carrying the id is not a row' { -not (Test-PostMergeBoardRow 'x | T9-DEMO | y' 'T9-DEMO') }
+  Check 'board: a two-cell row is not a row' { -not (Test-PostMergeBoardRow '| W0 | T9-DEMO |' 'T9-DEMO') }
   Throws 'board: status with a pipe' '[POST-MERGE-INPUT]' { Set-PostMergeBoardStatus $board 'T9-DEMO' 'a | b' }
   Throws 'board: empty status' '[POST-MERGE-INPUT]' { Set-PostMergeBoardStatus $board 'T9-DEMO' ' ' }
 
@@ -239,6 +279,10 @@ function Invoke-PostMergeSelfCheck {
   Check 'scope: a CLAUDE.md line added outside the section' { @(Get-PostMergeScopeIssues 'T9-DEMO' @('CLAUDE.md') @((FileOf 'CLAUDE.md' @(Hunk 14 0 15 1 @() @('x')))) $newClaude).Count -gt 0 }
   Check 'scope: a line added above the heading' { @(Get-PostMergeScopeIssues 'T9-DEMO' @('CLAUDE.md') @((FileOf 'CLAUDE.md' @(Hunk 5 0 6 1 @() @('x')))) $newClaude).Count -gt 0 }
   Check 'scope: nothing changed' { @(Get-PostMergeScopeIssues 'T9-DEMO' @() @() $newClaude).Count -gt 0 }
+  Check 'scope: two rows removed and one added' { @(Get-PostMergeScopeIssues 'T9-DEMO' @('docs/TASK-BOARD.md') @((FileOf 'docs/TASK-BOARD.md' @(Hunk 1 2 1 1 @('| W0 | T9-DEMO | d | x |', '| W0 | T9-OTHER | d | x |') @('| W0 | T9-DEMO | d | y |')))) $newClaude).Count -gt 0 }
+  Check 'scope: another card''s row rewritten into this card''s row' { @(Get-PostMergeScopeIssues 'T9-DEMO' @('docs/TASK-BOARD.md') @((FileOf 'docs/TASK-BOARD.md' @(Hunk 2 1 2 1 @('| W0 | T9-OTHER | d | x |') @('| W0 | T9-DEMO | d | y |')))) $newClaude).Count -gt 0 }
+  Check 'scope: this card''s row rewritten into another card''s row' { @(Get-PostMergeScopeIssues 'T9-DEMO' @('docs/TASK-BOARD.md') @((FileOf 'docs/TASK-BOARD.md' @(Hunk 1 1 1 1 @('| W0 | T9-DEMO | d | x |') @('| W0 | T9-OTHER | d | y |')))) $newClaude).Count -gt 0 }
+  Check 'scope: an added line that is the next heading' { @(Get-PostMergeScopeIssues 'T9-DEMO' @('CLAUDE.md') @((FileOf 'CLAUDE.md' @(Hunk 11 0 12 2 @() @('', '## 权威文档')))) $newClaude).Count -gt 0 }
   Check 'scope: CLAUDE.md without the stage heading' { @(Get-PostMergeScopeIssues 'T9-DEMO' @('CLAUDE.md') @($okClaude) "# CLAUDE`n`nx`n").Count -gt 0 }
 
   $tip = 'a' * 40
@@ -252,6 +296,17 @@ function Invoke-PostMergeSelfCheck {
   Check 'prune: a moved tip is kept' { -not (Get-PostMergePruneDecision $tip @((Pr 1 'MERGED' ('b' * 40)))).Delete }
   Check 'prune: a short tip is kept' { -not (Get-PostMergePruneDecision 'abc' @((Pr 1 'MERGED' 'abc'))).Delete }
 
+  function Run($id, $sha, $status, $conclusion) { [pscustomobject]@{ databaseId = $id; headSha = $sha; status = $status; conclusion = $conclusion } }
+  $cr = { param($s, $c) [pscustomobject]@{ name = 'required'; status = $s; conclusion = $c } }
+  Check 'ci: a SUCCESS fan-in check is success' { Test-PostMergeFanInSuccess (& $cr 'COMPLETED' 'SUCCESS') }
+  Check 'ci: a NEUTRAL fan-in check is not success' { -not (Test-PostMergeFanInSuccess (& $cr 'COMPLETED' 'NEUTRAL')) }
+  Check 'ci: a pending CheckRun is not failure' { (Get-PostMergeCheckState (& $cr 'IN_PROGRESS' '')) -ceq 'pending' }
+  Check 'ci: a FAILURE CheckRun is failure' { (Get-PostMergeCheckState (& $cr 'COMPLETED' 'FAILURE')) -ceq 'failure' }
+  Check 'ci: a StatusContext ERROR is failure' { (Get-PostMergeCheckState ([pscustomobject]@{ context = 'x'; state = 'ERROR' })) -ceq 'failure' }
+  Check 'ci: an in-progress run is pending' { (Get-PostMergeRunDecision @((Run 7 $tip 'in_progress' '')) $tip).State -ceq 'pending' }
+  Check 'ci: a completed success run is success' { $r = Get-PostMergeRunDecision @((Run 7 $tip 'completed' 'success')) $tip; $r.State -ceq 'success' -and $r.Id -ceq '7' }
+  Check 'ci: a failed ci.yml run is failure' { (Get-PostMergeRunDecision @((Run 7 $tip 'completed' 'failure')) $tip).State -ceq 'failure' }
+  Check 'ci: a run for another commit is ignored' { (Get-PostMergeRunDecision @((Run 7 ('b' * 40) 'completed' 'success')) $tip).State -ceq 'pending' }
   if ($fails.Count) {
     foreach ($f in $fails) { Write-Host "POST-MERGE-FAIL: $f" -ForegroundColor Red }
     Write-Host "[POST-MERGE-SELF-CHECK-FAIL] $($fails.Count) of $script:pmCount cases failed" -ForegroundColor Red
@@ -261,7 +316,10 @@ function Invoke-PostMergeSelfCheck {
   return 0
 }
 
-# ── Git and gh plumbing (not covered by -SelfCheck; every native call is judged by its exit code) ─────
+# ── Git and gh plumbing (not covered by -SelfCheck). Native calls go through Invoke-PostMergeNative, which throws on a
+# non-zero exit. The exceptions are the branch probe in r5 (git rev-parse --verify --quiet exits 1 for a missing
+# branch, so its output is what counts) and the cleanup calls in r5's finally block, which report a failure
+# as [POST-MERGE-CLEANUP-FAIL] instead of throwing over the error that got there first.
 
 # Runs a native command and returns its stdout lines; a non-zero exit throws with the command's own stderr.
 function Invoke-PostMergeNative([string]$What, [scriptblock]$Call) {
@@ -283,28 +341,9 @@ function Update-PostMergeFile([string]$Path, [scriptblock]$Edit) {
   [IO.File]::WriteAllText($Path, (& $Edit $text), [Text.UTF8Encoding]::new($bom))
 }
 
-# A CheckRun reports status + conclusion, a commit status reports state; both reduce to success/pending/failure.
-function Get-PostMergeCheckState($Check) {
-  $p = $Check.PSObject.Properties
-  if ($p['status']) {
-    if ([string]$Check.status -cne 'COMPLETED') { return 'pending' }
-    if (@('SUCCESS', 'NEUTRAL', 'SKIPPED') -ccontains [string]$Check.conclusion) { return 'success' }
-    return 'failure'
-  }
-  if ($p['state']) {
-    if ([string]$Check.state -ceq 'SUCCESS') { return 'success' }
-    if (@('PENDING', 'EXPECTED') -ccontains [string]$Check.state) { return 'pending' }
-  }
-  return 'failure'
-}
-
-function Get-PostMergeCheckName($Check) {
-  foreach ($n in @('name', 'context')) { if ($Check.PSObject.Properties[$n]) { return [string]$Check.$n } }
-  return '?'
-}
-
-# Waits for the PR's fan-in check on the exact pushed head, then requires a successful ci.yml pull_request run
-# whose head_sha is that head. Returns the run id.
+# Waits, within one deadline, until the PR's fan-in check on the exact pushed head has ended in SUCCESS and a
+# ci.yml pull_request run for that head has succeeded. Any failing check, a fan-in that ends in anything but
+# SUCCESS, or a completed ci.yml run that did not succeed is [POST-MERGE-CI-RED]. Returns the run id.
 function Wait-PostMergeCi([int]$Pr, [string]$Head) {
   $deadline = (Get-Date).AddSeconds($CiTimeoutSec)
   while ($true) {
@@ -314,16 +353,17 @@ function Wait-PostMergeCi([int]$Pr, [string]$Head) {
     $red = @($checks | Where-Object { (Get-PostMergeCheckState $_) -ceq 'failure' } | ForEach-Object { Get-PostMergeCheckName $_ })
     if ($red.Count) { throw "[POST-MERGE-CI-RED] PR #$Pr failing checks: $($red -join ', ')" }
     $fanIn = @($checks | Where-Object { (Get-PostMergeCheckName $_) -ceq $ScaffoldCiFanInJob })
-    if ($fanIn.Count -and -not @($fanIn | Where-Object { (Get-PostMergeCheckState $_) -cne 'success' }).Count) { break }
-    if ((Get-Date) -gt $deadline) { throw "[POST-MERGE-CI-TIMEOUT] PR #${Pr}: '$ScaffoldCiFanInJob' did not succeed within $CiTimeoutSec s" }
+    if (@($fanIn | Where-Object { (Get-PostMergeCheckState $_) -cne 'pending' -and -not (Test-PostMergeFanInSuccess $_) }).Count) { throw "[POST-MERGE-CI-RED] PR #${Pr}: '$ScaffoldCiFanInJob' finished without SUCCESS" }
+    if ($fanIn.Count -and -not @($fanIn | Where-Object { -not (Test-PostMergeFanInSuccess $_) }).Count) {
+      $runs = @((Invoke-PostMergeNative 'gh run list' { gh run list --commit $Head --workflow ci.yml --event pull_request --json databaseId,headSha,status,conclusion }) -join "`n" | ConvertFrom-Json)
+      $run = Get-PostMergeRunDecision $runs $Head
+      if ($run.State -ceq 'failure') { throw "[POST-MERGE-CI-RED] ci.yml run $($run.Id) for $Head did not succeed" }
+      if ($run.State -ceq 'success') { return $run.Id }
+    }
+    if ((Get-Date) -gt $deadline) { throw "[POST-MERGE-CI-TIMEOUT] PR #${Pr}: '$ScaffoldCiFanInJob' and a successful ci.yml run for $Head did not both appear within $CiTimeoutSec s" }
     Start-Sleep -Seconds 20
   }
-  $runs = @((Invoke-PostMergeNative 'gh run list' { gh run list --commit $Head --workflow ci.yml --event pull_request --json databaseId,headSha,status,conclusion }) -join "`n" | ConvertFrom-Json)
-  $ok = @($runs | Where-Object { [string]$_.headSha -ceq $Head -and [string]$_.status -ceq 'completed' -and [string]$_.conclusion -ceq 'success' })
-  if (-not $ok.Count) { throw "[POST-MERGE-CI-RED] no successful ci.yml pull_request run has head_sha $Head" }
-  return [string]$ok[0].databaseId
 }
-
 function Invoke-PostMergePrune([string[]]$Names) {
   # Through `pwsh -File` a list arrives as one string ("a,b", quotes included), so split and unquote here.
   $Names = @($Names | ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim().Trim("'", '"') } | Where-Object { $_ })
@@ -362,7 +402,7 @@ function Invoke-PostMergeR5 {
   $wt = Join-Path (Get-ScaffoldWorktreeRoot) $branchName
   if (Test-Path -LiteralPath $wt) { throw "[POST-MERGE-BRANCH-EXISTS] $wt already exists" }
   Invoke-PostMergeNative 'git worktree add' { git -C $RepoRoot worktree add -b $branchName $wt $baseOid } | Out-Null
-  $merged = $false
+  $merged = $false; $pushed = $false; $url = ''
   try {
     $cardFile = Join-Path $wt "specs/tasks/$TaskId.md"
     if (-not (Test-Path -LiteralPath $cardFile)) { throw "[POST-MERGE-ANCHOR] specs/tasks/$TaskId.md is not on origin/$Base" }
@@ -387,6 +427,7 @@ function Invoke-PostMergeR5 {
     $head = @(Invoke-PostMergeNative 'git rev-parse HEAD' { git -C $wt rev-parse HEAD })[-1].Trim()
     Write-Host "[POST-MERGE-SCOPE-OK] $($paths -join ', ') on base $baseOid, head $head" -ForegroundColor DarkGray
     Invoke-PostMergeNative 'git push' { git -C $wt push origin "refs/heads/${branchName}:refs/heads/$branchName" } | Out-Null
+    $pushed = $true
     $body = Join-Path ([IO.Path]::GetTempPath()) "post-merge-$branchName-$PID.md"
     [IO.File]::WriteAllText($body, "R5 doc sync for ``$TaskId``, opened by ``scripts/post-merge.ps1 r5``.`n`nIt changes only what the direct-merge allowlist permits (user ruling 2026-09-25, ``T0-POST-MERGE-DOCS-PR``): the card file, the card's ``docs/TASK-BOARD.md`` row, and lines added under ``$($script:StageHeading)`` in ``CLAUDE.md``. It merges once CI passes, without R3.`n", [Text.UTF8Encoding]::new($false))
     try { $url = @(Invoke-PostMergeNative 'gh pr create' { gh pr create --base $Base --head $branchName --title "docs: R5 sync for $TaskId" --body-file $body })[-1].Trim() }
@@ -402,9 +443,14 @@ function Invoke-PostMergeR5 {
     if ([string]$after.state -cne 'MERGED') { throw "[POST-MERGE-TOOL] PR #$pr is $($after.state) after the merge call" }
     $merged = $true
     Write-Host "[POST-MERGE-MERGED] PR #$pr merge=$($after.mergeCommit.oid) head=$head ci-run=$runId" -ForegroundColor Green
+  } catch {
+    if ($pushed -and -not $merged) { Write-Host "[POST-MERGE-LEFT-BEHIND] remote branch $branchName is pushed$(if ($url) { " and PR $url is open" }). Fix the cause, then merge the PR by hand once CI passes, or close it and delete the branch; prune keeps a branch whose PR is not merged." -ForegroundColor Yellow }
+    throw
   } finally {
     & git -C $RepoRoot worktree remove --force $wt 2>$null | Out-Null
+    if (($LASTEXITCODE -ne 0) -or (Test-Path -LiteralPath $wt)) { Write-Host "[POST-MERGE-CLEANUP-FAIL] worktree $wt was not removed; remove it with: git worktree remove --force $wt" -ForegroundColor Red }
     & git -C $RepoRoot branch -D $branchName 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Host "[POST-MERGE-CLEANUP-FAIL] local branch $branchName was not deleted; delete it with: git branch -D $branchName" -ForegroundColor Red }
   }
   if ($merged) { Invoke-PostMergePrune @($branchName) }
 }
