@@ -261,4 +261,20 @@ state is always true while app code runs. Removing `doFinal()` from the usabilit
 
 ## Evidence
 
-EVIDENCE-PENDING
+Run 2026-09-25 on a Samsung SM-A346E (API 33, `user` build, `KEYINFO securityLevel=1 insideSecureHardware=true
+deviceLocked=false`) and an `sdk_gphone64_x86_64` emulator (API 35, `userdebug`, `ro.kernel.qemu=1`, `securityLevel=0`,
+not in secure hardware). The final commit's `android/` tree id is `049e0fe9cee9d9616ef1e2f070db60469c3b7d9c`. The
+baseline and the device mutants ran on tree `394ff09b9887a234b73bb27e0d707d8d1c526976`, which differs only in
+`AndroidSecretKeysTest.kt`, a file the APK does not contain; both trees built the byte-identical APK `061de34e…`. The APK
+is tied to a tree only because the recipe builds and runs from the same checkout: each receipt's `apk=` line names the
+APK that ran, and the script prints the checkout's tree id and `android-dirty` count. Source SHA-256 at the final
+commit: adapter `d507a13a…`, box `d32ad91f…`, probe `da3fe667…`; scripts as extracted from this file `53423344…` and
+`03b0c3af…`. The run logs are kept in the worktree's ignored `_local/local-secret-box/`.
+
+| Step | Result |
+|---|---|
+| RED, on base `3482be50` before the adapter existed | DoD exit 1: unresolved `chooseSealKey` |
+| Baseline, tree `394ff09b` | DoD exit 0; both devices `[PROBE-OK]` 23/23 with `android-dirty=0`; lock-screen script `[LOCKED-OK]` |
+| Control: unmodified APK with `-Expect A5.roundTrip` (API 33) | script exit 1, receipt does not match |
+| Mutation batch | 24/24 detected: D01b–D05, D07–D09, D11 and D12 built (exit 0) and matched their `-Expect` on both devices, each run with `android-dirty=1`; D06 built and was detected as its row says; J01–J13 compiled and failed the named test with `java.lang.AssertionError`. J07 first failed through an escaping exception, so its test now asserts the result, and J01–J13 were rerun on the final test file. Adapter restored to `d507a13a…` |
+| Final, restored, tree `049e0fe9` | DoD exit 0 (300 app JVM tests, 0 failures); both devices `[PROBE-OK]` 23/23 with `android-dirty=0`, APK `061de34e…`; lock-screen script `[LOCKED-OK]` |
