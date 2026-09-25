@@ -16,7 +16,7 @@ non_goals:
 acceptance:
   - "A1 r5 edits a docs/TASK-BOARD.md row only in a main card table: the header of the table the row sits in has '卡 id' as its second cell and '卡片状态 / 备注' as its last, a '---' separator line follows that header, and the row has the header's number of cells. The board has two tables with that header; a row in either counts. A card id in the second column of another board table (such as the '原产品卡' or 'Card' tables) does not count as the card's row. Each case fails closed with [POST-MERGE-ANCHOR]"
   - "A2 Each A1 guard (second cell, last cell, separator, cell count, and the rule's use in the row search) has a single-statement mutation that fails a named SelfCheck case, recorded in this card with that case, the file restored by SHA-256"
-  - "A3 The rule changes no result on today's board: on origin/master's docs/TASK-BOARD.md, for every card id in the second column of a main card table, the new row search finds the same single row as the old one, checked with the production functions and recorded here"
+  - "A3 On origin/master's docs/TASK-BOARD.md the new row search finds exactly one row for every card id in the second column of a main card table: the old search's row wherever the old search found one, and the main-table row for each id the old search found more than once (listed here). Checked with the production functions and recorded here"
 dod_command: pwsh -NoProfile -File scripts/post-merge.ps1 -SelfCheck; if ($LASTEXITCODE -ne 0) { exit 1 }; exit 0
 dod_exit: 0
 dod_assert: the SelfCheck passes against the production functions, including the main-table cases, and prints [POST-MERGE-SELF-CHECK-PASS]
