@@ -1,7 +1,7 @@
 ---
 id: T0-PLAN-FORGE-FOLLOWUP
 title: Trim the decompose-cards.mjs prompts for Claude Opus 5.5 and correct the docs that still say plan-forge projects task cards or that the card audit has 4 angles
-status: todo
+status: merged
 depends_on: []
 parallelizable_with: []
 branch: T0-PLAN-FORGE-FOLLOWUP
@@ -159,3 +159,52 @@ Every line the reviewed candidate (`d2e51ad3`) adds to the other eleven files, w
 ```
 - Expected exit code: 0
 - Assertion: see `dod_assert`; the closed list is `acceptance:` above.
+
+## R5 (2026-09-25)
+
+Merged by PR #378 as squash commit `2ae80225` on origin/master, pinned to reviewed head `6dbf97e5`. CI run
+36089181218 passed `verify` and `required` on that head. The merged `decompose-cards.mjs`, `PLAN-FORGE.md`
+and `CLAUDE.md` are byte-identical to the reviewed ones. The card was registered by #368 and amended before
+ship by #375, #376 and #379.
+
+- **R3 route.** The user chose an Opus 5.5 review so as not to wait for Codex. By ship time (13:53) the
+  Codex quota had returned (probe exit 0). Ship's own R3 leg always runs the reviewer configured on master, so
+  both rounds were Codex (`gpt-5.6-sol`, effort high); the Opus route is the fallback for when that leg fails
+  on quota.
+- **Round 1** (`d2e51ad3`) blocked with two spec findings on dimension 6. The dod_command's file-wide token
+  checks still passed after deleting the maintainer comment, moving the A2 sentence into an unused constant,
+  rewording an unanchored prompt sentence, putting the label comment back to 4, swapping a corrected doc line
+  for a different false claim, or corrupting the PLAN-FORGE.md output and cost lines. #379 added A9: the
+  decompose-cards.mjs snapshot hash and 32 line pins. All eight named mutations then made the dod_command exit 1.
+- **Round 2** (`6dbf97e5`) passed with 0 findings on both axes.
+- **Pre-review before ship.** A fresh-context pass found twelve points.
+  - It found one missed stale face (DELIVERY-CHAINS.md 19) and four places that described the pipeline
+    wrongly in other words.
+  - The DoD's templatePath ban also covered decompose-cards' real argument. The A2 threshold would have
+    silenced the right-size lens's MEDIUM findings, and the right-size lens pointed at a variable name the
+    model never sees.
+  - Fixed in the code and by #375.
+  - A second pass on the fixes found the missing confidence note in A2 and four card-text inaccuracies,
+    fixed in the code and by #376.
+- **DoD.** Exit 0 inside the ship (307 s), with `selftest -Only 1,14` passing.
+- **R4 hygiene.** On the final candidate, the six card mutants each exit 1 on their own arm:
+  - one 【】 pair back → `still present 【`
+  - 只报真问题 restored → `still present 只报真问题`
+  - 4 角度 back in PLAN-FORGE.md → `says 4 角度, LENSES has 5`
+  - plan-forge 投影任务卡 back in FRONTEND-FLOW.md → `stale in docs/FRONTEND-FLOW.md`
+  - tier dropped from the PLAN-FORGE.md call → `plan-forge call does not list tier`
+  - the 拓扑/依赖正确性 lens deleted → `anchor count 0 for 拓扑/依赖正确性`
+
+  The eight R3 round-1 mutations each exit 1 too: the four in decompose-cards.mjs at the snapshot check, the
+  four doc ones at the line pins. Every mutated file was restored to its hash.
+- **Tier-1 acceptance.** `selftest.ps1 -TaskId T0-PLAN-FORGE-FOLLOWUP` escalated to the full suite, because
+  docs/idea-to-plan-diagram.html has no route. It passed all 17 gates (2838 s, `[SELFTEST-TIER-PASS]`) on the
+  candidate content over base `bb1f9c5a`. The branch then absorbed `a2ed6034`, a card-only commit.
+- **Size.** 102 changed lines of the 180 declared, across 12 files.
+- **Incident.** A scripted merge of #376 skipped silently when its head lookup came back empty, and the
+  follow-on cleanup deleted the PR's branch, which closed it. The branch was restored from the local commit,
+  the PR reopened and merged on its pinned head. Recorded as a lesson.
+- **Carried forward.**
+  - `T0-DECOMPOSE-NULL-GUARDS` (#370) is next in this file.
+  - The scout-options.mjs wording pass stays a non-goal.
+  - Whether to add this doc drift to upstream issue #399 is asked of the user.
