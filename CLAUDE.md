@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-26 远端交付**：`T1-LOCAL-DATA-SECURITY` 经 [PR #394](https://github.com/Asun28/MyInspection/pull/394) 合并（`ef480578`；reviewed head `94f27eeb`，CI `36123375795`，Codex R3 第 3 轮 pass、零 finding），多 PR 交付的最后一张（box #371、store #377、卡片 #358/#361/#369/#374/#382/#387/#388）。`AndroidSecretKeys`：AndroidKeyStore 中 AES-256、GCM 无填充、仅加解密、随机化加密、无用户认证、非 unlocked-device-required；设备已解锁时，无法读取、不是对称密钥或无法加密的条目在 seal 时替换（#374 用户裁定）；入口处普通失败转固定消息无 cause。debug 探针在 SM-A346E（API 33，TEE）与 API 35 模拟器上 23 项自验证；API 33/35 的 KeyInfo 读不到 unlocked-device-required，改由模拟器临时 PIN 锁屏时仍能打开信封来证明（用户裁定）。R4 24/24（只去掉 provider 名的变异在 Android 上等价，改用软件 key 变异）。全新上下文预审补上无法读取条目的重建、入口脱敏测试与 PIN 清除复核；R3 第 1 轮 pass 后 CI 闸遇 base 移动，续跑重评，第 2 轮 standards 一条（adb stderr 把安装 APK 路径写进日志），修复后第 3 轮 pass。本卡解锁 `T1-APP-BOUNDARY-ASSEMBLY`、`T1-PRIVACY-MANIFEST-POLICY-GATE`、`T2-MEDIA-ACCESS-BOUNDARY` 与 `T5-OPERATION-EVENT-STORE`。
+
 **2026-09-25 远端交付**：`T0-POST-MERGE-R5-WIRING` 经 [PR #396](https://github.com/Asun28/MyInspection/pull/396) 合并（`af554598`；reviewed head `ea0db4c0`，CI `36119448202` success），是三个加固 PR 的第 2 个。`post-merge.ps1 -SelfCheck` 在加载 `_guard.ps1` 与 `_ci.ps1` 后核本文件用到的每个 Verb-Noun 命令能解析、每个具名参数存在、每个 `Scaffold*` 变量已定义，一条失败消息列出全部断点；此前这两个库里的函数或参数改名会让 DoD 仍绿、而每次真跑 r5 或 prune 都失败。全新上下文预审发现名字带数字的 r5 入口 `Invoke-PostMergeR5` 原本被过滤掉、改名也不红，已修（名词允许数字，变量按不分大小写、去掉作用域前缀匹配）。SelfCheck 83 例、14/14 变异全杀；Opus R3 pass、零 finding。不覆盖：`git`/`gh`、r5 以 `pwsh -File` 启动的 `check-cards.ps1`/`check-secrets.ps1`、展开或按位置传的参数。后续卡：`T0-POST-MERGE-R5-GUARDS`。
 
 **2026-09-25 远端交付**：`T0-POST-MERGE-R5-BOARD-TABLE` 经 [PR #393](https://github.com/Asun28/MyInspection/pull/393) 合并（`5ea3ea2d`；reviewed head `5cf25719`，CI `36117231819` success）。用户要求把 `T0-POST-MERGE-R5-GUARDS` 的三处加固分成三个 PR 交付（卡片 #391、#392），R3 由 Opus 5.5 经 `ReviewCommand` 代 Codex。本卡：`post-merge.ps1 r5` 改看板时只认主卡片表里本卡的行（表头第二格 `卡 id`、末格 `卡片状态 / 备注`、表头下有分隔行、行的格数等于表头）。今日看板有 4 个卡 id 同时出现在其他表的第二列，旧逻辑下 r5 会停在 `[POST-MERGE-ANCHOR]`，现在取主表那一行。SelfCheck 75 例、9/9 变异全杀；Opus R3 pass、零 finding。遗留：主表里 34 格带装饰的卡 id（★、删除线、链接，含 11 张在飞的 `T0-PREREVIEW-*`）r5 仍匹配不到。后续卡：`T0-POST-MERGE-R5-WIRING`、`T0-POST-MERGE-R5-GUARDS`。
@@ -535,8 +537,8 @@ SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）�
 > **轮次上限三次经用户裁定 `ResetRounds`**：每轮都是互不相同的真缺陷、都被接受修复、都带来新的击杀变异，
 > 不属该闸要止住的「同一争点拉锯」；计数被清零，评审本身一次没跳过。
 
-**当前已解锁待做**（按 depends_on 核对，2026-09-25）：前置均已合并的产品卡包括 `T1-LOCAL-DATA-SECURITY`（多 PR 拆分的前置 `T1-LOCAL-SECRET-BOX` 与 `T1-LOCAL-SECRET-STORE` 均于 2026-09-25 合并）、`T2-GHOST-EDGE-OVERLAY` 与 `T3-REPORT-IMPORT-COMMIT`。`T3-PDF-RENDER-DEVICE` 的 `T1-SPIKE-PLATFORM` 真机 spike（master `e8c2359a`）与图片 bridge（master `fee6451f`）前置已满足，但仍待 `T3-PDF-TEXT-METRICS-OPS` 与 `T3-PDF-ANDROID-TEXT-MEASURER`；
-`T5-BACKUP-IO` 仍待 `T1-SHARE-SCREEN-PRIVACY`、`T1-LOCAL-DATA-SECURITY` 与 `T1-APP-BOUNDARY-ASSEMBLY`。
+**当前已解锁待做**（按 depends_on 核对，2026-09-26）：前置均已合并的产品卡包括 `T1-APP-BOUNDARY-ASSEMBLY`、`T1-PRIVACY-MANIFEST-POLICY-GATE`、`T2-MEDIA-ACCESS-BOUNDARY` 与 `T5-OPERATION-EVENT-STORE`（最后一个前置 `T1-LOCAL-DATA-SECURITY` 于 2026-09-26 合并），以及 `T2-GHOST-EDGE-OVERLAY` 与 `T3-REPORT-IMPORT-COMMIT`。`T3-PDF-RENDER-DEVICE` 的 `T1-SPIKE-PLATFORM` 真机 spike（master `e8c2359a`）与图片 bridge（master `fee6451f`）前置已满足，但仍待 `T3-PDF-TEXT-METRICS-OPS` 与 `T3-PDF-ANDROID-TEXT-MEASURER`；
+`T5-BACKUP-IO` 仍待 `T1-SHARE-SCREEN-PRIVACY` 与 `T1-APP-BOUNDARY-ASSEMBLY`。
 
 **T0-GATE-HARDENING 的事后 R3 已结清**：其合并 `5ba3319` 未经 `task.ps1 ship`（`-SkipRed` ×2），post-hoc R3
 block ×2 且经复核属实；用户裁定 **fix-forward 不 revert**，承接卡 `T0-GATE-FIXFORWARD` 已 **merged**

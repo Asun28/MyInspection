@@ -19,7 +19,11 @@ interface SecretKeyPort {
     /** The key under [alias], or null when there is none. */
     fun existingKey(alias: String): SecretKey?
 
-    /** The key under [alias], created when there is none. An existing key is returned, never replaced. */
+    /**
+     * The key under [alias], created when there is none. An existing key that can encrypt is returned, never replaced;
+     * one that cannot may be replaced while the device is unlocked (AndroidSecretKeys does). The previous envelope then no
+     * longer opens, which is acceptable because seal runs when the user supplies the secret again.
+     */
     fun keyForSeal(alias: String): SecretKey
 }
 

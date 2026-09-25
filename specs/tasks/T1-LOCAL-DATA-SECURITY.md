@@ -2,7 +2,7 @@
 id: T1-LOCAL-DATA-SECURITY
 title: 本地数据安全底座：内外存储分层与 Keystore secret box（依赖安全日志）
 depends_on: [T1-SPIKE-PLATFORM, T1-SAFE-MEDIA-LOGGING-REMOTE, T1-STORAGE-PATH-BOUNDARY-REMOTE, T1-APP-STORAGE-POLICY, T1-APP-STORAGE-ANDROID, T1-LOCAL-SECRET-BOX, T1-LOCAL-SECRET-STORE]
-status: todo
+status: merged
 branch: T1-LOCAL-DATA-SECURITY
 worktree: C:\wt\T1-LOCAL-DATA-SECURITY
 allow_paths:
@@ -95,3 +95,15 @@ allow_paths 随之收窄为适配器、其 JVM 测试、debug 探针、debug 清
 ## 2026-09-25 预审后记录
 
 实现后的全新上下文预审发现真实缺口，用户裁定 `budget` 700 → 850，并把以下事实写回本卡，供 R3 按此核对：① 为证明「非 unlocked-device-required」新增 DUMP 限制的 debug receiver（与探针同文件），仅在模拟器上以临时 PIN 锁屏运行，PIN 一律清除并复核；② alias 下的条目无法读取或类型不对也按「不可用」处理（R2）；③ 适配器提供 internal 构造接缝（Keystore 来源、解锁状态），JVM 测试据此证明入口处的脱敏与解锁接线；④ 本 app 不是 direct-boot aware，应用代码运行时 `UserManager.isUserUnlocked()` 恒为 true，故本适配器实际不会让 box 返回 NEEDS_UNLOCK，相应变异按等价记录；⑤ 只去掉 provider 名的变异（D01）在 Android 上等价，改以软件 key 变异（D01b）检出。
+
+## R5 delivery (2026-09-26)
+
+Merged by [PR #394](https://github.com/Asun28/MyInspection/pull/394) as squash `ef480578` (reviewed head `94f27eeb`; CI run `36123375795`, `verify` and `required` success; `codex-review` success). The merged `android/` files and probe doc are byte-identical to the reviewed head. 748 changed lines against `budget: 850` (raised from 700 by user ruling, #388).
+
+- RED: on base `3482be50` the adapter test did not compile (`Unresolved reference 'chooseSealKey'`).
+- Device evidence (docs/local-secret-box-probe.md): SM-A346E (API 33, `user`, key in TEE) and API 35 emulator, 23/23 probe checks each on the final tree `049e0fe9`, APK `061de34e…`; the emulator lock-screen check opens an envelope while locked under a temporary PIN, which is then cleared and verified gone. R4 24/24: 11 device mutants on both devices (D06 caught on the phone by `A5.roundTrip` and on the emulator by the lock check), 13 JVM mutants by `java.lang.AssertionError`. D01 (provider name only) is equivalent on Android and was replaced by D01b, a software key.
+- Pre-review: a fresh-context review of the first candidate found 17 items; the fixes added rebuilding an entry that cannot be loaded or is not a secret key, internal seams so JVM tests prove redaction at each adapter entry point, the corrupt-envelope unchanged check, keyguard state in the receipt, and PIN-clear verification. The design points were recorded on the base card first (#388).
+- R3: Codex `gpt-5.6-sol` high. Round 1 passed with no findings; the CI gate then found the base moved, and resuming the ship re-ran review. Round 2 blocked on one standards finding: `adb pull` wrote the installed APK path to the probe logs through stderr. All unread `adb` output is now silenced and the final device runs were redone with no path in any log. Round 3, authorized by the user after `-ResetRounds`, passed with no findings.
+- Selftest: tier-1 routing escalated to the full 17 gates and passed in 2458 s on `e6b3a704`; only `android/` and the probe doc changed after that.
+- Leftover from a 2026-09-17 session: the reused worktree held three untracked test files from an earlier attempt; they were moved to the main checkout's ignored `_local/stale-T1-LOCAL-DATA-SECURITY-20260917/`.
+- Author: the card names GPT-5.6 Terra; the work was done by a Claude Opus 5.5 session.

@@ -1,7 +1,7 @@
 ---
 id: T0-PREREVIEW-SOURCE-REGISTRATION
 title: Register durable policy source prerequisites and strengthen POLICY acceptance
-status: todo
+status: merged
 branch: T0-PREREVIEW-SOURCE-REGISTRATION
 worktree: C:\wt\T0-PREREVIEW-SOURCE-REGISTRATION
 depends_on: [T0-PREREVIEW-REMOTE-SCHEMA]
@@ -112,3 +112,7 @@ Write-Host "[POLICY-SOURCE-REGISTRATION-PASS] five paths; lines=$lines chars=$($
 ## Reconcile note (2026-09-24)
 
 The 2026-09 local/origin reconcile landed the local-only parts of local master's PR review v2 phase 1a chain on master: PROTOCOL-DOC (`a66af219`), CHECKLISTS (`2782b55b`), RECORDS (`dec30514`), FACTS-LIB (`b675d6a6`) and STATE-1A (`62ec5f3b`). For the schema and its checker (SCHEMA and UNIT-ID-REVISION), master keeps origin's versions from T0-PREREVIEW-REMOTE-SCHEMA. The source documents that `scripts/fixtures/prereview/policy-source/raw/` copies are now on master, and each raw copy is byte-identical to its document (`git hash-object` equal on 2026-09-24). Whether this card is closed, narrowed or kept is a user decision.
+
+## Status recorded (2026-09-25)
+
+PR #311 merged on 2026-09-17 as `6a8cce2f`, but R5 never set this card's status. The card-status check that opened `T0-POST-MERGE-CARD-DRIFT` found it. Its DoD passes at the merge commit; on origin/master `8146d794` it fails only because `docs/plans/PREREVIEW-REMOTE-ADOPTION.md`, whose bytes it pins, changed later. What happens to the rest of the prereview adoption chain is still pending the user's ruling (see the TASK-BOARD note); this status records only that this card's PR merged. This commit changes only the status line and adds this note.
