@@ -8,11 +8,15 @@
          without R3, and only inside the allowlist the user set on 2026-09-25: the card file, the card's own
          board row, and lines ADDED to the current-stage section of CLAUDE.md. Anything else stops with
          [POST-MERGE-SCOPE] before a push. The prose is the caller's; this script only places it.
+         With -DryRun, r5 builds and checks the same change (edits, allowlist judge, check-cards,
+         check-secrets), prints its diff and stops before the push, then removes its worktree and branch.
+         prune has no preview and refuses -DryRun.
   prune  Deletes a remote branch only when exactly one PR has it as head, that PR is MERGED, and the remote tip
          still equals the PR's head, using a lease on that tip. Every other state is reported and kept.
   The main checkout's working tree and local master are never touched: r5 works in its own temporary worktree
   and removes it, with its local branch, at the end; a removal that fails is reported as [POST-MERGE-CLEANUP-FAIL].
 .EXAMPLE
+  pwsh -NoProfile -File scripts\post-merge.ps1 r5 -TaskId T0-FOO -BoardStatusFile s.txt -StageEntryFile e.md -CardNoteFile n.md -DryRun
   pwsh -NoProfile -File scripts\post-merge.ps1 r5 -TaskId T0-FOO -BoardStatusFile s.txt -StageEntryFile e.md -CardNoteFile n.md
   pwsh -NoProfile -File scripts\post-merge.ps1 prune -Branch T0-FOO
   pwsh -NoProfile -File scripts\post-merge.ps1 -SelfCheck
@@ -27,6 +31,7 @@ param(
   [string[]]$Branch = @(),
   [string]$Base = 'master',
   [int]$CiTimeoutSec = 1800,
+  [switch]$DryRun,
   [switch]$SelfCheck
 )
 Set-StrictMode -Version Latest
@@ -511,6 +516,9 @@ function Invoke-PostMergeR5 {
     }
     $head = @(Invoke-PostMergeNative 'git rev-parse HEAD' { git -C $wt rev-parse HEAD })[-1].Trim()
     Write-Host "[POST-MERGE-SCOPE-OK] $($paths -join ', ') on base $baseOid, head $head" -ForegroundColor DarkGray
+    # The preview ends here, before anything leaves this machine; the finally block below still removes the
+    # worktree and the local branch.
+    if ($DryRun) { Write-Host $diff; Write-Host "[POST-MERGE-DRYRUN] $TaskId doc sync built and checked on base $baseOid; nothing was pushed" -ForegroundColor Yellow; return }
     $pushAttempted = $true
     Invoke-PostMergeNative 'git push' { git -C $wt push origin "refs/heads/${branchName}:refs/heads/$branchName" } | Out-Null
     $body = Join-Path ([IO.Path]::GetTempPath()) "post-merge-$branchName-$PID.md"
@@ -552,8 +560,11 @@ if ($SelfCheck) { exit (Invoke-PostMergeSelfCheck) }
 try {
   switch ($Command) {
     'r5' { Invoke-PostMergeR5 }
-    'prune' { Assert-PersonalAccount -RepoRoot $RepoRoot -CheckRemote; Invoke-PostMergePrune $Branch }
-    default { Write-Host 'usage: post-merge.ps1 r5 -TaskId <id> -BoardStatusFile <f> -StageEntryFile <f> -CardNoteFile <f> | prune -Branch <b>[,<b>...] | -SelfCheck' -ForegroundColor Yellow; exit 2 }
+    'prune' {
+      if ($DryRun) { throw '[POST-MERGE-INPUT] prune has no preview: -DryRun applies to r5 only, and nothing was pruned' }
+      Assert-PersonalAccount -RepoRoot $RepoRoot -CheckRemote; Invoke-PostMergePrune $Branch
+    }
+    default { Write-Host 'usage: post-merge.ps1 r5 -TaskId <id> -BoardStatusFile <f> -StageEntryFile <f> -CardNoteFile <f> [-DryRun] | prune -Branch <b>[,<b>...] | -SelfCheck' -ForegroundColor Yellow; exit 2 }
   }
 } catch {
   Write-Host $_.Exception.Message -ForegroundColor Red

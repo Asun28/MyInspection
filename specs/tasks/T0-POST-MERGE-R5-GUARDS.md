@@ -46,3 +46,23 @@ the same file, so they run one after another. A draft of all three, written whil
 progress, is reapplied on top of the merged code.
 
 R3: Opus 5.5 through `ReviewCommand` instead of Codex (user ruling 2026-09-25).
+
+## Implementation record
+
+- RED: before the change, `post-merge.ps1 r5 ... -DryRun` and `post-merge.ps1 prune ... -DryRun` both exited 1 with
+  "A parameter cannot be found that matches parameter name 'DryRun'".
+- A1: r5 with `-DryRun` runs every step up to and including `[POST-MERGE-SCOPE-OK]` (the account check, the
+  branch-exists checks, the three edits, the commit, the allowlist judge, check-cards and check-secrets), prints the
+  `-U0` diff and `[POST-MERGE-DRYRUN]`, and returns before `$pushAttempted` is set; the existing `finally` block then
+  removes the worktree and the local branch. The task-loop skill's R5 step has one new line saying to preview with
+  `-DryRun` first. SelfCheck: 83 of 83, the wiring check included.
+- A2: one real `-DryRun` of `T0-POST-MERGE-LESSONS` (status todo) with sample prose, on base `8146d794`, exit 0,
+  local head `50639464`. Its diff: `CLAUDE.md` gained two lines at line 72, directly under `## 当前阶段`;
+  `docs/TASK-BOARD.md` changed only line 49, that card's last cell in the main card table; the card's status became
+  `merged` and a `## R5` section was appended. check-cards and check-secrets passed. Afterwards origin had no
+  `r5-T0-POST-MERGE-LESSONS` branch, `gh pr list --state all --head r5-T0-POST-MERGE-LESSONS` returned no PR, and the
+  local branch and `C:\wt\r5-T0-POST-MERGE-LESSONS` were gone. The commit object `50639464` stays in the local object
+  store, unreferenced, until `git gc`.
+- A3: the synopsis and the usage line name `-DryRun`. `post-merge.ps1 prune -Branch T0-POST-MERGE-R5-WIRING -DryRun`
+  printed `[POST-MERGE-INPUT] prune has no preview: -DryRun applies to r5 only, and nothing was pruned` and exited 1;
+  the account check's line did not appear, so no gh call ran.
