@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-25 远端交付**：`T0-UPSTREAM-LESSON-IDS` 经 [PR #416](https://github.com/Asun28/MyInspection/pull/416) 合并（`35021694`；reviewed head `a95557f3`，CI `36131605345` success；Codex R3 第 1 轮 pass 后 master 前移，续跑的第 2 轮仍 pass、零 finding）。`docs/LESSONS.md` 新增一节：PR #297 从上游 scaffold（`96ebfcec`）采纳的代码里有 461 行含经验 id，它们是上游账本的编号，与本仓账本各自编号，所以同一个 id 在本仓通常是另一条经验（核过 9 个，全部不同；例如 `selftest.ps1` 闸 17ib 引用的 L353）；该节给出判定命令 `git blame -L` 与离线查阅命令 `git show 96ebfcec:docs/lessons/LEDGER.md`。采纳来的文件按用户裁定保持原样；编号冲突已报上游 [claude-devops-scaffold#400](https://github.com/Asun28/claude-devops-scaffold/issues/400)，链接记在 `docs/SCAFFOLD-SYNC.md`。R4 5/5 变异全杀。
+
 **2026-09-25 远端交付**：`T0-CLAUDE-MD-L360-TD190` 经 [PR #411](https://github.com/Asun28/MyInspection/pull/411) 合并（`f1d3273a`；reviewed head `6dc86428`，CI `36130799922` success）。按用户要求：L360（变异运行器先证明自己能用）进本文件「经验铁律」，替下与 L21 并列最不活跃（复发 2）的 L267，其核心已含在 L360 里，L267 移到 `docs/lessons/powershell-and-gh.md`；「命令」节工作流自检一行按 `selftest.ps1` 的 `-TaskId` 参数说明重写，去掉脚本没有的 `-Base` 与已无对应规则的「产品路径仅报不适用」（TD190 paid，L344 复发 +1）。R3 由 Opus 5.5 代 Codex：第 1 轮 block 一条属实（新写法把「无路由行即升级全量」说成对所有 tier 成立，而 Tier 0 恒为底座闸、不升级），修后 pass。合并前 origin/master 带进另一会话的 #409（L353 晋升、L190 降级），合入后必须层仍为 10 个 id，并在新 head 上重跑 DoD、CI 与 R3。
 
 **2026-09-25 记录收口**：`T3-PDF-MEASUREMENT-REQUESTS` 标为 merged：产品 [PR #317](https://github.com/Asun28/MyInspection/pull/317)（`47b78af8`）于 2026-09-18 合并，卡片与看板此前停在 todo；其 DoD 于 2026-09-25 在 origin/master `8146d794` 重跑通过。第 3 轮留存证据发布卡 `T0-REMOTE-ROUND3-REQUESTS-EVIDENCE` 的 PR #323 经用户裁定关闭、未发布：第 2 轮 R3 的 finding 未修且已到轮次上限，证明脚本要求的单路径授权提交又被 2026-09-24 reconcile 提交 `13735e06` 打断，续做需修复加新的根授权。留存证据仍在 `_local/`，不作已发布证据声称。同日另有六张已交付卡补记 merged（PR #402）、两张被取代卡退役（PR #390）。
