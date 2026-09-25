@@ -27,7 +27,8 @@ class AndroidSecretKeysTest {
     @Test
     fun `an entry that cannot be loaded is replaced only while the device is unlocked`() {
         val unloadable = KeyStoreException("alias myinspection.secret.backup-passphrase.v1")
-        assertEquals("fresh", chooseSealKey<String>({ throw unloadable }, { fail("usability asked") }, true, { fail("created") }, { "fresh" }))
+        val replaced = runCatching { chooseSealKey<String>({ throw unloadable }, { fail("usability asked") }, true, { fail("created") }, { "fresh" }) }
+        assertEquals("fresh", replaced.getOrNull(), "an unloadable entry was not replaced while unlocked")
         val thrown = assertFailsWith<KeyStoreException> {
             chooseSealKey<String>({ throw unloadable }, { fail("usability asked") }, false, { fail("created") }, { fail("replaced while locked") })
         }
