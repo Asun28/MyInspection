@@ -62,6 +62,7 @@ R3: Opus 5.5 through `ReviewCommand` instead of Codex (user ruling 2026-09-25).
   W1-W3 are the three arms. W4-W6 and W14 rename a helper, a parameter, a variable and the r5 entry point that the
   plumbing uses. W7-W8 drop one of the two library loads, W9 keeps only the first break, W10 drops the Verb-Noun
   filter, W11 takes digits out of it, and W12-W13 undo the case-insensitive, scope-free variable match.
+
 | id | statement | mutation | killing case |
 |---|---|---|---|
 | W1 | `if (-not $cmd) { $bad.Add("command $name"); continue }` | `if (-not $cmd) { continue }` | wiring: an unknown command is reported |
