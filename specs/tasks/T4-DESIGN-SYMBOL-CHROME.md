@@ -4,7 +4,8 @@ title: DESIGN.md 收口「符号化 chrome」的准入条件，消解与纯图�
 depends_on: []
 parallelizable_with: [T4-SCHEDULE-UI]
 plan_ref: context/DESIGN.md#dos-and-donts
-status: todo
+status: merged
+superseded_by: T4-DESIGN-SYMBOL-CHROME-V2
 branch: T4-DESIGN-SYMBOL-CHROME
 worktree: C:\wt\T4-DESIGN-SYMBOL-CHROME
 allow_paths:
@@ -46,6 +47,11 @@ doc_sync: CLAUDE.md「权威文档」21 行与 TASK-BOARD 记录本卡合并 OID
 > **本卡不再开工**，保留全文作机构记忆：逐轮 finding、修法、两处判断记账与 R4 收据都是 V2 的输入。
 > 分支 `T4-DESIGN-SYMBOL-CHROME` **保留**（PR 已关但分支未删），其中那份经 6 轮打磨的草案
 > 除「chrome / domain content 边界」一段外可直接复用。
+>
+> **关闭（2026-09-25）**：承接卡 `T4-DESIGN-SYMBOL-CHROME-V2` 已合并（master `53673571`），本卡的
+> A1–A4 范围由它交付。front matter 改为 `status: merged` + `superseded_by: T4-DESIGN-SYMBOL-CHROME-V2`，
+> 沿用 `T0-REVIEW-LOW-RISK`（PR #340）的关闭形态：它只表示本卡经已合并的承接卡关闭，**不**声称本卡自己的
+> DoD、R4 或 R3 已完成（本卡 R3 停在第 6 轮 block、PR #236 未合并）。
 
 ## Deliverable
 
@@ -305,3 +311,4 @@ M4 证明 A3 的颜色不变量确由重写后的状态条款承载（而非借 
 | 2026-09-06 | R3 第 4 轮 block，三条 finding 全部属实且全部当场修：延期的相机控件仍被规则绑住（补显式豁免 + 收窄 `icon-button` 行）· 锚点句仍在 `tooltip` 行复述条件 3（移进条件 3 本体，`dod_command` 未改）· chrome/content 边界无可判定判据（补「取值读数是否超过两种」）。R4 重跑 9/9 击杀。**轮次再次达上限 2/2。** |
 | 2026-09-06 | R3 第 5 轮 block，两条 finding 均属实、均是第 4 轮措辞的自伤：全额播报保证被缩到 `state-badge`（已改回「每个计数都播报完整数值」）· 条件 1 会把我自己举的点标记例子判为不合规（已显式接纳组件自定义二元状态标记）。R4 重跑 9/9 击杀。**五轮共 10 条 finding 全部属实；编排者建议就此转人裁，不再请求第三次 reset。** |
 | 2026-09-06 | R3 第 6 轮 block，一条 finding 属实（二元记录态同时满足两条分类，中心规则不可判定）。**未修，主动停手转人裁**；诊断与建议正解已写在上方。六轮 11 条 finding 全部属实。 |
+| 2026-09-25 | 关闭：`status: todo` → `merged` + `superseded_by: T4-DESIGN-SYMBOL-CHROME-V2`（承接卡已合并 `53673571`），不再列为待做；本卡自身未交付，见顶部退役块。 |
