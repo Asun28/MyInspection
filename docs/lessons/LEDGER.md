@@ -2127,7 +2127,7 @@
 - refs: 
 
 ## L291
-- date: 2026-09-04 ｜ tags: powershell,dotnet,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- date: 2026-09-04 ｜ tags: powershell,dotnet,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
 - symptom: A script writes a file with [System.IO.File]::WriteAllText using a relative path after Set-Location, then runs it with pwsh -File using the same relative name. The run silently uses a stale earlier copy, and an unexpected file appears in the repo root. Here a dry-run reported 12 mutation targets when the table held 15, and dryrun.ps1 turned up as an untracked file at the repository root.
 - root_cause: Set-Location changes the PowerShell provider location, not the .NET process current directory. Any System.IO API given a relative path resolves against the process CWD, which is wherever pwsh was started. PowerShell cmdlets and the -File argument resolve against the provider location instead, so a write and a read using the identical relative string can land on two different files.
 - rule: Never hand a relative path to a System.IO API. Build an absolute path first, for example with Join-Path on an explicit root or $PSScriptRoot, and pass that. If a generated-then-executed script behaves as though the edit did not happen, do not re-reason about the content: print the absolute path actually written and the absolute path actually executed and compare them. Same rule for Get-Content versus File::ReadAllText.
@@ -2537,7 +2537,7 @@
 - refs: 
 
 ## L336
-- date: 2026-09-23 ｜ tags: handoff,progress.md ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
+- date: 2026-09-23 ｜ tags: handoff,progress.md ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3
 - symptom: Replacing the HANDOFF block in progress.md with IndexOf overwrote the oldest of 13 historical blocks; it had to be restored from the SessionStart hook print.
 - root_cause: progress.md accumulates one HANDOFF block per session and handoff.ps1 check reads the last one; IndexOf finds the first.
 - rule: Edit only the last block (LastIndexOf of the START and END markers) and compare the block count before and after the write.
@@ -2633,7 +2633,7 @@
 - refs: specs/tasks/T1-LOCAL-SECRET-BOX.md; PRs #358, #361
 
 ## L354
-- date: 2026-09-25 ｜ tags: powershell,arrays,operators ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- date: 2026-09-25 ｜ tags: powershell,arrays,operators ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
 - symptom: Three times in one session a replacement pair built as @(anchor, text + suffix) silently lost its suffix: one edit replaced a header with itself, one mutant replacement lost its tail, one anchor lost its newline; each surfaced only later as missing text.
 - root_cause: In PowerShell the comma operator binds tighter than +, so @(a, b + c) parses as (a, b) + c: an array of a and b with c appended as a third element, not a pair whose second element is b + c.
 - rule: Build any computed element in a variable first ($new = $b + $c, then @($a, $new)) or parenthesise it (@($a, ($b + $c))). After building replacement pairs, assert each pair has exactly two elements and that the replacement text contains the part you added.
@@ -2743,3 +2743,19 @@
 - rule: Before drafting a new card, git fetch origin and read git log --oneline -10 origin/master plus gh pr list --state open for cards on the same topic; build on or amend what exists instead of opening a parallel card
 - enforced_by: 
 - refs: PR #359, PR #362
+
+## L368
+- date: 2026-09-26 ｜ tags: powershell,stub,selfcheck ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: A PowerShell function named git used as a test stub never saw the -- that production passes (git add -- <paths>, git ls-tree ... -- <paths>), so an exact-call allowlist written from the source rejected legitimate calls (T0-POST-MERGE-CARD-DRIFT).
+- root_cause: When a name resolves to a PowerShell function, the parameter binder consumes -- as its end-of-parameters marker and drops it from $args; a native executable receives it. A comma list such as headRefOid,baseRefName also reaches $args as a nested array, so "$args" shows it space-joined.
+- rule: In a function stub that shadows a native command, rebuild the argument text with @($args | ForEach-Object { $_ -join ',' }) -join ' ' and treat -- as optional in every pattern matched against it. Before writing exact-call assertions, print the stub log once and write the patterns from that log, not from the production source.
+- enforced_by: 
+- refs: 
+
+## L369
+- date: 2026-09-26 ｜ tags: r3,review,selfcheck,plumbing,judgment ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: T0-POST-MERGE-CARD-DRIFT needed three Codex R3 rounds, all on dimension #6: round 1 found the audit and retire plumbing untested (only pure helpers were), round 2 found the dispatch arms and exit codes untested and the DoD checking 6 of 40 recorded mutants. Each round needed a base-card DoD PR, and the second a user-approved budget raise.
+- root_cause: The first round tested pure decisions only. The reviewer treats every branch reachable from the command line (dispatch arm, exit code, git or gh call, refusal before any side effect) and every recorded mutant as needing a test that fails when it breaks, and each fix round exposed the next untested layer.
+- rule: For a script subcommand that calls git or gh, build it into round 1: the dispatch as a function that returns the exit code; a SelfCheck whose git, gh and pwsh functions record every call over a temp repo with GIT_* removed; one case per subcommand and exit code that asserts the exact call list; and an R4 manifest (id | mutant | case) that the DoD checks row by row. Budget about twice the pure-logic estimate for it.
+- enforced_by: 
+- refs: 

@@ -77,6 +77,9 @@ pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase ship
 # R5 文档同步的机械部分（T0-POST-MERGE-DOCS-PR）：白名单内开 PR、CI 通过即合并；卡分支按 PR 状态清理
 pwsh -File scripts\post-merge.ps1 r5 -TaskId T0-SCAFFOLD -BoardStatusFile s.txt -StageEntryFile e.md -CardNoteFile n.md
 pwsh -File scripts\post-merge.ps1 prune -Branch T0-SCAFFOLD
+# 卡的 PR 未合并就关闭时用 retire 收尾（status merged + superseded_by，不碰 CLAUDE.md）；开新卡前 audit 列出 specs/tasks/ 里 PR 已合并或已关闭、卡却未收尾的漂移（不写 ref）
+pwsh -File scripts\post-merge.ps1 retire -TaskId T0-SCAFFOLD -SupersededBy T0-SCAFFOLD-V2 -BoardStatusFile s.txt -CardNoteFile n.md
+pwsh -File scripts\post-merge.ps1 audit
 
 # 合并后：R1 拆 worktree + R5 文档同步提醒 + 两道只读自检（lessons check · archive -Check）
 #   archive -Check 只读重投影两张冷存索引并报待搬项——**建议性、非闸门**（它跑在合并之后，合并闸
