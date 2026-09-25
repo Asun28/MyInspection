@@ -203,17 +203,17 @@ function Get-PostMergeRunDecision([object[]]$Runs, [string]$Head) {
   if ($ok.Count) { return [pscustomobject]@{ State = 'success'; Id = [string]$ok[0].databaseId } }
   return [pscustomobject]@{ State = 'pending'; Id = '' }
 }
-# What a failed r5 left on the remote, judged only from probes taken after the failure: a local flag cannot tell
-# whether a push, PR or merge that errored locally took effect. The advice never says to merge by hand, because
-# only r5 re-checks the head, base and ci.yml run before merging.
-function Get-PostMergeRecoveryReport([string]$Branch, [bool]$TipKnown, [string]$Tip, [bool]$PrsKnown, [object[]]$Prs) {
-  $prs = @($Prs)
-  $redo = 'Close any open PR and delete the branch (never merge it by hand: only r5 re-checks head, base and CI), then rerun r5.'
-  if ($PrsKnown -and $prs.Count -eq 1 -and [string]$prs[0].state -ceq 'MERGED') { return [pscustomobject]@{ Prune = $true; Message = "[POST-MERGE-MERGED] PR #$($prs[0].number) merged although a later step failed; pruning $Branch under the A4 rule." } }
-  if (-not $PrsKnown -or -not $TipKnown) { return [pscustomobject]@{ Prune = $false; Message = "[POST-MERGE-STATE-UNKNOWN] the remote state of $Branch could not be read; check gh pr list --state all --head $Branch and git ls-remote origin refs/heads/$Branch. $redo" } }
-  if ($prs.Count -eq 0 -and -not $Tip) { return [pscustomobject]@{ Prune = $false; Message = "[POST-MERGE-NOTHING-LEFT] no branch or PR named $Branch is on the remote; rerun r5." } }
-  $what = 'no PR'; if ($prs.Count) { $what = 'PR ' + (@($prs | ForEach-Object { "#$($_.number) ($($_.state))" }) -join ', ') }
-  return [pscustomobject]@{ Prune = $false; Message = "[POST-MERGE-LEFT-BEHIND] $Branch is on the remote with $what. $redo" }
+# What a failed r5 left on the remote, as probed facts only. The failure path takes no action and does not judge
+# which PR is this R5, because a push, PR or merge that errored locally may still have taken effect remotely. The
+# guidance is fixed and never says to merge by hand: only r5 re-checks the head, base and ci.yml run first.
+function Format-PostMergeRecoveryReport([string]$Branch, [string]$Head, [string]$Base, [bool]$TipKnown, [string]$Tip, [bool]$PrsKnown, [object[]]$Prs) {
+  $tipText = 'none'
+  if ($Tip) { $tipText = $Tip }
+  if (-not $TipKnown) { $tipText = 'unknown (probe failed)' }
+  $prText = 'none'
+  if (@($Prs).Count) { $prText = (@($Prs) | ForEach-Object { "#$($_.number) $($_.state) head $($_.headRefOid) base $($_.baseRefName)" }) -join '; ' }
+  if (-not $PrsKnown) { $prText = 'unknown (probe failed)' }
+  return "[POST-MERGE-LEFT-BEHIND] r5 failed after pushing $Branch (head $Head, base $Base). Remote branch tip: $tipText. PRs: $prText. Nothing was pruned. If a PR above is MERGED with head $Head and base $Base, this R5 landed and 'post-merge.ps1 prune -Branch $Branch' cleans up; otherwise close any open PR and delete the branch, then rerun r5. Never merge it by hand: only r5 re-checks head, base and CI."
 }
 # ── Self-check ────────────────────────────────────────────────────────────────────────────────────────
 
@@ -318,14 +318,12 @@ function Invoke-PostMergeSelfCheck {
   Check 'ci: an in-progress run is pending' { (Get-PostMergeRunDecision @((Run 7 $tip 'in_progress' '')) $tip).State -ceq 'pending' }
   Check 'ci: a completed success run is success' { $r = Get-PostMergeRunDecision @((Run 7 $tip 'completed' 'success')) $tip; $r.State -ceq 'success' -and $r.Id -ceq '7' }
   Check 'ci: a failed ci.yml run is failure' { (Get-PostMergeRunDecision @((Run 7 $tip 'completed' 'failure')) $tip).State -ceq 'failure' }
-  $rr = { param($tk, $tp, $pk, $p) Get-PostMergeRecoveryReport 'r5-T9-DEMO' $tk $tp $pk @($p) }
-  Check 'recovery: an unreadable PR list is unknown and not pruned' { $r = & $rr $true $tip $false @(); -not $r.Prune -and $r.Message.StartsWith('[POST-MERGE-STATE-UNKNOWN]') }
-  Check 'recovery: an unreadable branch tip is unknown' { $r = & $rr $false '' $true @(); -not $r.Prune -and $r.Message.StartsWith('[POST-MERGE-STATE-UNKNOWN]') }
-  Check 'recovery: a merged PR is pruned' { $r = & $rr $true $tip $true @((Pr 5 'MERGED' $tip)); $r.Prune -and $r.Message.StartsWith('[POST-MERGE-MERGED]') }
-  Check 'recovery: two PRs are not pruned' { $r = & $rr $true $tip $true @((Pr 5 'MERGED' $tip), (Pr 6 'MERGED' $tip)); -not $r.Prune -and $r.Message.StartsWith('[POST-MERGE-LEFT-BEHIND]') }
-  Check 'recovery: an open PR is to be closed, never merged by hand' { $r = & $rr $true $tip $true @((Pr 5 'OPEN' $tip)); -not $r.Prune -and $r.Message.StartsWith('[POST-MERGE-LEFT-BEHIND]') -and $r.Message.Contains('never merge it by hand') }
-  Check 'recovery: a pushed branch without a PR is left behind' { $r = & $rr $true $tip $true @(); -not $r.Prune -and $r.Message.StartsWith('[POST-MERGE-LEFT-BEHIND]') }
-  Check 'recovery: nothing on the remote means a clean rerun' { $r = & $rr $true '' $true @(); -not $r.Prune -and $r.Message.StartsWith('[POST-MERGE-NOTHING-LEFT]') }
+  $rec = { param($tk, $tp, $pk, $p) Format-PostMergeRecoveryReport 'r5-T9-DEMO' $tip 'master' $tk $tp $pk @($p) }
+  Check 'recovery: the report gives the tip and each PR with state, head and base' { $r = & $rec $true $tip $true @([pscustomobject]@{ number = 5; state = 'MERGED'; headRefOid = $tip; baseRefName = 'main' }); $r.StartsWith('[POST-MERGE-LEFT-BEHIND]') -and $r.Contains("tip: $tip.") -and $r.Contains("#5 MERGED head $tip base main") }
+  Check 'recovery: an unreadable PR list is reported as unknown' { (& $rec $true $tip $false @()).Contains('PRs: unknown') }
+  Check 'recovery: an unreadable branch tip is reported as unknown' { (& $rec $false '' $true @()).Contains('tip: unknown') }
+  Check 'recovery: no branch and no PR are reported as none' { $r = & $rec $true '' $true @(); $r.Contains('tip: none') -and $r.Contains('PRs: none') }
+  Check 'recovery: the report prunes nothing and never advises a hand merge' { $r = & $rec $true $tip $true @(); $r.Contains('Nothing was pruned') -and $r.Contains('Never merge it by hand') }
   Check 'ci: a run for another commit is ignored' { (Get-PostMergeRunDecision @((Run 7 ('b' * 40) 'completed' 'success')) $tip).State -ceq 'pending' }
   if ($fails.Count) {
     foreach ($f in $fails) { Write-Host "POST-MERGE-FAIL: $f" -ForegroundColor Red }
@@ -422,7 +420,7 @@ function Invoke-PostMergeR5 {
   $wt = Join-Path (Get-ScaffoldWorktreeRoot) $branchName
   if (Test-Path -LiteralPath $wt) { throw "[POST-MERGE-BRANCH-EXISTS] $wt already exists" }
   Invoke-PostMergeNative 'git worktree add' { git -C $RepoRoot worktree add -b $branchName $wt $baseOid } | Out-Null
-  $merged = $false; $pushAttempted = $false; $recoveryPrune = $false; $failure = $null
+  $merged = $false; $pushAttempted = $false; $failure = $null; $head = ''
   try {
     $cardFile = Join-Path $wt "specs/tasks/$TaskId.md"
     if (-not (Test-Path -LiteralPath $cardFile)) { throw "[POST-MERGE-ANCHOR] specs/tasks/$TaskId.md is not on origin/$Base" }
@@ -468,10 +466,8 @@ function Invoke-PostMergeR5 {
     if ($pushAttempted -and -not $merged) {
       $tipKnown = $true; $tip = ''; $prsKnown = $true; $prs = @()
       try { $line = @(Invoke-PostMergeNative "git ls-remote $branchName" { git -C $RepoRoot ls-remote origin "refs/heads/$branchName" }) | Select-Object -First 1; if ($line) { $tip = ($line -split "`t")[0].Trim() } } catch { $tipKnown = $false }
-      try { $prs = @((Invoke-PostMergeNative "gh pr list --head $branchName" { gh pr list --state all --head $branchName --json number,state,headRefOid }) -join "`n" | ConvertFrom-Json) } catch { $prsKnown = $false }
-      $report = Get-PostMergeRecoveryReport $branchName $tipKnown $tip $prsKnown $prs
-      Write-Host $report.Message -ForegroundColor Yellow
-      $recoveryPrune = $report.Prune
+      try { $prs = @((Invoke-PostMergeNative "gh pr list --head $branchName" { gh pr list --state all --head $branchName --json number,state,headRefOid,baseRefName }) -join "`n" | ConvertFrom-Json) } catch { $prsKnown = $false }
+      Write-Host (Format-PostMergeRecoveryReport $branchName $head $Base $tipKnown $tip $prsKnown $prs) -ForegroundColor Yellow
     }
   } finally {
     & git -C $RepoRoot worktree remove --force $wt 2>$null | Out-Null
@@ -480,7 +476,6 @@ function Invoke-PostMergeR5 {
     if ($LASTEXITCODE -ne 0) { Write-Host "[POST-MERGE-CLEANUP-FAIL] local branch $branchName was not deleted; delete it with: git branch -D $branchName" -ForegroundColor Red }
   }
   if ($merged) { Invoke-PostMergePrune @($branchName); return }
-  if ($recoveryPrune) { try { Invoke-PostMergePrune @($branchName) } catch { Write-Host $_.Exception.Message -ForegroundColor Red } }
   throw $failure
 }
 

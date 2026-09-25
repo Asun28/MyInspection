@@ -62,9 +62,9 @@ the same pattern.
   boundary (A6), the task-loop R5 step and `docs/DEVOPS-WORKFLOW.md` point at it.
 - RED (A5): SelfCheck written first against one-line stubs; `task.ps1 -Phase red` exited 1 with
   `[POST-MERGE-SELF-CHECK-FAIL] 42 of 42 cases failed`, each on its own assertion.
-- GREEN: `-SelfCheck` passes 67 cases (`[POST-MERGE-SELF-CHECK-PASS]`).
-- R4 (A5): 48 single-statement mutants below, with the line each changes in the final file (SHA-256
-  `8C421ECEC0DDDA6B5A1FA207A6FA8B897D8594738A04EAD3121E42A56D2974A9`). Each made `-SelfCheck` exit 1 by failing its
+- GREEN: `-SelfCheck` passes 65 cases (`[POST-MERGE-SELF-CHECK-PASS]`).
+- R4 (A5): 47 single-statement mutants below, with the line each changes in the final file (SHA-256
+  `C7BD77A640E7C65DFA95A44BD1524389EEBBFB7FFE753BD9664C04532C90CFB6`). Each made `-SelfCheck` exit 1 by failing its
   named case, none by a parse error; the file was restored and SHA-checked after each. The runner first rewrites
   the unmutated file and requires identical bytes and a passing SelfCheck (an earlier batch without that control
   wrote a second BOM and was void).
@@ -113,11 +113,10 @@ the same pattern.
 | M37 | 200 | drop `status -ceq 'completed'` | ci: an in-progress run is pending |
 | M38 | 171 | condition → `$false` | ci: a pending CheckRun is not failure |
 | M39 | 177 | state check → always `pending` | ci: a StatusContext ERROR is failure |
-| M40 | 212 | MERGED test → `$false` | recovery: a merged PR is pruned |
-| M41 | 212 | drop `$prs.Count -eq 1` | recovery: two PRs are not pruned |
-| M42 | 213 | condition → `$false` | recovery: an unreadable PR list is unknown and not pruned |
-| M43 | 213 | drop the `-not $TipKnown` half | recovery: an unreadable branch tip is unknown |
-| M44 | 214 | condition → `$false` | recovery: nothing on the remote means a clean rerun |
+| M40 | 212 | delete the unknown-tip line | recovery: an unreadable branch tip is reported as unknown |
+| M41 | 215 | delete the unknown-PR line | recovery: an unreadable PR list is reported as unknown |
+| M42 | 214 | drop the base from each PR | recovery: the report gives the tip and each PR with state, head and base |
+| M43 | 211 | delete the known-tip line | recovery: the report gives the tip and each PR with state, head and base |
 | M45 | 86 | condition → `$false` | stage: empty entry |
 
 - A4 on real state: `prune` kept a missing branch and the branch of open PR #323 (tip unchanged), and deleted
@@ -133,10 +132,14 @@ the same pattern.
   deleted; the CI wait (fan-in must be exactly SUCCESS, the ci.yml run is polled within the deadline, M34 to M39);
   cleanup failures reported as `[POST-MERGE-CLEANUP-FAIL]`. Its follow-up (A3's live path) is the R5 run below.
 - R3 round 2 (Codex) passed the spec axis and blocked on one standards point: after a failure past the push, the
-  report came from local flags and advised merging by hand. Now `Get-PostMergeRecoveryReport` decides from
-  probed remote state (unknown stays unknown, a merge that landed is pruned, the advice is close, delete and
-  rerun, never a hand merge), with cases and M40 to M44. Rounds reset by user ruling for round 3.
-- Tier-1 acceptance: `selftest.ps1 -TaskId T0-POST-MERGE-DOCS-PR` from this worktree exited 0 with
+  report came from local flags and advised merging by hand. Fixed by probing the remote in the failure path.
+- R3 round 3 (Codex) passed the spec axis and blocked on the round-2 fix, which auto-pruned any single merged PR
+  without checking its head and base. By user ruling the failure path no longer decides or prunes:
+  ``Format-PostMergeRecoveryReport`` prints the probed facts (branch tip; each PR's state, head and base; unknown when
+  a probe fails) with fixed guidance that never advises a hand merge (cases and M40 to M43). Rounds reset by user
+  ruling for rounds 3 and 4.
+- Tier-1 acceptance: `selftest.ps1 -TaskId T0-POST-MERGE-DOCS-PR` from this worktree printed
   `[SELFTEST-TIER-PASS] task=T0-POST-MERGE-DOCS-PR tier=1 gates=1,2,3,4,5,7,8,9,10,11,13,14,15,16` (no gate failed,
-  848.2 s) on `scripts/post-merge.ps1` SHA-256 `8C421ECE...2974A9`. DeepSeek round 5 found M45 missing from the
-  table (added, 48/48); round 6 passed. Only this record changed in the card after the run.
+  1277.2 s; selftest.ps1 prints that line only on its `exit 0` path) on `scripts/post-merge.ps1` SHA-256
+  `C7BD77A6...2C90CFB6`. DeepSeek rounds 5 to 7: round 5 found M45 missing from the table (added), rounds 6 and 7
+  passed. Only this record changed in the card after the run.
