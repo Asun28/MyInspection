@@ -2,7 +2,7 @@
 id: T1-LOCAL-SECRET-BOX
 title: LocalSecretBox JVM core - AES-GCM envelope, alias/version/purpose isolation and NEEDS_UNLOCK/NEEDS_PASSPHRASE mapping over key, unlock and envelope-file ports
 depends_on: [T1-APP-STORAGE-POLICY, T1-APP-STORAGE-ANDROID]
-status: todo
+status: merged
 branch: T1-LOCAL-SECRET-BOX
 worktree: C:\wt\T1-LOCAL-SECRET-BOX
 allow_paths:
@@ -58,3 +58,16 @@ User ruling 2026-09-25: deliver `T1-LOCAL-DATA-SECURITY` in three PRs (card regi
 Estimate 600-720 changed lines / 34k-42k characters (production about 230, tests about 420, R4 receipt comment about 50). `budget: 800` follows the 800-line split rule; above that, split before writing more.
 
 2026-09-25 user ruling: after the fresh-context pre-review added seven test gaps, the card measured about 836 lines with its receipt. The envelope-file store, its test and the former R6/A6 moved to T1-LOCAL-SECRET-STORE; this card is now about 630 lines plus the receipt, still under `budget: 800`.
+
+## R5 delivery (2026-09-25)
+
+Merged by [PR #371](https://github.com/Asun28/MyInspection/pull/371) as squash `b045a2dc` (reviewed head `83b5ebaa`; CI run `36078602806`, `verify` and `required` success; `codex-review` success). The merged `android/` files are byte-identical to the reviewed head. 673 changed lines against `budget: 800`.
+
+- RED: on base `3f75d89a` the new test class did not compile (`Unresolved reference 'SecretPurpose'`, `'LocalSecretBox'`).
+- Tests: 23 in `LocalSecretBoxTest`; app suite 288 tests, 0 failures (1 pre-existing skip, `PdfDeviceFixtureTest` real80).
+- R4: 43/43 single-point mutants killed by their named test with `java.lang.AssertionError`, against production SHA-256 `D9AECFB4…`; the receipt is the trailing comment in the test file and the evidence is `_local/local-secret-box/r4` in the main checkout.
+- Pre-review: a fresh-context Opus 5.5 review before ship found 19 items. Seven test gaps were fixed: the nonce-size test passed only because `updateAAD` threw on CBC, open-uses-envelope-version was untested, no-write after every open, the no-caller-IV rule (now through a GCM-shaped test cipher), the size-cap round trip, the seal-side cipher failure, and the store's atomic move. Closing them put the card over budget, so the envelope store moved to `T1-LOCAL-SECRET-STORE` (#369). The unusable-key re-seal question went to the parent card.
+- check-secrets flagged the file names `SecretEnvelopeStore*.kt` (a path segment starting with `secret`); per the user's rule they were renamed to `LocalSecretEnvelopeStore` (#361), not allowlisted.
+- R3: Codex `gpt-5.6-sol` high. Round 1 blocked on two spec findings, both in the R4 evidence: M31 (the decoder scratch-buffer zero-fill) survived as unobservable, and the receipt's pre-receipt hash had no exact byte range. The scratch buffer became an injectable parameter (plus M43, an overflowing decode), R4 was rerun, and the receipt now gives `head -n 437 … | sha256sum`. Round 2 passed with no findings.
+- Selftest: tier-1 routing escalated to the full 17 gates (`android/` paths have no GATE-MAP route) and passed in 2413 s on `5522786f`; only `android/` files changed after that.
+- Author: the card names GPT-5.6 Terra; the work was done by a Claude Opus 5.5 session.
