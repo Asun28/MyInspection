@@ -1,7 +1,7 @@
 ---
 id: T0-POST-MERGE-CARD-DRIFT
 title: Close the loop on the card itself after a merge or a closed PR - a drift audit, a retire path, and a task-loop rule that the turn runs from ship through R5
-status: todo
+status: merged
 depends_on: [T0-POST-MERGE-R5-GUARDS]
 parallelizable_with: []
 branch: T0-POST-MERGE-CARD-DRIFT
@@ -146,3 +146,11 @@ All runs on 2026-09-26 except the replay use the candidate `scripts/post-merge.p
 | M58 | r5 skips its CLAUDE.md entry | plumbing: r5 -DryRun builds and checks its change, then stops before any push |
 | M59 | drop the gate stop | plumbing: retire stops with [POST-MERGE-GATE] before any push when a gate fails |
 | M60 | exit 0 whatever the command | dispatch: the script with no subcommand exits 2 |
+
+## R5 (2026-09-26)
+
+Merged through PR #419 (squash `ff5e587e`, reviewed head `59d91899`, CI `36188375073`); Codex R3 round 3 passed with no findings. Rounds 1 and 2 blocked on dimension #6: round 1 on untested audit and retire plumbing and a DoD that only searched for the command names, round 2 on untested dispatch arms and exit codes and a DoD that checked six of the recorded mutants. The DoD was tightened on the base card twice (#420, #422); round 3 and the budget raise from 350 to 420 were authorised by the user.
+
+Doc sync: the first live audit reported only `T0-CLAUDE-MD-L360-TD190` (#411), which that card's own session then settled; the seven R5-MISSING cards measured above had all been settled by other sessions before this card shipped, so none is handed to the user. Right after the merge, audit on master reported this card itself as R5-MISSING, which this R5 settles.
+
+Open for the user: retire merges on CI alone like r5. Its allowlist (the card file and its board row) sits inside the 2026-09-25 direct-merge ruling, but the CLAUDE.md line recording that ruling names r5 only. Untested, both fail closed: audit's 5000-PR limit and its check on the shape of the base tip.
