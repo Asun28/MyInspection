@@ -1,7 +1,7 @@
 ---
 id: T0-POST-MERGE-DOCS-PR
 title: Automate the post-merge R5 doc-sync PR and the pruning of merged remote branches
-status: todo
+status: merged
 depends_on: []
 parallelizable_with: []
 allow_paths:
@@ -146,3 +146,10 @@ the same pattern.
   `[SELFTEST-TIER-PASS] task=T0-POST-MERGE-DOCS-PR tier=1 gates=1,2,3,4,5,7,8,9,10,11,13,14,15,16` (no gate failed,
   830.9 s) on `scripts/post-merge.ps1` SHA-256 `957B223C...32D4A30F`. DeepSeek rounds 5 to 8: round 5 found M45
   missing from the table (added); rounds 6, 7 and 8 passed. Only this record changed in the card after the run.
+
+## R5 delivery (2026-09-25)
+
+[PR #367](https://github.com/Asun28/MyInspection/pull/367) merged as `34241b18` through the normal ship: Codex R3 round 5
+passed on both axes, and the CI gate printed `[CI-GATE-PASS]` for head `c1a40522`, workflow run 36105963558/1, base
+`3482be50`. This section, this card's board row and its CLAUDE.md entry were placed and merged by
+`post-merge.ps1 r5` itself, the first live run of its push, PR, CI-wait and merge path (A3).
