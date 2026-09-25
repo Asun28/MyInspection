@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-09-26 远端交付**：`T0-CLAUDE-MD-RETIRE-MERGE` 经 [PR #428](https://github.com/Asun28/MyInspection/pull/428) 合并（`e89baad9`；reviewed head `a3ed42a0`，CI `36194273222` success，Codex R3 第 2 轮 pass、零 finding）。按用户 2026-09-26 裁定，「执行边界」的无 R3 合并范围加上 `post-merge.ps1 retire`：它开的退役 PR 只能把指名卡片的 status 改为 merged 并在其后加一行 superseded_by、在卡末追加一节、改该卡的看板行，越界即 `[POST-MERGE-SCOPE]`；「开发工作流」的 R5 行同步写明 retire 同样 CI 通过即合并。R3 第 1 轮指出 DoD 只查词，删掉 `[POST-MERGE-SCOPE]` 或 CI 子句仍会通过；DoD 改为逐字比对这两行（#429）后第 2 轮 pass。
+
 **2026-09-26 远端交付**：`T0-POST-MERGE-CARD-DRIFT` 经 [PR #419](https://github.com/Asun28/MyInspection/pull/419) 合并（`ff5e587e`；reviewed head `59d91899`，CI `36188375073` success，Codex R3 第 3 轮 pass、零 finding）。`post-merge.ps1 audit` 读 origin 钉住的那个提交里 `specs/tasks/` 的每张卡和本仓全部 PR：PR 已合并而卡未 merged 报 `[CARD-DRIFT-R5-MISSING]`，只有已关闭 PR 报 `[CARD-DRIFT-CLOSED]`；退出 0/1/2，git 或 gh 失败为 2、绝不报 NONE；抓取不写 ref 和 FETCH_HEAD，gh 经 GH_REPO 钉在 origin 的仓库。`post-merge.ps1 retire` 走 r5 的路径退役 PR 未合并就关闭的卡：卡不在 specs/tasks、已 merged、已有 superseded_by、有 open PR 或接替卡不存在时，在创建任何东西之前拒绝；白名单只含 status 改为 merged 加一行 superseded_by、追加的一节、本卡看板行。task-loop 增三条：合并后同一回合跑 r5、cleanup 与 R5.5；PR 未合并关闭的卡用 retire 收尾；开新卡前先跑 audit。R3 前两轮都是 #6 测试缺失：第 1 轮要实跑 audit 与 retire 的管道，第 2 轮要覆盖每个子命令分支与退出码并核验全部变异。为此 dispatch 改为 `Invoke-PostMergeCommand`，SelfCheck 以记录型 git/gh/pwsh 桩逐个驱动子命令（127 例），R4 60/60 以清单写进卡片、由 DoD 逐行核对。DoD 两次在 base 上收紧（#420、#422）。每轮修复前的全新上下文预审都抓到真问题：audit 的抓取会写 ref，gh 跟随调用方目录，origin URL 出错时被原样打印，测试工具继承 GIT_DIR。retire 与 r5 一样 CI 通过即合并，白名单在 2026-09-25 裁定的范围之内，但「执行边界」那条只点名 r5，是否扩到 retire 待用户定。
 
 **2026-09-25 远端交付**：`T0-UPSTREAM-LESSON-IDS` 经 [PR #416](https://github.com/Asun28/MyInspection/pull/416) 合并（`35021694`；reviewed head `a95557f3`，CI `36131605345` success；Codex R3 第 1 轮 pass 后 master 前移，续跑的第 2 轮仍 pass、零 finding）。`docs/LESSONS.md` 新增一节：PR #297 从上游 scaffold（`96ebfcec`）采纳的代码里有 461 行含经验 id，它们是上游账本的编号，与本仓账本各自编号，所以同一个 id 在本仓通常是另一条经验（核过 9 个，全部不同；例如 `selftest.ps1` 闸 17ib 引用的 L353）；该节给出判定命令 `git blame -L` 与离线查阅命令 `git show 96ebfcec:docs/lessons/LEDGER.md`。采纳来的文件按用户裁定保持原样；编号冲突已报上游 [claude-devops-scaffold#400](https://github.com/Asun28/claude-devops-scaffold/issues/400)，链接记在 `docs/SCAFFOLD-SYNC.md`。R4 5/5 变异全杀。
@@ -709,7 +711,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
   **push 侧是事后检测、不是 push 前强制**——提交落地后才跑；free+private 无可强制规则集时，它保证直推提交**败即显式变红**（防泄露闸尤需事后可见：发现了才能轮换密钥）。
   push 前的真强制只有两层：`gh-bootstrap.ps1` 装的本地 pre-push 钩子（仅覆盖装了钩子的克隆）、服务端规则集（需 Pro/public）
 - **R4 测试卫生**：mutation-survivor 法剪枝冗余测试（每卡 `hygiene` 字段）
-- **R5 文档同步**：合并后立刻更新 CLAUDE.md/README/卡片 status（每卡 `doc_sync` 字段）；机械部分用 `scripts\post-merge.ps1 r5`（三段 prose 由调用方写成文件，脚本在 origin 新切的 worktree 里落位、开 PR、CI 通过即合并），卡分支用 `post-merge.ps1 prune` 清理
+- **R5 文档同步**：合并后立刻更新 CLAUDE.md/README/卡片 status（每卡 `doc_sync` 字段）；机械部分用 `scripts\post-merge.ps1 r5`（三段 prose 由调用方写成文件，脚本在 origin 新切的 worktree 里落位、开 PR、CI 通过即合并），PR 未合并就关闭的卡用 `post-merge.ps1 retire` 退役（同样 CI 通过即合并），卡分支用 `post-merge.ps1 prune` 清理
 - 一次性建仓：`scripts\gh-bootstrap.ps1`（建仓 + main 规则集加固；**仅 `_config.ps1` 配置的个人账号**；推送前转调防泄露闸）
 - 变 public 前防泄露：`pwsh scripts\check-secrets.ps1 -Strict` 须全绿——核心数据库/密钥/凭据须既被 gitignore、又**未被 git 追踪**（已追踪 → `git rm --cached`，gitignore 救不了已追踪文件）。模式集单一真相源，`gh-bootstrap` 复用之；见 `docs/SECURITY.md`
 
@@ -808,7 +810,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - **别的会话持有的工作（L218）**：开工、续接、拆卡或改卡前跑 `scripts/live-work.ps1 -TaskId <id>`，reset、clean 或删除 worktree 前跑 `scripts/live-work.ps1`；报出另一会话 48 小时内的改动就停下问用户由哪个会话持有，不接手、不重置、不拆它。`task.ps1 -Phase start` 遇重叠即停（`-TakeOver` 只在用户同意后用），dirty-worktree 钩子在对有未提交改动的 worktree 执行丢弃类 git 命令前先问用户。
 - **反模式抑制（未经请求不做）**：不做防御性备份（`*.bak`/backup 分支/副本文件）；不重开用户已定的决策；
   任务外重构/清理见通用编码纪律 3/4。可逆且属原任务的动作直接做，别停下要许可。
-- **无 R3 直接合并的范围（用户 2026-09-25 裁定）**：post-merge.ps1 r5 开的 R5 文档同步 PR 只能改本卡卡片、本卡的 docs/TASK-BOARD.md 行、CLAUDE.md「当前阶段」节内的新增行；越界即 [POST-MERGE-SCOPE]，不推送。
+- **无 R3 直接合并的范围（用户 2026-09-25 裁定）**：post-merge.ps1 r5 开的 R5 文档同步 PR 只能改本卡卡片、本卡的 docs/TASK-BOARD.md 行、CLAUDE.md「当前阶段」节内的新增行；post-merge.ps1 retire 开的退役 PR（用户 2026-09-26 裁定）只能把指名卡片的 status 改为 merged 并在其后加一行 superseded_by、在该卡末尾追加一节、改该卡的 docs/TASK-BOARD.md 行；越界即 [POST-MERGE-SCOPE]，不推送。
 
 ## 约定
 - 路径用 `pathlib` 绝对路径；subprocess 用参数列表 + 显式 UTF-8、禁拼 shell；错误分 retryable/non-retryable。
