@@ -74,7 +74,9 @@ function Get-PostMergeCells([string]$Line) { return @($Line.Trim().Trim('|').Spl
 # second column too while their last column is not the status. The table is the run of '|' lines around the row;
 # its first line is the header, which must have '卡 id' second and '卡片状态 / 备注' last, with a '---' line under it
 # and as many cells as the row. The cell counts are compared first, which keeps $head[1] in range (the row has at
-# least three cells). The allowlist judge reads -U0 hunks with no table around them and keeps the second-cell test.
+# least three cells). $Lines[$top + 1] is read last: when the row is its own table's first line, $head[1] is the card
+# id, not '卡 id', so the test stops before it. The allowlist judge reads -U0 hunks with no table around them and
+# keeps the second-cell test.
 function Test-PostMergeMainTableRow([string[]]$Lines, [int]$Index) {
   $top = $Index
   while ($top -gt 0 -and $Lines[$top - 1].StartsWith('|')) { $top-- }
@@ -269,6 +271,8 @@ function Invoke-PostMergeSelfCheck {
   Throws 'board: a table whose last header cell is not the status' '[POST-MERGE-ANCHOR]' { Set-PostMergeBoardStatus "| 波 | 卡 id | x | 状态 |`n|---|---|---|---|`n| W0 | T9-DEMO | d | s |`n" 'T9-DEMO' 'x' }
   Throws 'board: a table without a separator line' '[POST-MERGE-ANCHOR]' { Set-PostMergeBoardStatus "| 波 | 卡 id | x | 卡片状态 / 备注 |`n| W0 | T9-DEMO | d | s |`n" 'T9-DEMO' 'x' }
   Throws 'board: a row whose cell count differs from its header' '[POST-MERGE-ANCHOR]' { Set-PostMergeBoardStatus ($mainHead + "| W0 | T9-DEMO | demo | S | **todo** |`n") 'T9-DEMO' 'x' }
+  Throws 'board: a header narrower than the row' '[POST-MERGE-ANCHOR]' { Set-PostMergeBoardStatus "| x |`n|---|`n| W0 | T9-DEMO | d |`n" 'T9-DEMO' 'x' }
+  Check 'board: a board that opens with its table and has no final newline' { (Set-PostMergeBoardStatus "| 波 | 卡 id | x | 卡片状态 / 备注 |`n|---|---|---|---|`n| W0 | T9-DEMO | d | s |" 'T9-DEMO' 'y') -ceq "| 波 | 卡 id | x | 卡片状态 / 备注 |`n|---|---|---|---|`n| W0 | T9-DEMO | d | y |" }
   Check 'board: a longer id is not the card row' { -not (Test-PostMergeBoardRow '| W0 | T9-DEMO-X | other | x |' 'T9-DEMO') }
   Check 'board: the id cell is compared exactly' { -not (Test-PostMergeBoardRow '| W0 | t9-demo | other | x |' 'T9-DEMO') }
   Check 'board: a prose line carrying the id is not a row' { -not (Test-PostMergeBoardRow 'x | T9-DEMO | y' 'T9-DEMO') }

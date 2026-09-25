@@ -46,8 +46,9 @@ R3: Opus 5.5 through `ReviewCommand` instead of Codex (user ruling 2026-09-25).
   five negative cases did not throw. GREEN: 73 of 73.
 - `Test-PostMergeMainTableRow` takes the run of `|` lines around the row as its table and checks the run's first
   line as the header. It compares the cell counts first, so `$head[1]` stays in range under StrictMode.
-- R4 (A2): 7 single-statement mutants. Each made `-SelfCheck` exit 1 with its named case failing and no parse error;
-  the file was restored after each and ended at SHA-256 `36220F896AED91914B6BC2EC51E2B2E9B7120EE03C20FAD702C1AB8E300FD3A6`.
+- R4 (A2): 9 single-statement mutants, B8 and B9 added after the pre-review (below). Each made `-SelfCheck` exit 1
+  with its named case failing and no parse error; the file was restored after each and ended at SHA-256
+  `4A3E0C111153EA7A2EF7F873435FEBFE8B21DC3B56DC7FA41760ED61ECF9E989`.
 
 | id | statement | mutation | killing case |
 |---|---|---|---|
@@ -58,10 +59,21 @@ R3: Opus 5.5 through `ReviewCommand` instead of Codex (user ruling 2026-09-25).
 | B5 | ` -and (Test-PostMergeMainTableRow $lines $i)` | (deleted) | board: a row in another table is not the card row |
 | B6 | `$Lines[$top - 1].StartsWith('\|')` | `$true` | board: only the card row changes |
 | B7 | `$Lines[$top - 1].StartsWith('\|')` | `$false` | board: only the card row changes |
+| B8 | `return ($head.Count -eq @(Get-PostMergeCells $Lines[$Index]).Count -and $head[1] -ceq '卡 id' -and $head[-1] -ceq '卡片状态 / 备注' -and` | `return ($head[1] -ceq '卡 id' -and $head[-1] -ceq '卡片状态 / 备注' -and $head.Count -eq @(Get-PostMergeCells $Lines[$Index]).Count -and` | board: a header narrower than the row |
+| B9 | `$top -gt 0 -and ` | (deleted) | board: a board that opens with its table and has no final newline |
 
-- A3: on origin/master `354a45d4`, 221 card ids sit in the second column of a main card table. For 217 of them both
-  searches find the same single row. The other four are also in the second column of the "Round | Card" table, so
-  the old search found two rows and r5 would have stopped; the new search finds the main-table row:
-  `T1-STORAGE-PATH-BOUNDARY` (line 157; old also 431), `T3-PDF-MEASUREMENT-REQUESTS` (214; 442),
-  `T3-PDF-PAGINATION-FIXTURES` (213; 433), `T3-PDF-TYPOGRAPHY-CONTRACT` (212; 432). One edit through
+- A3: on origin/master `354a45d4` (the board is unchanged at `ae731205`), 221 main-table cells equal a card id. For
+  217 of them both searches find the same single row. The other four ids are also in the second column of another
+  table, so the old search found two rows and r5 would have stopped; the new search finds the main-table row:
+  `T1-STORAGE-PATH-BOUNDARY` (line 157; old also 431), `T3-PDF-TYPOGRAPHY-CONTRACT` (212; 432) and
+  `T3-PDF-PAGINATION-FIXTURES` (213; 433) under the `远端交付卡 | 原产品卡` header at line 429, and
+  `T3-PDF-MEASUREMENT-REQUESTS` (214; 442) under `Round | Card` at line 439. One edit through
   `Set-PostMergeBoardStatus` on that board (`T0-TOOLCHAIN`) changed line 34 only.
+- [FOLLOW-UP] 34 more main-table cells hold a card id with decoration: a `★` suffix (10), strikethrough (5), or a
+  markdown link (19, including every row of the second main table at lines 382-399). Both searches find no row for
+  these, before and after this change, so r5 stops with `[POST-MERGE-ANCHOR]` for them; 11 are live
+  `T0-PREREVIEW-*` cards. Accepting decorated ids would change `Test-PostMergeBoardRow`, which the allowlist judge
+  shares, so it is left to its own card. Today only the SelfCheck fixture exercises a row in the second main table.
+- After a fresh-context pre-review, two cases were added to pin behaviour the first batch did not reach: a header
+  narrower than the row (B8, the count comparison must come first under StrictMode) and a board that opens with its
+  table and has no final newline (B9, the walk up must stop at line 0). SelfCheck: 75 of 75.
