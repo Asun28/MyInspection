@@ -8,7 +8,7 @@ worktree: C:\wt\T1-LOCAL-DATA-SECURITY
 allow_paths:
   - android/app/src/main/kotlin/nz/myinspection/app/platform/AndroidSecretKeys.kt
   - android/app/src/test/kotlin/nz/myinspection/app/platform/AndroidSecretKeysTest.kt
-  - android/app/src/debug/kotlin/nz/myinspection/app/platform/SecretBoxProbeActivity.kt
+  - android/app/src/debug/kotlin/nz/myinspection/app/platform/LocalSecretBoxProbeActivity.kt
   - android/app/src/debug/AndroidManifest.xml
   - docs/local-secret-box-probe.md
   - android/app/src/main/kotlin/nz/myinspection/app/platform/LocalSecretBox.kt
