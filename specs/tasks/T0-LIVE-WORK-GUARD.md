@@ -12,8 +12,9 @@ allow_paths:
   - .claude/skills/task-loop/SKILL.md
   - docs/HANDOFF.md
   - CLAUDE.md
+  - scripts/selftest.ps1
   - specs/tasks/T0-LIVE-WORK-GUARD.md
-sweep: "rg 'L218|L273|活跃写者|他会话|并行会话|other session|another session|live work' over CLAUDE.md, docs/HANDOFF.md, docs/DEVOPS-WORKFLOW.md, .claude/skills/task-loop/SKILL.md, .claude/hooks/*.ps1 and scripts/task.ps1 (2026-09-25, origin/master cf1bd18a). The only hit is task.ps1:1146, the ship-time [SHIP-CONCURRENT-SESSION] notice, which looks at the main checkout and at worktree directory names only; this card leaves it as is. No teaching surface states L218 or L273: CLAUDE.md's execution boundary and the task-loop skill's 前置 get one rule line each, docs/HANDOFF.md gets the per-task handoff rule. docs/DEVOPS-WORKFLOW.md is not edited: it describes phase commands, and T0-MAIN-CHECKOUT-READONLY and T0-POST-MERGE-CARD-DRIFT own its multi-session text."
+sweep: "rg 'L218|L273|活跃写者|他会话|并行会话|other session|another session|live work' over CLAUDE.md, docs/HANDOFF.md, docs/DEVOPS-WORKFLOW.md, .claude/skills/task-loop/SKILL.md, .claude/hooks/*.ps1 and scripts/task.ps1 (2026-09-25, origin/master cf1bd18a). The only hit is task.ps1:1146, the ship-time [SHIP-CONCURRENT-SESSION] notice, which looks at the main checkout and at worktree directory names only; this card leaves it as is. No teaching surface states L218 or L273: CLAUDE.md's execution boundary and the task-loop skill's 前置 get one rule line each, docs/HANDOFF.md gets the per-task handoff rule. scripts/selftest.ps1 was added on 2026-09-25 (user ruling): gate 15's fixture starts several cards that all declare README.md while its earlier steps leave README.md edits in other fixture worktrees, so the fixture starts after 15a's first one pass -TakeOver. docs/DEVOPS-WORKFLOW.md is not edited: it describes phase commands, and T0-MAIN-CHECKOUT-READONLY and T0-POST-MERGE-CARD-DRIFT own its multi-session text."
 forbid:
   - Denying or rewriting a git command; the hook only asks the user (permissionDecision ask)
   - Fetching, pushing or any network call in the probe or either hook
@@ -80,7 +81,10 @@ worktree) and L273 (progress.md may belong to another session) exist only in the
 3. **Ask before discarding (A5).** A git command that would discard or move work in a worktree with uncommitted
    changes asks the user first. The hook asks, it never denies, so a session discarding its own work loses one
    confirmation.
-4. **Say it where it is read (A6).** One rule line each in CLAUDE.md's execution boundary (always loaded) and
+4. **Keep the selftest fixtures running.** Gate 15 starts several fixture cards that all declare `README.md`
+   while its earlier steps leave `README.md` edits in other fixture worktrees, which the new check reads as
+   another session's work. Those later starts pass `-TakeOver`; 15a's first start still proves a plain start.
+5. **Say it where it is read (A6).** One rule line each in CLAUDE.md's execution boundary (always loaded) and
    the task-loop skill, and the per-task handoff rule in docs/HANDOFF.md.
 
 Estimate: about 400 changed lines. Measure the candidate before RED (L266); if it exceeds 450, split A5 into
