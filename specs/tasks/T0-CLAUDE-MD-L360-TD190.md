@@ -1,7 +1,7 @@
 ---
 id: T0-CLAUDE-MD-L360-TD190
 title: Promote L360 into CLAUDE.md's must-load lessons, and correct the selftest -TaskId line (TD190)
-status: todo
+status: merged
 depends_on: []
 parallelizable_with: []
 allow_paths:
@@ -36,3 +36,16 @@ Opened on 2026-09-25 at the user's request after `T0-POST-MERGE-R5-GUARDS` was d
 L360 (its recurrence reached 2 in #404) and fix TD190.
 
 R3: Opus 5.5 through `ReviewCommand` instead of Codex, as for the three `T0-POST-MERGE-R5-*` cards.
+
+## R5
+
+- Merged by PR #411 as `f1d3273a` (reviewed head `6dc86428`). origin/master had meanwhile gained two card registrations (#412, #413)
+  that touch none of this card's files; the four changed files in the merge commit are byte-identical to the reviewed head. CI run
+  `36130799922` succeeded; the DoD passed on the final head and failed on the old master text (RED).
+- R3: Opus 5.5 through `ReviewCommand` (user ruling 2026-09-25). Round 1 blocked on one point, which held: the
+  rewritten line said an unrouted changed path escalates every tier to a full run, but `Get-ScaffoldTierGateSet`
+  keeps Tier 0 at its floor, and `selftest.ps1` also escalates Tier 1 when no changed path can be found. The line
+  now says both; round 2 passed with no finding.
+- While the PR was open, another session's #409 promoted L353 and demoted L190 in the same must-load section. The
+  branch took it; the section still holds 10 resident ids (L309, L165, L17, L97, L196, L353, L21, L205, L266,
+  L360), `lessons.ps1 check` passed, and DoD, CI and R3 were rerun on the merged head.

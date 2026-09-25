@@ -1935,7 +1935,7 @@
 - refs: 
 
 ## L267
-- date: 2026-09-01 ｜ tags: mutation,powershell,evidence ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-01 ｜ tags: mutation,powershell,evidence ｜ tier: ondemand ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 变异批报 KILLED，实际是植入的代码把源文件写坏、编译失败——不是被测试杀死。两个 PowerShell 坑各制造一次：辅助函数取名 Del 撞上 Remove-Item 别名；数组字面量里 f a b, g c 的逗号绑到 f 的参数上而不是分隔数组元素，于是第二个操作的函数名被当字符串写进源码。
 - root_cause: 变异的判据是「退出码非零」，而编译失败同样非零。只要植入环节自己可能出错，退出码就无法区分「守卫被证明有效」与「我把文件弄坏了」，且方向恰好是把假证据报成好消息。
 - rule: 变异批必须把编译失败与测试失败分开记账：捕获失败的测试名，任何拿不到测试名或命中 compileDebug*Kotlin 的一律标为可疑、不计入击杀。数组字面量里每个函数调用单独加括号 @((f a b), (g c))，辅助函数名加前缀避开 PowerShell 别名（Get-Alias 一查便知）。真正的语义变异应当让测试变红，不是让编译器变红。
@@ -2319,7 +2319,7 @@
 - refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
 
 ## L309
-- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 15
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 16
 - symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
@@ -2400,12 +2400,12 @@
 - refs: 
 
 ## L319
-- date: 2026-09-08 ｜ tags: mutation,evidence,powershell ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-09-08 ｜ tags: mutation,evidence,powershell ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 2
 - symptom: 变异批报告「27/27 全杀」，但其中若干枚植入的根本不是条目所写的那个改动：三枚把整行替换成了一个裸换行（看起来仍像「删掉该行」故不易察觉），一枚退化成 no-op、只因 runner 里有一句「植入后文本必须与基线不同」才当场抛错暴露。
 - root_cause: PowerShell 的逗号列表里，未加括号的字符串拼接会被折进列表本身：@(a, b, c, x + y + z) 解析成 6 个元素而非 4 个，于是 $m[3] 取到的是拼接的第一个操作数、不是拼接结果。批只校验了「选择器命中一次」与「DoD 变红」，两者在错误的变异下同样成立——变红的原因对不上条目声称造坏的东西。
 - rule: 变异批必须证明每个 mutant 就是条目所写的那一个，而不只是证明它让闸变红：① 条目表在 runner 里做元数自检（元素个数/字段齐全），② 植入后立刻断言 mutant != baseline，③ 数组字面量里每个 + 拼接与每个函数调用各自加括号（同 L267 的括号规矩，扩到 + 表达式）。判据：DoD 变红只证明「有东西坏了」，不证明「坏的是这条」——L318 说剪枝的可靠性不超过变异集的完整性，本条说批的可靠性不超过每个 mutant 与其描述的一致性。
 - enforced_by: none（变异 runner 是逐卡的 scratchpad 工具、从不入库，仓内没有它可以挂的闸；本条是 R4 编批时的写法纪律，其守卫必须写进那一份 runner——每条条目断言元素数 == 4，植入后断言 mutant != baseline，两处均 throw）
-- refs: 
+- refs: 2026-09-25 recurrence (T0-UPSTREAM-LESSON-IDS, PR #416): an R4 mutant described as dropping the DoD anchor d991cc92 replaced one of its two occurrences, so the DoD stayed green; the mutant did not match its description and was re-aimed at every occurrence.
 
 ## L320
 - date: 2026-09-08 ｜ tags: android,device,adb,mtp,spike ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
@@ -2480,7 +2480,7 @@
 - refs: renumbered from the uncommitted L328 by the 2026-09 reconcile (#339)
 
 ## L344
-- date: 2026-09-15 ｜ tags: selftest,worktree,routing,task-card ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-15 ｜ tags: selftest,worktree,routing,task-card ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: Ran scripts\selftest.ps1 -TaskId <id> -Base master from the main checkout as the card DoD asked; the run resolved mode=all and tested the main checkout (its untracked .aidlc/ root entry turned gate 8 red, and gate 11 counted the main checkout links), so the card worktree was never the tree under test.
 - root_cause: For mode all and core the -TaskId route only selects shards; every shard runs on $RepoRoot, which selftest.ps1 derives from its own location. Only the skills mode targets the task worktree (Invoke-SelftestAll -SourceRoot WorktreePath). Invoking the main checkout copy therefore tests the main checkout.
 - rule: Routed selftest evidence for a card must come from the worktree copy: pwsh -File <WorktreeRoot>\<id>\scripts\selftest.ps1 -TaskId <id> (since the 2026-09 reconcile selftest.ps1 has no -Base parameter; passing it fails before any gate runs). Also check that the invoked root has no stray top-level entries before a full run (gate 8.1 whitelist), and that every L<n> the card cites exists at base (git show master:docs/lessons/LEDGER.md), not only in the dirty working ledger (gate 16).
@@ -2681,7 +2681,7 @@
 - refs: 
 
 ## L360
-- date: 2026-09-25 ｜ tags: mutation,r4,evidence,powershell ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-25 ｜ tags: mutation,r4,evidence,powershell ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: Two mutation batches for T0-POST-MERGE-DOCS-PR produced wrong evidence. The first reported 27 of 29 mutants void because every mutant died of a parse error: the runner decoded the file with its BOM and wrote a second one. A later batch ran 47 mutants while 48 were declared: a here-string inserted without a trailing newline joined the array's closing parenthesis to the previous entry, so M45 sat outside the array and never ran, and nothing reported it.
 - root_cause: A mutation runner is itself untested code that writes the file under test; a broken write path or a malformed mutant list makes every result look like evidence while proving nothing.
 - rule: Give every mutation runner two self-checks before the batch: rewrite the unmutated file through the same write path and require identical bytes and a passing run, and require the number of mutants executed to equal the number declared. Treat any parse error in a mutant run as void, never as a kill. Before trusting a PASS from a self-check you edited by script, run one mutant that must be killed: if every mutant survives with exit 0, the harness is broken, not the code (T0-POST-MERGE-R5-WIRING prototype: an inserted block with no final newline made the SelfCheck summary line extra arguments of the last case, so it always passed).

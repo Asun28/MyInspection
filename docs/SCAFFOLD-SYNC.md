@@ -61,6 +61,13 @@ discovery-stage cap in lens rule 4) is tracked upstream as
 (`T0-OPUS55-PROMPT-FIT`) and PR #360 (`T0-PLAN-FORGE-PROMPT-TRIM`) fixed it here. `decompose-cards.mjs` carries
 the same class and is carded downstream as `T0-PLAN-FORGE-FOLLOWUP`.
 
+Upstream lesson ids in adopted code are tracked upstream as
+[#400](https://github.com/Asun28/claude-devops-scaffold/issues/400), filed 2026-09-25 by `T0-UPSTREAM-LESSON-IDS`.
+Code taken from the scaffold in PR #297 (upstream `96ebfcec`) cites lesson ids from the upstream ledger on 461
+lines. The two ledgers number independently, so a cited id usually names a different lesson in
+`docs/lessons/LEDGER.md` (nine checked, all different). The adopted files stay unchanged; `docs/LESSONS.md` says
+how to tell the two apart and where to read the upstream entry.
+
 ## Direction 2 — deciding whether to take an upstream release
 
 ```powershell
