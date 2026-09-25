@@ -97,7 +97,8 @@ if (-not (Same ((& "$tools\aapt2.exe" dump packagename $Apk) -join '').Trim() $p
 $installed = (& $adb -s $Serial shell pm path $package) -replace '^package:', ''
 if ($installed) {
     $copy = Join-Path ([IO.Path]::GetTempPath()) "installed-$([guid]::NewGuid()).apk"
-    & $adb -s $Serial pull $installed $copy | Out-Null
+    & $adb -s $Serial pull $installed $copy *> $null
+    if ($LASTEXITCODE -ne 0) { Fail 'pull of the installed APK' }
     $sameSigner = Same (CertDigest $copy) (CertDigest $Apk)
     Remove-Item -LiteralPath $copy
     if (-not $sameSigner) { Fail 'signing certificate differs from the installed app' }
@@ -106,7 +107,7 @@ $install = & $adb -s $Serial install -r $Apk
 if ($LASTEXITCODE -ne 0 -or -not (($install -join "`n") -cmatch 'Success')) { Fail 'install -r' }
 $runId = [guid]::NewGuid().ToString()
 $receiptPath = "files/secret-box-probe/$runId.txt"
-& $adb -s $Serial shell am start -W -n "$package/.platform.LocalSecretBoxProbeActivity" --es runId $runId | Out-Null
+& $adb -s $Serial shell am start -W -n "$package/.platform.LocalSecretBoxProbeActivity" --es runId $runId *> $null
 $receipt = $null
 foreach ($attempt in 1..30) {
     & $adb -s $Serial shell run-as $package ls $receiptPath *> $null
@@ -159,13 +160,14 @@ if (-not (Same $Expect 'pass') -and -not (Same $Expect 'locked.open.whileScreenL
 $installed = (& $adb -s $Serial shell pm path $package) -replace '^package:', ''
 if (-not $installed) { Fail 'candidate not installed; run secret-probe.ps1 first' }
 $copy = Join-Path ([IO.Path]::GetTempPath()) "installed-$([guid]::NewGuid()).apk"
-& $adb -s $Serial pull $installed $copy | Out-Null
+& $adb -s $Serial pull $installed $copy *> $null
+if ($LASTEXITCODE -ne 0) { Fail 'pull of the installed APK' }
 $installedSha = Sha $copy
 Remove-Item -LiteralPath $copy
 if (-not (Same $installedSha (Sha $Apk))) { Fail 'installed APK is not the candidate' }
 $runId = [guid]::NewGuid().ToString()
 function Phase([string]$name, [string[]]$checks, [string]$failAt) {
-    & $adb -s $Serial shell am broadcast -n "$package/.platform.LocalSecretBoxLockedProbeReceiver" --es runId $runId --es phase $name | Out-Null
+    & $adb -s $Serial shell am broadcast -n "$package/.platform.LocalSecretBoxLockedProbeReceiver" --es runId $runId --es phase $name *> $null
     $path = "files/secret-box-probe/$runId-$name.txt"
     $receipt = $null
     foreach ($attempt in 1..20) {
@@ -188,7 +190,7 @@ function Phase([string]$name, [string[]]$checks, [string]$failAt) {
 $failAt = if (Same $Expect 'pass') { '' } else { $Expect }
 $ok = $false
 try {
-    & $adb -s $Serial shell locksettings set-pin $pin | Out-Null
+    & $adb -s $Serial shell locksettings set-pin $pin *> $null
     if ($LASTEXITCODE -ne 0) { Fail 'set-pin' }
     & $adb -s $Serial shell input keyevent KEYCODE_WAKEUP
     $prepared = Phase 'prepare' @('locked.pre.screenUnlocked', 'locked.prepare.sealed') ''
@@ -197,7 +199,7 @@ try {
     $opened = Phase 'open' @('locked.pre.screenLocked', 'locked.open.whileScreenLocked') $failAt
     $ok = $prepared -and $opened
 } finally {
-    & $adb -s $Serial shell locksettings clear --old $pin | Out-Null
+    & $adb -s $Serial shell locksettings clear --old $pin *> $null
     $clearExit = $LASTEXITCODE
     $verify = ((& $adb -s $Serial shell locksettings verify) -join '').Trim()
     & $adb -s $Serial shell input keyevent KEYCODE_WAKEUP
@@ -268,8 +270,11 @@ baseline and the device mutants ran on tree `394ff09b9887a234b73bb27e0d707d8d1c5
 `AndroidSecretKeysTest.kt`, a file the APK does not contain; both trees built the byte-identical APK `061de34e…`. The APK
 is tied to a tree only because the recipe builds and runs from the same checkout: each receipt's `apk=` line names the
 APK that ran, and the script prints the checkout's tree id and `android-dirty` count. Source SHA-256 at the final
-commit: adapter `d507a13a…`, box `d32ad91f…`, probe `da3fe667…`; scripts as extracted from this file `53423344…` and
-`03b0c3af…`. The run logs are kept in the worktree's ignored `_local/local-secret-box/`.
+commit: adapter `d507a13a…`, box `d32ad91f…`, probe `da3fe667…`; scripts as extracted from this file `b1889617…` and
+`cd9c6ff8…`. The baseline and the mutation batch used an earlier version of both scripts that let `adb` write the installed
+APK's path to the log; the current scripts silence all `adb` output they do not read, and the final runs below used
+them with no path in any log. The receipts are unaffected. The run logs are kept in the worktree's ignored
+`_local/local-secret-box/`.
 
 | Step | Result |
 |---|---|
