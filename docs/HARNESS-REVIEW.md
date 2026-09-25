@@ -27,7 +27,7 @@
 | R3 Codex 第二评审 | 自评会自我夸奖（见 QUALITY-RUBRIC §0） | | | 保留 |
 | guard-frozen | 会顺手改冻结契约 | | | 保留 |
 | handoff 三件套 | 跨 session 会丢上下文 | | | 保留 |
-| 规划 harness（plan-forge 拆卡） | 一句话需求会跑偏 | 强模型可独立扩写规格？ | | **重点复审**：强模型下可简化分解粒度 |
+| 规划 harness（plan-forge 审计 → decompose-cards 拆卡） | 一句话需求会跑偏 | 强模型可独立扩写规格？ | | **重点复审**：强模型下可简化分解粒度 |
 | lessons 必须层（Tier1） | 会重导工具链坑 | 坑是否已被机械守卫覆盖（见 enforced_by） | | 有机械守卫的可降回按需层 |
 
 ## Quantified subtraction protocol（量化减负协议）
@@ -125,8 +125,8 @@
 |---|---|
 | prompt-chaining（提示串联） | R1–R5 单卡闭环（`scripts/task.ps1`）· 想法→计划漏斗（1-brief→2-options→3-plan） |
 | routing（路由） | 模型档位分工（Opus 想 / Sonnet 做 / Fable 长自主，见 `CLAUDE.md`——按任务类型择模型档）· `route-new-work` 钩子命中启动语（`根据脚手架`）后提示先与用户确定 T0/T1/T2 档位再按深度走 |
-| parallelization（并行·分段/投票） | `Workflow` 工具 `parallel()`/`pipeline()` 对**预定固定**清单并行 · `plan-forge.mjs` 的**固定** 8-lens 并行审计 + 每条发现派 3 固定裁判投票 · task-loop 并行窗口（每卡一 worktree） |
-| orchestrator-workers（编排者—工人·动态委派） | `Workflow` 工具 `agent()` 对**运行时才发现**的工作清单动态扇出（先侦察得工作项、再逐项派 worker，非预设集）· `plan-forge.mjs` 的 Decompose 据计划**动态**投影可变规模卡图 → task-loop 逐卡派 worker 子代理 |
+| parallelization（并行·分段/投票） | `Workflow` 工具 `parallel()`/`pipeline()` 对**预定固定**清单并行 · `plan-forge.mjs` 按 tier **固定**的 lens 集并行审计（T2 为 8 个）+ T2 每个 lens 至多 3 条发现各派 3 个固定裁判投票 · task-loop 并行窗口（每卡一 worktree） |
+| orchestrator-workers（编排者—工人·动态委派） | `Workflow` 工具 `agent()` 对**运行时才发现**的工作清单动态扇出（先侦察得工作项、再逐项派 worker，非预设集）· `decompose-cards.mjs` 的 Decompose 据计划**动态**投影可变规模卡图 → task-loop 逐卡派 worker 子代理 |
 | evaluator-optimizer（评审者—优化者） | R2 TDD（失败测试=评估者 ↔ 实现=优化者，迭代至绿）· R3 codex 第二评审 → 按裁决 `reasons` 修 → 重评审的 fix 循环（本卡此刻正在此循环内） |
 
 **结论（判断，非闸）**：不建**常驻命名代理 roster**——角色按 **phase / 模型档位**路由、按需派**临时**子代理（`Agent` 工具 / 工作流内 `agent()`）用完即弃，依据 L26（能力按方法论定义、工具无关）与 L108（常驻班子 = 固定 overhead，拆过头反更贵）。唯一**长驻**角色是第二独立评审者（当前 = codex R3），因它是方法论不变量且须**在自改回路之外**（见上节），属结构而非便利。

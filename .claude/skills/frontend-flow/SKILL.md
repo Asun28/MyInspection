@@ -3,7 +3,7 @@ name: frontend-flow
 description: >-
   前端生成闭环的【串联驱动卡】(T2 档·复杂多页前端才用)。把现有件串成「生成前→生成中→生成后→资产回流」
   四段:PRD 复用 shape-idea/PROJECT-BRIEF + frontend/README 5 闸 + design tokens 真相源;生成中产出
-  【流程卡(页面地图)】喂 plan-forge 投影任务卡、【意图卡(单页目标)】用 grill-design 拷问敲定;生成后路由
+  【流程卡(页面地图)】写进计划经 plan-forge 审计后由 decompose-cards 投影任务卡、【意图卡(单页目标)】用 grill-design 拷问敲定;生成后路由
   pencil MCP / Claude Design 可视化高保真、frontend-design/taste-skill 局部改;验证过的区块回流
   context/frontend-assets/。它不是新引擎——所有重活复用现有件,只补「前端生成」这个串联视角。
   Triggers on: "前端生成", "做前端页面", "页面地图", "意图卡", "流程卡", "前端闭环", "frontend flow".
@@ -32,7 +32,7 @@ description: >-
 
 ### 2 · 生成中（流程卡 + 意图卡）—— 本卡的核心产物
 - **流程卡(页面地图)**：列**页面清单**(路由+用途) | **导航跳转关系** | **跨页共享数据/状态** | **入口/默认页**。模板见 `docs/FRONTEND-FLOW.md`。
-  → **流程卡的页面清单喂 `plan-forge`**：每个页面/页面群投影成带 `depends_on` 的任务卡(复用 plan-forge 的 DAG 拆解 + 卡审,**不另造拆解机制**)。流程卡是 UX 视角的页面关系,plan-forge 把它转成施工依赖。
+  → **流程卡的页面清单写进计划、经 `plan-forge` 审计**：批准后 `decompose-cards` 把每个页面/页面群投影成带 `depends_on` 的任务卡(复用 decompose-cards 的 DAG 拆解 + 卡审,**不另造拆解机制**)。流程卡是 UX 视角的页面关系,decompose-cards 把它转成施工依赖。
 - **意图卡(单页目标,每页一张)**：**目标**(这页让用户能做什么) | **职责边界** | **关键交互** | **数据需求**(读/写哪些 API/字段,接 frontend 闸 2 类型真相源) | **复用哪些 `context/frontend-assets/` 区块** | **验收**(点击→路由,接 eval frontend-behavior)。模板见 `docs/FRONTEND-FLOW.md`。
   → **意图卡用 `grill-design` 拷问产出**：沿设计决策树一次一问、每问给推荐——把每页的目标/数据需求/交互敲定(**复用 grill-design 的交互式拷问机制,不另造拷问**)。意图卡 = grill-design 在前端的产物模板。
 
@@ -46,7 +46,7 @@ description: >-
 - **红线**：沉淀**模式/约定/元信息**,具体业务组件实现仍在 `frontend/`(`context/` = 给 agent 的领域知识,不是组件仓)。呼应 CLAUDE.md「项目内复用资产沉淀归位」。
 
 ## 边界（复用非重复 · 必读，防与现有卡重叠膨胀）
-- **流程卡 ≠ plan-forge 任务 DAG**：流程卡是**UX 视角的页面关系**(谁跳谁、共享什么状态);plan-forge DAG 是**施工依赖**(谁先建)。前者**喂**后者,不替代。本卡不重造拆解/卡审。
+- **流程卡 ≠ decompose-cards 任务 DAG**：流程卡是**UX 视角的页面关系**(谁跳谁、共享什么状态);decompose-cards 的 DAG 是**施工依赖**(谁先建)。前者**喂**后者,不替代。本卡不重造拆解/卡审。
 - **意图卡 = grill-design 的前端产物模板**：拷问机制是 grill-design 的,意图卡只是它在「单页设计决策」上的产出形态。本卡不重造拷问引擎。
 - **资产库 = `context/` 的前端子集**：`context/frontend-assets/` 是 `context/`(领域知识/约定,入库共享)按前端切的一块,遵 context/ 的一切红线。本卡不另起资产体系。
 - **可视化编辑 = 路由到 pencil/Claude Design/v0**：本卡不自造编辑器(同 frontend-design 之于 taste-skill/ui-ux-pro-max:只路由)。
@@ -58,7 +58,7 @@ description: >-
 - **不用**:后端/通用任务(走 `plan-forge`)、纯需求阶段(走 `shape-idea`)、纯视觉矫正(走 `taste-skill`/`frontend-design`)、简单单页前端(直接 `frontend-design` + `pencil`,别上闭环)。
 
 ## 红线
-- 不重造任何现有引擎(拷问=grill-design / 审计拆卡=plan-forge / 编辑器=pencil 等 / 验收标准=frontend/README 5 闸 / 资产=context)。新需求先认领既有件,认领不了再说。
+- 不重造任何现有引擎(拷问=grill-design / 审计=plan-forge / 拆卡=decompose-cards / 编辑器=pencil 等 / 验收标准=frontend/README 5 闸 / 资产=context)。新需求先认领既有件,认领不了再说。
 - 流程卡/意图卡模板的**唯一真相源是 `docs/FRONTEND-FLOW.md`**,本卡只引不抄(免双源漂移)。
 - 业务组件实现不进元层;资产回流只沉淀模式/约定/元信息(见上红线)。
 - 工具(pencil/Claude Design/v0)作举例,可换(L26),换了记 lesson/ADR。
