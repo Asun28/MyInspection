@@ -671,7 +671,7 @@
 - refs: 
 
 ## L97
-- date: 2026-07-11 ｜ tags: review,r3,doc-sync,task-loop,scoping ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 8
+- date: 2026-07-11 ｜ tags: review,r3,doc-sync,task-loop,scoping ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 9
 - symptom: 把一条散布在多处文档的横切纪律（如 L86「相位命令只在主检出跑」）从「文档提醒」升级为 in-code fail-closed 守卫时，R3 会逐轮外溢：每修好一处教该纪律的权威面，它就揪出下一处仍教旧工作流的面（rubric #7 文档同步）。T13 连续 5 轮 block，第 3/4/5 轮全是「还有 N 处文档没同步」，allow_paths 从 5 涨到 11、check-cards 一路告警卡过大。**内向半**同样成立：改了行为后，**同一文件内**用现在时描述旧行为的注释、以及卡片 front-matter（title/diagnosis）会与新码自相矛盾——T12 R3 第 2 轮点了 review.ps1 一条 stale 注释、我只修了它点名的那行漏了同类的另一行；合并后 fresh-context verifier 复审才揪出（review.ps1:163 旧「倾向 block」注释 + T13 卡 title/root_cause 仍称「base==TaskId 是真因」）。**第 8 次（T56 r15，2026-08-05）**：r14 把 t36set 取样换成全码位双向时扫了卡与 rubric，却漏了被改文件 `selftest.ps1` **自身**的载荷注释、t36 失败文案与 17t 总结行——「内向半」写进 rule 了照样漏，因为 grep 关键词只圈「教分工的文档面」、没把被改文件本身列进扫描清单；且失败文案把**历史病因**写死在文本里（任何族点幸存都报「CGJ 幸存 + 只剥 Cc/Cf」），报错措辞同属「现在时正面陈述」。
 - root_cause: 行为一变，凡教「怎么用这条工作流」的面（CLAUDE.md/template/LEDGER/task-loop skill/DEVOPS-WORKFLOW/TEMPLATE-README/脚本头注）就全部自相矛盾。R3 每轮只判本次 diff 且只报它当轮看到的最刺眼一处，故须逐轮外溢而非一次点全。
 - rule: 把横切纪律行为化前，先 grep 出教该纪律的全部权威面（rg 关键词 + 看 CLAUDE.md/template/相关 skill/操作手册/README/脚本头注），一次性同步 + 配一道机检子闸断言这 N 处一致（如 selftest 遍历文档列表断言都含新哨兵），别等 R3 逐轮挤牙膏。这类卡的 allow_paths 天然大（含那 N 处 + 机检），是「横切不变量行为化」的固有形态、非 scoping 失误——刻意保持单卡以免行为改与文档同步分处不同 PR 出现自相矛盾窗口（登记 sizing 例外，见 TD70）。check-cards「>5 告警」对这类卡是误报但不放宽阈值。**内向半**：同一 grep 也要扫**改动文件自身的注释**与**卡片 front-matter**（title/diagnosis），揪出用现在时描述旧行为的句子；R3 点名一条 stale 注释时当**一类**处理、自己 grep 全文补齐，别只修它点名那行。ship 后对重大改动派 fresh-context verifier 复审 master（task-loop 4.7），专找「prose 与 shipped 码矛盾」。**扫到之后还要判对——判据写死，别凭感觉**（T56 r11/r12 连栽两次，且第二次不是漏 grep、是 grep 完误判）：**凡「用现在时正面陈述当前行为」的句子一律要改**；**只有把旧实现明确标为「被否决 / 历史 / 反例」的才留**。带对照的句子最容易误判——`剥的是 A 而不是 B` 里，`不是 B` 那半正当，`剥的是 A` 那半仍是正面陈述，A 过时就得改；别因为句子里有「不是 B」就整句放行。**扫描清单必须显式含「本次 diff 改到的每个文件自身」**（注释 + 失败/日志文案 + 总结行），不是只扫「教这条规则的文档」；**失败文案里别写死具体病因**——那是一条必然过时的正面陈述，能从现场数据动态报就动态报（报「幸存的是哪个点」而不是「一定是 CGJ」）。
@@ -1143,7 +1143,7 @@
 - refs: 
 
 ## L165
-- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 11
+- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 12
 - symptom: 同一张卡里「断言看起来在测 X、实际没测 X」连出四次：①断言写在**整份 stdout** 上，而被测命令在判定前先打印改动清单，那条路径无论判定如何都在输出里 ②断言匹配**中文结论行**，父进程 stdout 被重定向时解码成乱码，六个 case 在别人机器上齐红而我连跑六次全绿 ③断言只数文档里**关键词出现次数**，而周围散文本就含那些词，把真正的可执行守卫整段删掉照样绿 ④不符用例传**全零 OID**，于是停在「解析不出提交」那一支，根本走不到它声称要测的身份比对那句。**第 2 次（T56 r17 批，2026-08-05）：变异分类器自己犯②**——gate 锚带一个「闸」字、红面正则锚「闸17t(」，批改派 schtasks 后 OEM 码页把中文打成 '?'，六枚真红被误判 NOT-OK；改纯 ASCII 锚时又差点掉进③（裸 '17t(tXX)' 会把 t16 半覆盖信息行误计红面），红面行判别改锚 'WARNING: ' 前缀（L149）才闭合。
 - root_cause: 断言落在了**比被测契约更宽的表面**上：整份输出 ⊃ 判定行、中文文案 ⊃ 稳定标识、关键词出现 ⊃ 可执行命令、任一非零 ⊃ 该守卫拦下。宽表面在被测契约还成立时当然绿，于是看不出问题；一旦契约被摘掉，宽表面仍可能因别的原因满足，断言就静默失效。人写断言时脑子里想的是契约，手上写的却是「输出里有没有这个字符串」。
 - rule: 断言面必须**恰好等于**被测契约，且用一枚只删该契约那一句的变异来证明：①只比对**判定行**（先按稳定标识切出那一行再匹配），不比对整份输出 ②机检一律认 **ASCII 哨兵**，本地化文案只给人读（编码链一变中文断言就假红/假绿）③文档契约锚到**可执行命令行形态**（行首 + 真实命令），不数关键词出现次数 ④「不符/失败」用例必须让被测那一句**真的被执行到**（如身份比对要传可解析但不同的 OID，全零 OID 只测到解析失败那支），并断言输出里有该句独有的证据（如 judged=/expect= 两个值）。**每道守卫配一枚单句删除变异**——它红了才算这条断言真的在测它。⑤**判据提取器（变异分类器/红面正则/日志 grep）也是机检，锚同样纯 ASCII**——连锚里带一个中文字都会在换执行环境（schtasks OEM 码页）时整批失配；行判别锚 'WARNING: ' 前缀（L149），别锚中文前缀，也别裸锚标签（信息行会误计）。
@@ -2319,7 +2319,7 @@
 - refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
 
 ## L309
-- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 12
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 13
 - symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
@@ -2647,3 +2647,11 @@
 - rule: When a receipt pins the hash of the file it is appended to, name the exact line range and give a command that reproduces it, such as head -n N path | sha256sum, and run that command yourself before pushing.
 - enforced_by: 
 - refs: specs/tasks/T1-LOCAL-SECRET-BOX.md (R5 delivery); PR #371
+
+## L356
+- date: 2026-09-25 ｜ tags: gh,pr,branch,ship,scripting ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: A scripted merge of PR #376 skipped silently when its head lookup came back empty (no HEAD-MATCH line), and the cleanup step that followed deleted the PR head branch locally and on origin, which closed the unmerged PR.
+- root_cause: The cleanup ran on the script finishing, not on the PR being merged; deleting the head branch of an open PR closes it on GitHub.
+- rule: Delete a PR head branch only after gh pr view <n> --json state reads MERGED, in the same command that deletes it. If a PR was closed this way, push its head commit back to the same branch name and gh pr reopen it.
+- enforced_by: 
+- refs: 
