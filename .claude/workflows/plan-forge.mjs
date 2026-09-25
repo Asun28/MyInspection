@@ -109,7 +109,7 @@ const SYNTH_SCHEMA = {
 // 之后才跑它，而此处一旦也投影，那套卡在任何一条 correction 落地的瞬间就**按构造过期**了——两个生成器、
 // 两套卡、其中一套生来就是错的，且返回结构里没有任何字段说得出这件事。别把它们加回来。
 // （`decompose-cards.mjs` 本就是更强的那个投影器：它还带 non_goals / acceptance / hygiene / doc_sync /
-//   freeze_point / topo_valid / parallel_window 与 4 角度对抗卡审，这里的 Decompose 从来没有。）
+//   freeze_point / topo_valid / parallel_window 与 5 角度对抗卡审，这里的 Decompose 从来没有。）
 // selftest 子闸 1i **驱动**本文件在每个 tier 上跑，断言没有任何一条路径请求这两个 phase。
 
 // T0-PLAN-FORGE-PROMPT-TRIM：发给模型的文字只做三类精简，依据都在 docs/references/：

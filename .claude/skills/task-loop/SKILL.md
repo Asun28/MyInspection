@@ -71,7 +71,7 @@ Opus 5.5 在长的多段任务里会边做边汇报，其中一些汇报以纯�
 
 ## 并行窗口（多卡并行 · 适配全程 AI）
 `decompose-cards` 会标出 `parallel_window`（依赖已就绪、`allow_paths` 互不重叠的一批卡）——它是投影任务卡的唯一所有者，`plan-forge` 只审计计划、停在裁决（TD180）。全程 AI 时**并行推进**——这正是「每卡一棵 worktree」的价值兑现处：
-- **每卡一个 agent、各占一棵 worktree**：窗口内每张卡派一个子 agent（Agent 工具，必要时 `isolation: worktree`），各自跑完整 R1–R5。`task.ps1 -Phase start` 本就为每卡建独立 `<WorktreeRoot>\<id>`，天然隔离、互不撞文件（前提 `allow_paths` 不重叠，decompose-cards 的 4 角度卡审已校验）。
+- **每卡一个 agent、各占一棵 worktree**：窗口内每张卡派一个子 agent（Agent 工具，必要时 `isolation: worktree`），各自跑完整 R1–R5。`task.ps1 -Phase start` 本就为每卡建独立 `<WorktreeRoot>\<id>`，天然隔离、互不撞文件（前提 `allow_paths` 不重叠，decompose-cards 的 5 角度卡审已校验）。
 - **顺序铁律**：冻结点卡（契约/schema）必须**先单独跑完并合并**，其依赖卡才进并行窗口；`depends_on` 未满足的卡不入窗口。
 - **合并不冲突**：各 worktree 独立 ship/合并；因 `allow_paths` 不重叠，合并面不撞。任一卡 Codex `block` 只挡它自己，不连累同窗其他卡。
 - 并行只是把单卡闭环**复制 N 份**，**不降低任何一道闸**（TDD/ponytail/安全/Codex/CI 照跑）。

@@ -4,7 +4,7 @@
 >
 > **用法**：`Copy-Item docs\PLAN-TEMPLATE.md _local\PLAN.md`，然后填写下面各节。
 > `_local/` 已 gitignore，**计划是项目唯一真相源**，永不入库。
-> 填好后用 `.claude/workflows/plan-forge.mjs`（审计 → 拆卡）或 `decompose-cards.mjs` 投影成
+> 填好后用 `.claude/workflows/plan-forge.mjs` 审计（停在裁决），人批准修正后的计划再用 `decompose-cards.mjs` 投影成
 > `specs/tasks/*.md`。本模板的节标题与 `plan-forge.mjs` 的审计 lens 对齐——
 > **不要删节**，没有内容的节写「本版无」而非留空（审计器会据节判完整性）。
 >
