@@ -1,7 +1,7 @@
 ---
 id: T0-CLAUDE-MD-RETIRE-MERGE
 title: Name post-merge.ps1 retire in CLAUDE.md's scope of merges without R3, next to r5
-status: todo
+status: merged
 depends_on: [T0-POST-MERGE-CARD-DRIFT]
 parallelizable_with: []
 allow_paths:
@@ -32,3 +32,7 @@ Opened on 2026-09-26 at the user's request after `T0-POST-MERGE-CARD-DRIFT` ship
 merges its PR on CI alone, as r5 does, but the CLAUDE.md line recording the 2026-09-25 ruling on merges without R3
 names r5 only. The user ruled on 2026-09-26 that retire is covered, inside the allowlist retire enforces (the named
 card's status and one `superseded_by` line, an appended section, and the card's board row).
+
+## R5 (2026-09-26)
+
+Merged through PR #428 (squash `e89baad9`, reviewed head `a3ed42a0`, CI `36194273222`); Codex R3 round 2 passed with no findings. Round 1 found that the DoD checked tokens only, so dropping the `[POST-MERGE-SCOPE]` stop, the `superseded_by` limit or the CI-alone clause still passed; #429 made it compare both lines character for character, still with exactly two changed lines.
