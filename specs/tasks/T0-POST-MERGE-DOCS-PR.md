@@ -55,3 +55,94 @@ the same pattern.
 - The CI check is lighter than the ship's: the PR's `required` check on the exact head plus the ci.yml run's
   head SHA. That matches what was done by hand for #349 and #350.
 - Estimate: about 500 changed lines (script with SelfCheck about 380, docs about 20, this card about 100).
+
+## Implementation record (2026-09-25)
+
+- Change: new `scripts/post-merge.ps1` (`r5`, `prune`, `-SelfCheck`); `CLAUDE.md`'s R5 bullet and execution
+  boundary (A6), the task-loop R5 step and `docs/DEVOPS-WORKFLOW.md` point at it.
+- RED (A5): SelfCheck written first against one-line stubs; `task.ps1 -Phase red` exited 1 with
+  `[POST-MERGE-SELF-CHECK-FAIL] 42 of 42 cases failed`, each on its own assertion.
+- GREEN: `-SelfCheck` passes 68 cases (`[POST-MERGE-SELF-CHECK-PASS]`).
+- R4 (A5): 47 single-statement mutants below, with the line each changes in the final file (SHA-256
+  `957B223CDAC98164FA76383E6E54FC1C4BA8E81034424942C18E722932D4A30F`). Each made `-SelfCheck` exit 1 by failing its
+  named case, none by a parse error; the file was restored and SHA-checked after each. The runner first rewrites
+  the unmutated file and requires identical bytes and a passing SelfCheck (an earlier batch without that control
+  wrote a second BOM and was void).
+
+| id | line | mutation | killing case |
+|---|---|---|---|
+| M1 | 50 | loop bound `$end` → `$lines.Count` | card: front-matter status becomes merged |
+| M2 | 51 | condition → `$false` | card: two status lines |
+| M3 | 52 | condition → `$false` | card: already merged |
+| M4 | 46 | condition → `$false` | card: a later --- rule is not front matter |
+| M5 | 49 | condition → `$false` | card: front matter not closed |
+| M6 | 68 | ordinal equality → `StartsWith` | board: a longer id is not the card row |
+| M7 | 68 | `Ordinal` → `OrdinalIgnoreCase` | board: the id cell is compared exactly |
+| M8 | 72 | condition → `$false` | board: status with a pipe |
+| M9 | 76 | condition → `$false` | board: two rows |
+| M10 | 91 | condition → `$false` | stage: heading twice |
+| M11 | 87 | condition → `$false` | stage: entry with a heading line |
+| M12 | 111 | drop `$null -eq $hunk -and` | diff: a removed line starting with -- is content, not a header |
+| M13 | 133 | condition → `$false` | scope: nothing changed |
+| M14 | 135 | condition → `$false` | scope: a path outside the allowlist |
+| M15 | 135 | `Ordinal` → `OrdinalIgnoreCase` | scope: path case is compared exactly |
+| M16 | 139 | condition → `$false` | scope: another card's board row |
+| M16b | 139 | delete both count checks | scope: an extra board row |
+| M17 | 148 | condition → `$false` | scope: a CLAUDE.md line removed |
+| M18 | 149 | condition → `$false` | scope: a CLAUDE.md line added outside the section |
+| M18b | 149 | delete the `-ge $next` half | scope: a CLAUDE.md line added outside the section |
+| M18c | 149 | delete the `-le $heads[0]` half | scope: a line added above the heading |
+| M19 | 144 | condition → `$false` | scope: CLAUDE.md without the stage heading |
+| M20 | 162 | condition → `$false` | prune: an open PR is kept |
+| M21 | 163 | condition → `$false` | prune: a moved tip is kept |
+| M22 | 160 | condition → `$false` | prune: two PRs are kept |
+| M23 | 159 | condition → `$false` | prune: no PR is kept |
+| M24 | 157 | condition → `$false` | prune: no remote branch is kept |
+| M25 | 158 | condition → `$false` | prune: a short tip is kept |
+| M26 | 58 | condition → `$false` | card: section without a heading |
+| M27 | 66 | condition → `$false` | board: a prose line carrying the id is not a row |
+| M28 | 68 | delete `$cells.Count -ge 3 -and` | board: a two-cell row is not a row |
+| M29 | 139 | delete `$rem.Count -ne 1 -or` | scope: two rows removed and one added |
+| M30 | 139 | delete `$add.Count -ne 1 -or` | scope: an extra board row |
+| M31 | 139 | delete the `$rem[0]` row check | scope: another card's row rewritten into this card's row |
+| M32 | 139 | delete the `$add[0]` row check | scope: this card's row rewritten into another card's row |
+| M33 | 149 | `-ge $next` → `-gt $next` | scope: an added line that is the next heading |
+| M34 | 191 | also accept NEUTRAL and SKIPPED | ci: a NEUTRAL fan-in check is not success |
+| M35 | 201 | condition → `$false` | ci: a failed ci.yml run is failure |
+| M36 | 199 | drop the `headSha` filter | ci: a run for another commit is ignored |
+| M37 | 200 | drop `status -ceq 'completed'` | ci: an in-progress run is pending |
+| M38 | 171 | condition → `$false` | ci: a pending CheckRun is not failure |
+| M39 | 177 | state check → always `pending` | ci: a StatusContext ERROR is failure |
+| M40 | 212 | delete the unknown-tip line | recovery: an unreadable branch tip is reported as unknown |
+| M41 | 215 | delete the unknown-PR line | recovery: an unreadable PR list is reported as unknown |
+| M42 | 214 | drop the base from each PR | recovery: the report gives the tip and each PR with state, head and base |
+| M43 | 211 | delete the known-tip line | recovery: the report gives the tip and each PR with state, head and base |
+| M45 | 86 | condition → `$false` | stage: empty entry |
+
+- A4 on real state: `prune` kept a missing branch and the branch of open PR #323 (tip unchanged), and deleted
+  `register-T0-POST-MERGE-R5-GUARDS` only after PR #366 had merged at its tip.
+- Before merge, a development build with a preview switch built this card's R5 change from origin: two lines
+  under the current-stage heading, this card's board row, the card; judge, check-cards and check-secrets passed.
+  The preview switch moved to `T0-POST-MERGE-R5-GUARDS`; the live push/PR/CI/merge path runs first in this card's R5.
+- Pre-review (DeepSeek V4 Flash): round 1 blocked on four points, three split by the user into
+  `T0-POST-MERGE-R5-GUARDS` and one answered by this record; round 2 passed; round 3's one finding (M33 survives)
+  was refuted by the fixture's line numbers and the mutation log; round 4 passed.
+- R3 round 1 (Opus 5.5, Codex out of quota) blocked on four points, all fixed: killing cases for the board-row,
+  two-cell, row-rewrite and next-heading guards (M27 to M33) and this table; a redundant empty-section guard
+  deleted; the CI wait (fan-in must be exactly SUCCESS, the ci.yml run is polled within the deadline, M34 to M39);
+  cleanup failures reported as `[POST-MERGE-CLEANUP-FAIL]`. Its follow-up (A3's live path) is the R5 run below.
+- R3 round 2 (Codex) passed the spec axis and blocked on one standards point: after a failure past the push, the
+  report came from local flags and advised merging by hand. Fixed by probing the remote in the failure path.
+- R3 round 3 (Codex) passed the spec axis and blocked on the round-2 fix, which auto-pruned any single merged PR
+  without checking its head and base. By user ruling the failure path no longer decides or prunes:
+  ``Format-PostMergeRecoveryReport`` prints the probed facts (branch tip; each PR's state, head and base; unknown when
+  a probe fails) with fixed guidance that never advises a hand merge (cases and M40 to M43). Rounds reset by user
+  ruling for rounds 3 and 4.
+- R3 round 4 (Codex) passed the spec axis and blocked on the round-3 report's fixed advice, which said to delete
+  the branch or prune even when a probe failed or the PRs were ambiguous. By user ruling the advice is now
+  inspection-only in every state (nothing pruned; inspect first; never merge a PR by hand; rerun only once the
+  branch is gone and no PR for it is open), with cases for unknown, other-head and several-PR reports.
+- Tier-1 acceptance: `selftest.ps1 -TaskId T0-POST-MERGE-DOCS-PR` from this worktree exited 0 with
+  `[SELFTEST-TIER-PASS] task=T0-POST-MERGE-DOCS-PR tier=1 gates=1,2,3,4,5,7,8,9,10,11,13,14,15,16` (no gate failed,
+  830.9 s) on `scripts/post-merge.ps1` SHA-256 `957B223C...32D4A30F`. DeepSeek rounds 5 to 8: round 5 found M45
+  missing from the table (added); rounds 6, 7 and 8 passed. Only this record changed in the card after the run.

@@ -691,7 +691,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
   **push 侧是事后检测、不是 push 前强制**——提交落地后才跑；free+private 无可强制规则集时，它保证直推提交**败即显式变红**（防泄露闸尤需事后可见：发现了才能轮换密钥）。
   push 前的真强制只有两层：`gh-bootstrap.ps1` 装的本地 pre-push 钩子（仅覆盖装了钩子的克隆）、服务端规则集（需 Pro/public）
 - **R4 测试卫生**：mutation-survivor 法剪枝冗余测试（每卡 `hygiene` 字段）
-- **R5 文档同步**：合并后立刻更新 CLAUDE.md/README/卡片 status（每卡 `doc_sync` 字段）
+- **R5 文档同步**：合并后立刻更新 CLAUDE.md/README/卡片 status（每卡 `doc_sync` 字段）；机械部分用 `scripts\post-merge.ps1 r5`（三段 prose 由调用方写成文件，脚本在 origin 新切的 worktree 里落位、开 PR、CI 通过即合并），卡分支用 `post-merge.ps1 prune` 清理
 - 一次性建仓：`scripts\gh-bootstrap.ps1`（建仓 + main 规则集加固；**仅 `_config.ps1` 配置的个人账号**；推送前转调防泄露闸）
 - 变 public 前防泄露：`pwsh scripts\check-secrets.ps1 -Strict` 须全绿——核心数据库/密钥/凭据须既被 gitignore、又**未被 git 追踪**（已追踪 → `git rm --cached`，gitignore 救不了已追踪文件）。模式集单一真相源，`gh-bootstrap` 复用之；见 `docs/SECURITY.md`
 
@@ -785,10 +785,11 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
   用 `--no-verify`/停用钩子绕过任何闸门；把 `.env`/密钥/登录态等机密内容读出、回显、或写进提交/PR/交接文件；
   **改/删/跳过测试或弱化断言让它变绿**（那本身就是失败，永远不是修复）；**虚构机密/端点/API/约定**——真源查不到就停下问，绝不编一个填上。
 - **完成与词义（防自评漂移）**：「完成」**只有一个定义 = 机检闸通过**（DoD / verify / selftest），自评「看起来好了」不算数；「清理/重构」= 行为不变且闸门前后皆绿；执行中偏离计划 → 取保守选项、记录缘由后继续；maker 与 checker（如 R3 评审）同一争点**两轮互不认可即停**、排队人裁，别无限迭代讨好评审。
-- **先停下确认（难逆或范围变更）**：删远端分支/仓库、改仓库可见性（private→public）、改 GitHub 规则集、
+- **先停下确认（难逆或范围变更）**：删远端分支/仓库（例外：`post-merge.ps1 prune` 删唯一 PR 已 MERGED 且远端 tip 仍等于该 PR head 的分支，带 lease；用户 2026-09-25 裁定）、改仓库可见性（private→public）、改 GitHub 规则集、
   卡片 `allow_paths` 之外的批量删除、动 `FrozenPaths` 冻结物（走版本评审）；**新增运行时依赖**（先提案用途/许可/更简替代，过许可闸再落 lock）；**单次提交超大 diff**（约 >200 行）而任务未明示该规模。
 - **反模式抑制（未经请求不做）**：不做防御性备份（`*.bak`/backup 分支/副本文件）；不重开用户已定的决策；
   任务外重构/清理见通用编码纪律 3/4。可逆且属原任务的动作直接做，别停下要许可。
+- **无 R3 直接合并的范围（用户 2026-09-25 裁定）**：post-merge.ps1 r5 开的 R5 文档同步 PR 只能改本卡卡片、本卡的 docs/TASK-BOARD.md 行、CLAUDE.md「当前阶段」节内的新增行；越界即 [POST-MERGE-SCOPE]，不推送。
 
 ## 约定
 - 路径用 `pathlib` 绝对路径；subprocess 用参数列表 + 显式 UTF-8、禁拼 shell；错误分 retryable/non-retryable。

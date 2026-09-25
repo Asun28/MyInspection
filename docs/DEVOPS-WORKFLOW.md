@@ -74,6 +74,10 @@ pwsh -File scripts\task.ps1 -TaskId T0-SCAFFOLD -Phase ship
 #   有 origin 的仓库默认走上面的远端 ship。本地 base 领先 origin/<base> 时停下请用户对齐，不改走 -Local；
 #   评审后端暂不可用也不是改走 -Local 的理由。判定步骤见 task-loop skill 的「ship 路由」。
 
+# R5 文档同步的机械部分（T0-POST-MERGE-DOCS-PR）：白名单内开 PR、CI 通过即合并；卡分支按 PR 状态清理
+pwsh -File scripts\post-merge.ps1 r5 -TaskId T0-SCAFFOLD -BoardStatusFile s.txt -StageEntryFile e.md -CardNoteFile n.md
+pwsh -File scripts\post-merge.ps1 prune -Branch T0-SCAFFOLD
+
 # 合并后：R1 拆 worktree + R5 文档同步提醒 + 两道只读自检（lessons check · archive -Check）
 #   archive -Check 只读重投影两张冷存索引并报待搬项——**建议性、非闸门**（它跑在合并之后，合并闸
 #   仍只有 ship 那串确定性闸，T68「越用越薄」）。有待搬项就顺手跑 pwsh -File scripts\archive.ps1
