@@ -50,6 +50,8 @@ Android 官方建议离线优先应用以本地数据源为唯一真相源，并
 
 2026-09-25 LocalSecretBox JVM 核心交付：`T1-LOCAL-SECRET-BOX` 经 PR #371 合并（`b045a2dc`，合并的 `android/` 文件与评审头 `83b5ebaa` 一致）。信封为版本字节、密码提供方生成的 12 字节 nonce（seal 不传 IV，与 Keystore 的随机化加密一致）以及密文与 16 字节 tag；key alias 为 `myinspection.secret.<purpose>.v<version>`，AAD 绑定固定域串、版本与 purpose，open 按信封内的版本取 key。open 在设备未解锁或解锁探针失败时返回 NEEDS_UNLOCK；读取、取 key 或初始化密码失败后重查锁定，已锁定仍为 NEEDS_UNLOCK，否则为 NEEDS_PASSPHRASE 并带封闭原因（信封缺失、不可读、损坏，版本不支持，key 缺失、不可用，认证失败）。open 从不写信封也不返回未认证明文；seal 失败时保留旧信封，这依赖信封文件端口的原子替换约定。明文字节缓冲使用后清零，致命 Error 按身份传播。23 项 JVM 测试、R4 43/43。原子信封存储因预算拆给 `T1-LOCAL-SECRET-STORE`，AndroidKeyStore 适配、key 不可导出与真机证据仍归 `T1-LOCAL-DATA-SECURITY`。
 
+2026-09-25 信封文件存储交付：`T1-LOCAL-SECRET-STORE` 经 PR #377 合并（`412f9fb4`，合并的 `android/` 文件与评审头 `edeef67f` 一致）。`LocalSecretEnvelopeStore` 每次调用都向 `AppStoragePolicy.location(SECRET_ENVELOPE)` 取目录，因此目录被换成指向根外的别名后读写都被拒；替换时在该目录建不可预测名称的临时文件，写入后 sync，再以 `ATOMIC_MOVE` 覆盖信封，失败时保留旧信封。读取最多 `MAX_ENVELOPE_BYTES + 1` 字节。普通异常一律转为固定消息 `secret envelope store failed`、无 cause、无 suppressed 的内部异常，带封闭阶段码（LOCATE、READ、WRITE、MOVE）与 `cleanupFailed`；Error 按身份传播。7 项 JVM 测试、R4 23/23。阶段码写入 SafeLog 留给首个记录存储失败的调用方（`T5-BACKUP-IO`）。
+
 - SQLite、设置、回执、Keystore 密文信封、恢复 journal 和 staging 元数据放 credential-encrypted **internal storage**；device-protected storage 不放租客数据。
 - 体积较大的照片/音频可放 app-specific external storage，但不可成为 DB、恢复 journal 或密钥的唯一落点。启动和每次媒体操作都处理卷不可用/空间不足。
 - 临时明文只放 internal cache/staging，使用不可预测名称；成功、失败、崩溃恢复后都清理。文件名、日志和通知不含地址、姓名、备注或租客信息。
