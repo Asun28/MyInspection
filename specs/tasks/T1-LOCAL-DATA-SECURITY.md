@@ -8,7 +8,7 @@ worktree: C:\wt\T1-LOCAL-DATA-SECURITY
 allow_paths:
   - android/app/src/main/kotlin/nz/myinspection/app/platform/AndroidSecretKeys.kt
   - android/app/src/test/kotlin/nz/myinspection/app/platform/AndroidSecretKeysTest.kt
-  - android/app/src/debug/kotlin/nz/myinspection/app/platform/SecretBoxProbeActivity.kt
+  - android/app/src/debug/kotlin/nz/myinspection/app/platform/LocalSecretBoxProbeActivity.kt
   - android/app/src/debug/AndroidManifest.xml
   - docs/local-secret-box-probe.md
   - android/app/src/main/kotlin/nz/myinspection/app/platform/LocalSecretBox.kt
@@ -27,18 +27,18 @@ dod_exit: 0
 dod_assert: app JVM 测试与 assemble 绿：AppStoragePolicy 把 DB/设置/回执/secret envelope/journal/staging 路由到 credential-encrypted internal/no-backup，把大媒体路由到 app-specific external 并显式返回卷不可用/低空间；Keystore-backed LocalSecretBox 只持久化 version/96-bit nonce/ciphertext+tag、key 不可导出且明文 buffer 尽力清零；同 key/purpose/plaintext 连续加密产生不同 nonce 与 ciphertext，修改 version、nonce、ciphertext 或 tag 均认证失败且不得返回明文，删除随机 nonce 或任一认证检查即 RED；alias/version/purpose 三维隔离夹具证明不同 purpose 或 version 的 envelope 交叉解密必拒绝，删除任一隔离维度即 RED；设备未解锁精确映射可重试 NEEDS_UNLOCK，缺失/失效 key、损坏 envelope、版本不支持或认证失败精确映射需用户重新输入的 NEEDS_PASSPHRASE，均保留旧回执、不降级明文且映射删除变异即 RED；SafeLog API/测试与现有 media 调用不接受/输出绝对路径、SAF URI、地址、姓名、备注、secret、Authorization 或 raw provider body。2026-09-25 三 PR 拆分后：上述 LocalSecretBox 的 JVM 可证部分由前置 T1-LOCAL-SECRET-BOX 与 T1-LOCAL-SECRET-STORE 交付，其测试在本卡 DoD 中继续运行；「Keystore-backed」与「key 不可导出」另须按 docs/local-secret-box-probe.md 在 API33 真机与 API35 模拟器实际执行候选 APK 的自验证探针，保存 APK/源码 pin、每条断言、退出码与对应变异证据。编译成功不代替平台验收。
 requirements:
   - "R1 当现有媒体操作记录失败时，系统应仅输出已批准 operation/reason 与 opaque id/count/duration，不得输出完整路径、URI 或原始 Throwable。"
-  - "R2 AndroidSecretKeys 实现前置的 SecretKeyPort 与 DeviceUnlockPort：在 AndroidKeyStore 中按前置给出的 alias 生成 AES-256、仅 ENCRYPT|DECRYPT、GCM/NoPadding、要求随机化加密的 key；alias 已存在且能初始化加密时只读取、不重建；设备已解锁而已存在的 key 无法初始化加密时，keyForSeal 删除该 alias 并生成新 key 再返回（2026-09-25 用户裁定：seal 本就替换信封，而旧信封在这把 key 下已无法解封；设备未解锁时不重建）；不要求用户认证、不设 unlocked-device-required，因为 ADR-0006 §3 要求 finalize 后和每周后台备份能解封，可用性与 CE 存储同为首次解锁之后；解锁状态取 UserManager.isUserUnlocked()；普通失败转固定消息且无 cause，致命 Error 按身份传播。"
+  - "R2 AndroidSecretKeys 实现前置的 SecretKeyPort 与 DeviceUnlockPort：在 AndroidKeyStore 中按前置给出的 alias 生成 AES-256、仅 ENCRYPT|DECRYPT、GCM/NoPadding、要求随机化加密的 key；alias 已存在且能初始化加密时只读取、不重建；设备已解锁而 alias 下的条目无法读取、不是对称密钥或无法初始化加密时，keyForSeal 生成新 key 替换它再返回（2026-09-25 用户裁定：seal 本就替换信封；替换后旧信封不再能解封，这是用户重新输入口令时可接受的代价；设备未解锁时不重建）；不要求用户认证、不设 unlocked-device-required，因为 ADR-0006 §3 要求 finalize 后和每周后台备份能解封，可用性与 CE 存储同为首次解锁之后；解锁状态取 UserManager.isUserUnlocked()；普通失败转固定消息且无 cause，致命 Error 按身份传播。"
   - "R3 debug 探针以探针专属 key 版本（不触碰生产 alias 与生产信封）驱动生产 LocalSecretBox 与生产适配器，在真实 Keystore 上自验证，并在结束时删除探针 alias 与文件。"
 acceptance:
   - "A1 [R1] MediaFileStore、PhotoImportPipeline、PhotoIngestPendingLease 和 PhotoOrphanCleanupWorker 的失败夹具均不产生路径、原始异常 message/stack 或业务原文。"
   - "A2 [R1] 上述失败日志保留已批准 operation/reason 与 opaque id/count/duration，地址、姓名、备注、URI、secret 和 Authorization 哨兵均不出现在最终日志。"
   - "A3 [R1] 原始异常及其嵌套 cause 含路径或业务原文时，最终日志不含异常 message、stack 或敏感哨兵；删除脱敏边界后该负例必须失败。"
-  - "A4 [R2] 真机与模拟器上 KeyInfo 显示 256 位、用途仅加解密、GCM 与 NoPadding、不要求用户认证、非 unlocked-device-required，key.encoded 为 null（不可导出）；安全级别与是否在安全硬件内只记录、不断言（ADR-0006：硬件 Keystore 不是所有设备的保证）。同一 alias 连续两次 seal 后取回的仍是同一把 key：第一次 seal 的 envelope 在第二次 seal 后仍可用该 alias 解封。"
+  - "A4 [R2] 真机与模拟器上 KeyInfo 显示 256 位、用途仅加解密、GCM 与 NoPadding、不要求用户认证，key.encoded 为 null（不可导出），Keystore 拒绝调用方提供的 GCM IV（随机化加密）；安全级别与是否在安全硬件内只记录、不断言（ADR-0006：硬件 Keystore 不是所有设备的保证）。同一 alias 连续两次 seal 后取回的仍是同一把 key：第一次 seal 的 envelope 在第二次 seal 后仍可用该 alias 解封。API 33/35 的 KeyInfo 没有读取 unlocked-device-required 的方法，故「非 unlocked-device-required」以行为证明（2026-09-25 用户裁定）：模拟器上由 DUMP 限制的 debug receiver 在临时 PIN 锁屏时打开信封；真机上带该标志的 key 在 seal 往返即失败。"
   - "A5 [R3] 探针经生产 LocalSecretBox 完成往返；同明文两次 seal 的 nonce 与密文不同；在真实 Keystore 上翻转 nonce、密文、tag 各一位均为 AUTHENTICATION_FAILED；删除探针 alias 后为 KEY_MISSING；写入损坏 envelope 为 ENVELOPE_CORRUPT；每个失败后 envelope 字节不变。回执只含布尔结果与固定标签，并绑定所测 APK 的 android/ tree。"
-  - "A6 [R2] 适配器单点变异（非 AndroidKeyStore provider、错误位长、缺 GCM 或加 padding、加用户认证或 unlocked-device-required、每次 seal 重建 key、不可用 key 不重建、设备未解锁仍重建、异常带 cause 或原始消息）在编译与安装成功后由具名断言检出；恢复最终源 pin 后完整 DoD 与双设备探针通过。"
+  - "A6 [R2] 适配器单点变异（软件 key 代替 AndroidKeyStore key（只去掉 provider 名的变异在 Android 上等价：KeyGenParameterSpec 仍会选中 AndroidKeyStore）、错误位长、缺 GCM 或加 padding、加用户认证或 unlocked-device-required、每次 seal 重建 key、不可用或无法读取的 key 不重建、设备未解锁仍重建、适配器入口去掉脱敏、异常带 cause 或原始消息）在编译与安装成功后由具名断言检出；恢复最终源 pin 后完整 DoD 与双设备探针通过。"
   - "A7 [R2] 探针以只含 DECRYPT 用途的 AES key 占住探针 alias（无法初始化加密），经生产 LocalSecretBox 的 seal 得 STORED，随后 open 成功，KeyInfo 显示该 alias 的新 key 用途为加解密；A4 的可用 key 连续 seal 仍为同一把。设备未解锁时不重建由 JVM 测试以注入的解锁状态覆盖，不冒充真机锁屏证据。"
 review_gate: codex {verdict:pass}
-budget: 700
+budget: 850
 hygiene: 冗余测试经 mutation-survivor 剪枝（R4）；适配器变异见 A6，编译/安装失败不算检出
 doc_sync: ADR-0006 + SECURITY + TASK-BOARD + docs/local-secret-box-probe.md（R5）
 ---
@@ -91,3 +91,7 @@ allow_paths 随之收窄为适配器、其 JVM 测试、debug 探针、debug 清
 用户裁定：`T1-LOCAL-SECRET-BOX` 经全新上下文预审补上七处测试缺口后约 836 行，超过其 `budget: 800`，原子信封存储连同其测试与原 R6/A6 移至新卡 `T1-LOCAL-SECRET-STORE`。交付顺序改为：卡片登记 → `T1-LOCAL-SECRET-BOX` → `T1-LOCAL-SECRET-STORE` → 本卡。
 
 2026-09-25 用户裁定（原待决问题）：同一预审指出，alias 下的 key 仍在但已不可用（如 Keystore blob 损坏）时，open 返回 `NeedsPassphrase(KEY_UNUSABLE)`，而用户重新输入口令后 seal 仍拿到同一把坏 key，永远 UNAVAILABLE，达不到 ADR-0006 §3 的重新验证。用户选择「seal 时重建」：设备已解锁而已存在的 key 无法初始化加密时，删除该 alias、生成新 key 再 seal（R2、A6、A7）。风险已记：一次瞬时的 Keystore 错误可能替换一把本来可用的 key，下次 open 需重新输入口令。已合并的端口 KDoc 写着已存在的 key「returned, never replaced」，本卡因此可改 `LocalSecretBox.kt` 中这一处 KDoc，其余前置代码不动。另两个备选（提升 key 版本换新 alias、保持永不重建）未采用。
+
+## 2026-09-25 预审后记录
+
+实现后的全新上下文预审发现真实缺口，用户裁定 `budget` 700 → 850，并把以下事实写回本卡，供 R3 按此核对：① 为证明「非 unlocked-device-required」新增 DUMP 限制的 debug receiver（与探针同文件），仅在模拟器上以临时 PIN 锁屏运行，PIN 一律清除并复核；② alias 下的条目无法读取或类型不对也按「不可用」处理（R2）；③ 适配器提供 internal 构造接缝（Keystore 来源、解锁状态），JVM 测试据此证明入口处的脱敏与解锁接线；④ 本 app 不是 direct-boot aware，应用代码运行时 `UserManager.isUserUnlocked()` 恒为 true，故本适配器实际不会让 box 返回 NEEDS_UNLOCK，相应变异按等价记录；⑤ 只去掉 provider 名的变异（D01）在 Android 上等价，改以软件 key 变异（D01b）检出。
