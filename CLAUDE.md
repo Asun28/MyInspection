@@ -737,7 +737,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - Android 工程（T0-TOOLCHAIN 落地后）：全部测试/静检 `cmd /c android\gradlew.bat -p android --offline --no-daemon :core:check`；装机包 `:app:assembleDebug`；装环境步骤见 `specs/archive/tasks/T0-TOOLCHAIN.md`
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
 - **工作流自检**：`pwsh -File scripts\selftest.ps1`；本地跑完整 17 闸，`-Parallel` 按矩阵分片并行；CI canary 用 2 OS × 5 片。任务卡可选定向检查作 DoD，但不能替代 Tier-S 完整验收。
-  `-TaskId <id>` 按卡分级验收：卡从脚本自己探测的基线提交读取（`[SELFTEST-TASKID-BASE]`；脚本没有 `-Base` 参数），按卡的 tier 与 `[GATE-MAP]` 选闸：Tier S 跑全量，Tier 1 跑底座闸加改动路径命中的路由行（有 `.ps1` 改动再加闸 7），Tier 0 只跑底座闸；有改动路径没有路由行即升级为全量。Tier 0/1 的结论是 `[SELFTEST-TIER-PASS|FAIL]`，与 `-Only`/`-Parallel` 互斥。它测的是被调用那份脚本所在的检出，卡的证据须从卡 worktree 里那份跑（L344）。省略 TaskId 保持完整默认覆盖。
+  `-TaskId <id>` 按卡分级验收：卡从脚本自己探测的基线提交读取（`[SELFTEST-TASKID-BASE]`；脚本没有 `-Base` 参数），按卡的 tier 与 `[GATE-MAP]` 选闸：Tier S 跑全量；Tier 1 跑底座闸加改动路径命中的路由行（有 `.ps1` 改动再加闸 7），有改动路径没有路由行、或一条改动路径也取不到时升级为全量；Tier 0 恒为底座闸、不升级。Tier 0/1 的结论是 `[SELFTEST-TIER-PASS|FAIL]`，与 `-Only`/`-Parallel` 互斥。它测的是被调用那份脚本所在的检出，卡的证据须从卡 worktree 里那份跑（L344）。省略 TaskId 保持完整默认覆盖。
 - **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；已推送状态的手工恢复可按 `docs/DEVOPS-WORKFLOW.md` 完整式做诊断和修复后自查，但最终交付不得裸跑 review/checks/merge，必须执行 `-NoAutoMerge` 打印的 `[SHIP-MANUAL-RESUME]` 命令，重新进入同一 `task.ps1 -Phase ship`，由 fresh R3、精确 CI workflow/run-attempt/PR/jobs 身份、终局 base/head/OID 快照和受保护合并腿共同裁决。
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 
