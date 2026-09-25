@@ -239,15 +239,17 @@ function Get-PostMergeWiringIssues([string]$ScriptText) {
   $bad = [System.Collections.Generic.List[string]]::new()
   foreach ($c in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)) {
     $name = $c.GetCommandName()
-    if ("$name" -cnotmatch '^[A-Za-z]+-[A-Za-z]+$') { continue }
+    if ("$name" -cnotmatch '^[A-Za-z]+-[A-Za-z0-9]+$') { continue }
     $cmd = Get-Command $name -ErrorAction SilentlyContinue
     if (-not $cmd) { $bad.Add("command $name"); continue }
     foreach ($pa in @($c.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] })) {
       if (-not $cmd.Parameters.ContainsKey($pa.ParameterName)) { $bad.Add("parameter $name -$($pa.ParameterName)") }
     }
   }
-  foreach ($v in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.VariableExpressionAst] -and $n.VariablePath.UserPath -clike 'Scaffold*' }, $true)) {
-    if (-not (Get-Variable -Name $v.VariablePath.UserPath -ErrorAction SilentlyContinue)) { $bad.Add("variable $($v.VariablePath.UserPath)") }
+  # Variable names ignore case and may carry a scope ('$script:X'), so the name without its scope is matched with -like.
+  foreach ($v in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.VariableExpressionAst] }, $true)) {
+    $u = $v.VariablePath.UserPath -replace '^(global|local|private|script|using):', ''
+    if ($u -like 'Scaffold*' -and -not (Get-Variable -Name $u -ErrorAction SilentlyContinue)) { $bad.Add("variable $u") }
   }
   return @($bad | Sort-Object -Unique)
 }
@@ -382,12 +384,14 @@ function Invoke-PostMergeSelfCheck {
   . (Join-Path $PSScriptRoot '_guard.ps1'); . (Join-Path $PSScriptRoot '_ci.ps1')
   Check 'wiring: every command, parameter and Scaffold* variable in this file resolves' { $w = @(Get-PostMergeWiringIssues ([IO.File]::ReadAllText($PSCommandPath))); if ($w.Count) { throw "unresolved: $($w -join ', ')" }; $true }
   $broken = @()
-  Check 'wiring: the check runs on a script text' { $script:pmBroken = @(Get-PostMergeWiringIssues 'Get-PostMergeNope; Write-Host -Nope 1; $ScaffoldNope'); $true }
+  Check 'wiring: the check runs on a script text' { $script:pmBroken = @(Get-PostMergeWiringIssues 'Get-PostMergeNope; Invoke-PostMergeR9; Write-Host -Nope 1; $ScaffoldNope; $script:scaffoldLower'); $true }
   if (Test-Path variable:script:pmBroken) { $broken = @($script:pmBroken) }
   Check 'wiring: an unknown command is reported' { $broken -ccontains 'command Get-PostMergeNope' }
+  Check 'wiring: a command name with a digit is checked' { $broken -ccontains 'command Invoke-PostMergeR9' }
   Check 'wiring: an unknown parameter is reported' { $broken -ccontains 'parameter Write-Host -Nope' }
   Check 'wiring: an undefined Scaffold* variable is reported' { $broken -ccontains 'variable ScaffoldNope' }
-  Check 'wiring: one run names every break' { ($broken -join '|') -ceq 'command Get-PostMergeNope|parameter Write-Host -Nope|variable ScaffoldNope' }
+  Check 'wiring: a scoped lower-case Scaffold* variable is checked' { $broken -ccontains 'variable scaffoldLower' }
+  Check 'wiring: one run names every break' { ($broken -join '|') -ceq 'command Get-PostMergeNope|command Invoke-PostMergeR9|parameter Write-Host -Nope|variable scaffoldLower|variable ScaffoldNope' }
   if ($fails.Count) {
     foreach ($f in $fails) { Write-Host "POST-MERGE-FAIL: $f" -ForegroundColor Red }
     Write-Host "[POST-MERGE-SELF-CHECK-FAIL] $($fails.Count) of $script:pmCount cases failed" -ForegroundColor Red
