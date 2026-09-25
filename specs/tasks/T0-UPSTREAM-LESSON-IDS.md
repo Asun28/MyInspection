@@ -1,7 +1,7 @@
 ---
 id: T0-UPSTREAM-LESSON-IDS
 title: Say in docs/LESSONS.md that lesson ids in code adopted from the scaffold are upstream ids, and report the collision upstream
-status: todo
+status: merged
 depends_on: []
 parallelizable_with: []
 allow_paths:
@@ -49,3 +49,13 @@ comments in `scripts/selftest.ps1` turned out to cite an L353 with another meani
 Of three options (docs note plus upstream report; relabel the two L353 lines; relabel all adopted
 citations), the user chose the docs note plus upstream report: the adopted files stay as they are, so a later
 scaffold sync does not conflict on them, and the fix to the citation form belongs upstream.
+
+## R5 delivery (2026-09-25)
+
+Merged by [PR #416](https://github.com/Asun28/MyInspection/pull/416) as squash `35021694` (reviewed head `a95557f3`; CI run `36131605345`, `verify` and `required` success; `codex-review` success). 27 changed lines against `budget: 60`.
+
+- RED: on base `8942e16c` the DoD exited 1 with `[DOD-FAIL] docs/LESSONS.md lacks: git blame -L`.
+- A2: upstream issue [claude-devops-scaffold#400](https://github.com/Asun28/claude-devops-scaffold/issues/400), composed with `scaffold-sync.ps1 report`, read, then sent with `-Send`.
+- A3, run on the shipped checkout: `git blame -L 14976,14976 -- scripts/selftest.ps1` names `d991cc92`, and `git show 96ebfcec:docs/lessons/LEDGER.md` has a `## L353` heading whose rule begins "Before trusting a green arm, ask by what OTHER paths the asserted value could reach the observation". `lessons.ps1 check` passes inside the DoD; selftest gate 16 (`-Only 16`, diagnostic only) passed.
+- R4 5/5: removing `git blame -L`, the offline `git show` path, every `d991cc92`, or the upstream ledger URL from docs/LESSONS.md, or the issue link from the SCAFFOLD-SYNC paragraph, each turned the DoD red with its own `[DOD-FAIL]` line. A first `d991cc92` mutant replaced only one of its two occurrences and left the DoD green; the note still named the commit, so that mutant was equivalent and was re-aimed at both occurrences.
+- R3: Codex `gpt-5.6-sol`. Round 1 passed with no findings; the CI gate then stopped on `[CI-GATE-BASE-MOVED]` (another PR merged to master), and the resumed ship's round 2 also passed with no findings.
