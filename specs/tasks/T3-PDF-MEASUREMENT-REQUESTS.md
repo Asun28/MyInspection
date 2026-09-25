@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-MEASUREMENT-REQUESTS
 title: Language-aware measurement requests and complete Composer validation
-status: todo
+status: merged
 depends_on: [T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE, T3-PDF-PAGINATION-FIXTURES-REMOTE]
 parallelizable_with: [T1-APP-STORAGE-POLICY-REMOTE]
 allow_paths:
@@ -48,3 +48,10 @@ The simultaneous complete forecast is388–400 changed lines /39,282–39,722 UT
 ## Remote execution order (2026-09-17)
 
 This is product round 3, paired with T1-APP-STORAGE-POLICY-REMOTE, retaining the complete T3-PDF-MEASUREMENT-REQUESTS behavioral contract above. Dependency names in the front matter bind the remote deliveries. Start only after those functional PRs actually merge; registered metadata alone does not satisfy a dependency. Use the original D:/Projects/MyInspection/scripts/task.ps1 from the main checkout: start with -Base origin/master, then fresh RED and ship with -Base master, without -Local. Run the same candidate's full DoD, R4, verify, scope, licenses, secrets, complete-diff budget, independent R3 and exact-head CI before remote PR merge. Record PR/head/checks/merge and complete R5. This execution paragraph supersedes earlier local-only routing text, without reducing any acceptance or adding another card to the five-round count.
+
+## Status recorded (2026-09-25)
+
+PR #317 merged on 2026-09-18 as `47b78af8`, but the card stayed `todo` while its round-3 evidence publication
+(`T0-REMOTE-ROUND3-REQUESTS-EVIDENCE`, PR #323) was pending. The user closed that publication on 2026-09-25 without
+merging it. This card's DoD passes on origin/master `8146d794` (run 2026-09-25), which is the evidence for this status;
+the retained historical proof was not published. This commit changes only the status line and adds this note.
