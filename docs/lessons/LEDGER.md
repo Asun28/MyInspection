@@ -2127,7 +2127,7 @@
 - refs: 
 
 ## L291
-- date: 2026-09-04 ｜ tags: powershell,dotnet,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-04 ｜ tags: powershell,dotnet,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: A script writes a file with [System.IO.File]::WriteAllText using a relative path after Set-Location, then runs it with pwsh -File using the same relative name. The run silently uses a stale earlier copy, and an unexpected file appears in the repo root. Here a dry-run reported 12 mutation targets when the table held 15, and dryrun.ps1 turned up as an untracked file at the repository root.
 - root_cause: Set-Location changes the PowerShell provider location, not the .NET process current directory. Any System.IO API given a relative path resolves against the process CWD, which is wherever pwsh was started. PowerShell cmdlets and the -File argument resolve against the provider location instead, so a write and a read using the identical relative string can land on two different files.
 - rule: Never hand a relative path to a System.IO API. Build an absolute path first, for example with Join-Path on an explicit root or $PSScriptRoot, and pass that. If a generated-then-executed script behaves as though the edit did not happen, do not re-reason about the content: print the absolute path actually written and the absolute path actually executed and compare them. Same rule for Get-Content versus File::ReadAllText.
@@ -2625,7 +2625,7 @@
 - refs: 
 
 ## L353
-- date: 2026-09-25 ｜ tags: check-secrets,naming,secrets,ci ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-25 ｜ tags: check-secrets,naming,secrets,ci ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: Two check-secrets FAILs on content that held no secret: card prose quoting a Kotlin signature whose parameter was named secret with a type after the colon (Generic Secret Assignment; verify went red on a card-only PR), and two source files whose names began with Secret (the tracked sensitive-path rule).
 - root_cause: check-secrets judges by shape, not meaning: a tracked path segment that starts with secret counts as a sensitive file, and a secret, password or api-key token followed by a colon or equals sign and eight or more non-space characters counts as an assignment, whether it is code, prose or a type annotation.
 - rule: Name things so the shape does not match: no path segment starting with secret (prefix it, as in LocalSecretEnvelopeStore), and no secret, password or api-key token directly followed by a colon or equals sign and a value-like run (name the parameter plaintext or value). Run pwsh scripts/check-secrets.ps1 on new files and card text before pushing. When it matches something that is not a secret, rename; never add an allowlist entry (user rule, 2026-09-25).
@@ -2665,7 +2665,7 @@
 - refs: specs/tasks/T1-LOCAL-SECRET-STORE.md (R5 delivery); PR #377
 
 ## L358
-- date: 2026-09-25 ｜ tags: testing,mutation,r4,assertions ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- date: 2026-09-25 ｜ tags: testing,mutation,r4,assertions ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
 - symptom: Three R4 mutants counted as killed because the named test ended in an exception thrown by the mutated production code (a raising read, a missing file, a missing directory), not in a failed assertion.
 - root_cause: A test that errors proves only that something went wrong somewhere; the named contract was never compared, and the same test can error for reasons unrelated to the mutant.
 - rule: Have the R4 runner record the failure type of the named test and accept only java.lang.AssertionError as a kill. Where the contract is that a call succeeds, wrap it in runCatching and assert isSuccess before checking its result.
@@ -2685,5 +2685,37 @@
 - symptom: Two mutation batches for T0-POST-MERGE-DOCS-PR produced wrong evidence. The first reported 27 of 29 mutants void because every mutant died of a parse error: the runner decoded the file with its BOM and wrote a second one. A later batch ran 47 mutants while 48 were declared: a here-string inserted without a trailing newline joined the array's closing parenthesis to the previous entry, so M45 sat outside the array and never ran, and nothing reported it.
 - root_cause: A mutation runner is itself untested code that writes the file under test; a broken write path or a malformed mutant list makes every result look like evidence while proving nothing.
 - rule: Give every mutation runner two self-checks before the batch: rewrite the unmutated file through the same write path and require identical bytes and a passing run, and require the number of mutants executed to equal the number declared. Treat any parse error in a mutant run as void, never as a kill.
+- enforced_by: 
+- refs: 
+
+## L361
+- date: 2026-09-25 ｜ tags: worktree,task-loop,start,git ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: task.ps1 start for a card reused a local branch and worktree of the same id left by an earlier session: the worktree sat on an eight-day-old commit without the merged prerequisites (the build could not find their types) and held three untracked test files from an abandoned attempt, which also blocked the fast-forward.
+- root_cause: start adds the worktree only when none exists; an existing branch or worktree for the card id is reused as found, with no check that it starts at the current base.
+- rule: Before start, run git worktree list and git branch --list <id>. If either exists, check rev-list origin/<base>..<branch> for commits of its own and git status --untracked-files=all for leftovers, preserve any leftovers outside the worktree, and after start confirm HEAD equals origin/<base> before writing code.
+- enforced_by: 
+- refs: 
+
+## L362
+- date: 2026-09-25 ｜ tags: android,keystore,mutation,jca ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: An R4 mutant that dropped the provider name from KeyGenerator.getInstance(AES, "AndroidKeyStore") passed every probe check on both devices.
+- root_cause: JCA selects the provider at init: only AndroidKeyStore accepts a KeyGenParameterSpec, so the key is still a Keystore key and the mutant is equivalent.
+- rule: To prove a key comes from AndroidKeyStore, mutate the key source itself (for example a software KeyGenerator with init(256)), not only the provider string, and record the provider-name mutant as equivalent.
+- enforced_by: 
+- refs: 
+
+## L363
+- date: 2026-09-25 ｜ tags: android,api-level,probe,javap ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: A device probe check on KeyInfo.isUnlockedDeviceRequired did not compile: the getter is listed in the reference docs but is absent from the compileSdk 35 android.jar, so the property could not be read on API 33 or 35 at all.
+- root_cause: Reference pages describe the newest platform; a getter added in a later API level does not exist on the devices or in the compile SDK the project pins.
+- rule: Before designing a device check around an Android API, list the class in the pinned SDK with javap -cp platforms/android-<compileSdk>/android.jar <class>. When the getter is missing, prove the property by behavior (here: open an envelope while the screen is locked) and record why.
+- enforced_by: 
+- refs: 
+
+## L364
+- date: 2026-09-25 ｜ tags: powershell,native-command,logs,privacy ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: Host scripts piped adb pull to Out-Null, yet the probe logs showed the installed APK path under /data/app, which R3 flagged against a card that forbids paths in probe output.
+- root_cause: Out-Null discards only the success stream; a native command writes progress and errors to stderr, which still reaches the console and any log the run is redirected to.
+- rule: For native output that must not appear, redirect every stream with *> $null (the exit code survives) and check $LASTEXITCODE; then grep the saved logs for the forbidden pattern before calling the evidence clean.
 - enforced_by: 
 - refs: 
