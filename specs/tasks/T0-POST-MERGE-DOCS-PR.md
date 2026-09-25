@@ -62,9 +62,9 @@ the same pattern.
   boundary (A6), the task-loop R5 step and `docs/DEVOPS-WORKFLOW.md` point at it.
 - RED (A5): SelfCheck written first against one-line stubs; `task.ps1 -Phase red` exited 1 with
   `[POST-MERGE-SELF-CHECK-FAIL] 42 of 42 cases failed`, each on its own assertion.
-- GREEN: `-SelfCheck` passes 65 cases (`[POST-MERGE-SELF-CHECK-PASS]`).
+- GREEN: `-SelfCheck` passes 68 cases (`[POST-MERGE-SELF-CHECK-PASS]`).
 - R4 (A5): 47 single-statement mutants below, with the line each changes in the final file (SHA-256
-  `C7BD77A640E7C65DFA95A44BD1524389EEBBFB7FFE753BD9664C04532C90CFB6`). Each made `-SelfCheck` exit 1 by failing its
+  `957B223CDAC98164FA76383E6E54FC1C4BA8E81034424942C18E722932D4A30F`). Each made `-SelfCheck` exit 1 by failing its
   named case, none by a parse error; the file was restored and SHA-checked after each. The runner first rewrites
   the unmutated file and requires identical bytes and a passing SelfCheck (an earlier batch without that control
   wrote a second BOM and was void).
@@ -138,8 +138,11 @@ the same pattern.
   ``Format-PostMergeRecoveryReport`` prints the probed facts (branch tip; each PR's state, head and base; unknown when
   a probe fails) with fixed guidance that never advises a hand merge (cases and M40 to M43). Rounds reset by user
   ruling for rounds 3 and 4.
-- Tier-1 acceptance: `selftest.ps1 -TaskId T0-POST-MERGE-DOCS-PR` from this worktree printed
+- R3 round 4 (Codex) passed the spec axis and blocked on the round-3 report's fixed advice, which said to delete
+  the branch or prune even when a probe failed or the PRs were ambiguous. By user ruling the advice is now
+  inspection-only in every state (nothing pruned; inspect first; never merge a PR by hand; rerun only once the
+  branch is gone and no PR for it is open), with cases for unknown, other-head and several-PR reports.
+- Tier-1 acceptance: `selftest.ps1 -TaskId T0-POST-MERGE-DOCS-PR` from this worktree exited 0 with
   `[SELFTEST-TIER-PASS] task=T0-POST-MERGE-DOCS-PR tier=1 gates=1,2,3,4,5,7,8,9,10,11,13,14,15,16` (no gate failed,
-  1277.2 s; selftest.ps1 prints that line only on its `exit 0` path) on `scripts/post-merge.ps1` SHA-256
-  `C7BD77A6...2C90CFB6`. DeepSeek rounds 5 to 7: round 5 found M45 missing from the table (added), rounds 6 and 7
-  passed. Only this record changed in the card after the run.
+  830.9 s) on `scripts/post-merge.ps1` SHA-256 `957B223C...32D4A30F`. DeepSeek rounds 5 to 8: round 5 found M45
+  missing from the table (added); rounds 6, 7 and 8 passed. Only this record changed in the card after the run.

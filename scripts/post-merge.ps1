@@ -205,7 +205,7 @@ function Get-PostMergeRunDecision([object[]]$Runs, [string]$Head) {
 }
 # What a failed r5 left on the remote, as probed facts only. The failure path takes no action and does not judge
 # which PR is this R5, because a push, PR or merge that errored locally may still have taken effect remotely. The
-# guidance is fixed and never says to merge by hand: only r5 re-checks the head, base and ci.yml run first.
+# guidance is the same in every state and only says to inspect: it never says to delete, prune or merge by hand.
 function Format-PostMergeRecoveryReport([string]$Branch, [string]$Head, [string]$Base, [bool]$TipKnown, [string]$Tip, [bool]$PrsKnown, [object[]]$Prs) {
   $tipText = 'none'
   if ($Tip) { $tipText = $Tip }
@@ -213,7 +213,7 @@ function Format-PostMergeRecoveryReport([string]$Branch, [string]$Head, [string]
   $prText = 'none'
   if (@($Prs).Count) { $prText = (@($Prs) | ForEach-Object { "#$($_.number) $($_.state) head $($_.headRefOid) base $($_.baseRefName)" }) -join '; ' }
   if (-not $PrsKnown) { $prText = 'unknown (probe failed)' }
-  return "[POST-MERGE-LEFT-BEHIND] r5 failed after pushing $Branch (head $Head, base $Base). Remote branch tip: $tipText. PRs: $prText. Nothing was pruned. If a PR above is MERGED with head $Head and base $Base, this R5 landed and 'post-merge.ps1 prune -Branch $Branch' cleans up; otherwise close any open PR and delete the branch, then rerun r5. Never merge it by hand: only r5 re-checks head, base and CI."
+  return "[POST-MERGE-LEFT-BEHIND] r5 failed after pushing $Branch (head $Head, base $Base). Remote branch tip: $tipText. PRs: $prText. Nothing was pruned and nothing is decided here: inspect the branch and PRs above before acting, never merge a PR by hand (only r5 re-checks head, base and CI), and rerun r5 only after the branch is gone and no PR for it is open."
 }
 # ── Self-check ────────────────────────────────────────────────────────────────────────────────────────
 
@@ -323,7 +323,11 @@ function Invoke-PostMergeSelfCheck {
   Check 'recovery: an unreadable PR list is reported as unknown' { (& $rec $true $tip $false @()).Contains('PRs: unknown') }
   Check 'recovery: an unreadable branch tip is reported as unknown' { (& $rec $false '' $true @()).Contains('tip: unknown') }
   Check 'recovery: no branch and no PR are reported as none' { $r = & $rec $true '' $true @(); $r.Contains('tip: none') -and $r.Contains('PRs: none') }
-  Check 'recovery: the report prunes nothing and never advises a hand merge' { $r = & $rec $true $tip $true @(); $r.Contains('Nothing was pruned') -and $r.Contains('Never merge it by hand') }
+  $inspectOnly = { param($r) $r.Contains('Nothing was pruned') -and $r.Contains('inspect the branch and PRs above before acting') -and $r.Contains('never merge a PR by hand') -and -not $r.Contains('delete') -and -not $r.Contains('prune -Branch') }
+  Check 'recovery: the advice is inspection-only when nothing is known' { & $inspectOnly (& $rec $false '' $false @()) }
+  Check 'recovery: the advice is inspection-only for a PR with another head' { $r = & $rec $true $tip $true @([pscustomobject]@{ number = 5; state = 'MERGED'; headRefOid = ('b' * 40); baseRefName = 'master' }); (& $inspectOnly $r) -and $r.Contains('head ' + ('b' * 40)) }
+  Check 'recovery: the advice is inspection-only for several PRs' { $r = & $rec $true $tip $true @([pscustomobject]@{ number = 5; state = 'MERGED'; headRefOid = $tip; baseRefName = 'master' }, [pscustomobject]@{ number = 6; state = 'OPEN'; headRefOid = $tip; baseRefName = 'master' }); (& $inspectOnly $r) -and $r.Contains('#5 MERGED') -and $r.Contains('#6 OPEN') }
+  Check 'recovery: the advice is inspection-only when nothing is left' { & $inspectOnly (& $rec $true '' $true @()) }
   Check 'ci: a run for another commit is ignored' { (Get-PostMergeRunDecision @((Run 7 ('b' * 40) 'completed' 'success')) $tip).State -ceq 'pending' }
   if ($fails.Count) {
     foreach ($f in $fails) { Write-Host "POST-MERGE-FAIL: $f" -ForegroundColor Red }
