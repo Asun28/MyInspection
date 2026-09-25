@@ -1935,7 +1935,7 @@
 - refs: 
 
 ## L267
-- date: 2026-09-01 ｜ tags: mutation,powershell,evidence ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-01 ｜ tags: mutation,powershell,evidence ｜ tier: ondemand ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 变异批报 KILLED，实际是植入的代码把源文件写坏、编译失败——不是被测试杀死。两个 PowerShell 坑各制造一次：辅助函数取名 Del 撞上 Remove-Item 别名；数组字面量里 f a b, g c 的逗号绑到 f 的参数上而不是分隔数组元素，于是第二个操作的函数名被当字符串写进源码。
 - root_cause: 变异的判据是「退出码非零」，而编译失败同样非零。只要植入环节自己可能出错，退出码就无法区分「守卫被证明有效」与「我把文件弄坏了」，且方向恰好是把假证据报成好消息。
 - rule: 变异批必须把编译失败与测试失败分开记账：捕获失败的测试名，任何拿不到测试名或命中 compileDebug*Kotlin 的一律标为可疑、不计入击杀。数组字面量里每个函数调用单独加括号 @((f a b), (g c))，辅助函数名加前缀避开 PowerShell 别名（Get-Alias 一查便知）。真正的语义变异应当让测试变红，不是让编译器变红。
@@ -2480,7 +2480,7 @@
 - refs: renumbered from the uncommitted L328 by the 2026-09 reconcile (#339)
 
 ## L344
-- date: 2026-09-15 ｜ tags: selftest,worktree,routing,task-card ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-15 ｜ tags: selftest,worktree,routing,task-card ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: Ran scripts\selftest.ps1 -TaskId <id> -Base master from the main checkout as the card DoD asked; the run resolved mode=all and tested the main checkout (its untracked .aidlc/ root entry turned gate 8 red, and gate 11 counted the main checkout links), so the card worktree was never the tree under test.
 - root_cause: For mode all and core the -TaskId route only selects shards; every shard runs on $RepoRoot, which selftest.ps1 derives from its own location. Only the skills mode targets the task worktree (Invoke-SelftestAll -SourceRoot WorktreePath). Invoking the main checkout copy therefore tests the main checkout.
 - rule: Routed selftest evidence for a card must come from the worktree copy: pwsh -File <WorktreeRoot>\<id>\scripts\selftest.ps1 -TaskId <id> (since the 2026-09 reconcile selftest.ps1 has no -Base parameter; passing it fails before any gate runs). Also check that the invoked root has no stray top-level entries before a full run (gate 8.1 whitelist), and that every L<n> the card cites exists at base (git show master:docs/lessons/LEDGER.md), not only in the dirty working ledger (gate 16).
@@ -2681,7 +2681,7 @@
 - refs: 
 
 ## L360
-- date: 2026-09-25 ｜ tags: mutation,r4,evidence,powershell ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-25 ｜ tags: mutation,r4,evidence,powershell ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: Two mutation batches for T0-POST-MERGE-DOCS-PR produced wrong evidence. The first reported 27 of 29 mutants void because every mutant died of a parse error: the runner decoded the file with its BOM and wrote a second one. A later batch ran 47 mutants while 48 were declared: a here-string inserted without a trailing newline joined the array's closing parenthesis to the previous entry, so M45 sat outside the array and never ran, and nothing reported it.
 - root_cause: A mutation runner is itself untested code that writes the file under test; a broken write path or a malformed mutant list makes every result look like evidence while proving nothing.
 - rule: Give every mutation runner two self-checks before the batch: rewrite the unmutated file through the same write path and require identical bytes and a passing run, and require the number of mutants executed to equal the number declared. Treat any parse error in a mutant run as void, never as a kill. Before trusting a PASS from a self-check you edited by script, run one mutant that must be killed: if every mutant survives with exit 0, the harness is broken, not the code (T0-POST-MERGE-R5-WIRING prototype: an inserted block with no final newline made the SelfCheck summary line extra arguments of the last case, so it always passed).

@@ -739,7 +739,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - Android 工程（T0-TOOLCHAIN 落地后）：全部测试/静检 `cmd /c android\gradlew.bat -p android --offline --no-daemon :core:check`；装机包 `:app:assembleDebug`；装环境步骤见 `specs/archive/tasks/T0-TOOLCHAIN.md`
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
 - **工作流自检**：`pwsh -File scripts\selftest.ps1`；本地跑完整 17 闸，`-Parallel` 按矩阵分片并行；CI canary 用 2 OS × 5 片。任务卡可选定向检查作 DoD，但不能替代 Tier-S 完整验收。
-  显式 `-TaskId <id> -Base origin/master` 从已钉定本地基线读取卡/冻结配置，定位该任务的注册工作树：普通 `android/`、`configs/compliance/` 产品改动仅报不适用（仍须 product verify），普通文档跑 core，混合/关键/冻结/未知改动跑 all；省略 TaskId 保持完整默认覆盖。
+  `-TaskId <id>` 按卡分级验收：卡从脚本自己探测的基线提交读取（`[SELFTEST-TASKID-BASE]`；脚本没有 `-Base` 参数），按卡的 tier 与 `[GATE-MAP]` 选闸：Tier S 跑全量；Tier 1 跑底座闸加改动路径命中的路由行（有 `.ps1` 改动再加闸 7），有改动路径没有路由行、或一条改动路径也取不到时升级为全量；Tier 0 恒为底座闸、不升级。Tier 0/1 的结论是 `[SELFTEST-TIER-PASS|FAIL]`，与 `-Only`/`-Parallel` 互斥。它测的是被调用那份脚本所在的检出，卡的证据须从卡 worktree 里那份跑（L344）。省略 TaskId 保持完整默认覆盖。
 - **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；已推送状态的手工恢复可按 `docs/DEVOPS-WORKFLOW.md` 完整式做诊断和修复后自查，但最终交付不得裸跑 review/checks/merge，必须执行 `-NoAutoMerge` 打印的 `[SHIP-MANUAL-RESUME]` 命令，重新进入同一 `task.ps1 -Phase ship`，由 fresh R3、精确 CI workflow/run-attempt/PR/jobs 身份、终局 base/head/OID 快照和受保护合并腿共同裁决。
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 
@@ -789,7 +789,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - **[L353] 名字撞上 check-secrets 的形状就改名，永不加白名单**：check-secrets 按形状判、不按含义判。被追踪路径里以 `secret` 开头的段算敏感文件；`secret`、`password`、`api-key` 这类词后面紧跟冒号或等号、再接一串像值的字符，就算赋值，代码、卡片散文、类型标注一视同仁。所以命名时就避开这两种形状（文件加前缀，如 `LocalSecretEnvelopeStore`；参数叫 `plaintext` 或 `value`），新文件与卡片文字推送前先跑 `pwsh scripts/check-secrets.ps1`。命中的不是机密时改名或改写，不加 allowlist（用户规则，2026-09-25）。
 - **[L21][L205] R3 轮次先判证据真伪，修复轮也要本地对抗自检**：无裁决时先按 `review.ps1` 状态码与已保全原文分类：`[R3-NO-VERDICT-JSON]` 仍可能含真实负面 finding，须读原文并按反馈处理；`[R3-NO-OUTPUT]` 只证明没有可解析输出，不能直接推定配额故障。再在同一 worktree 独立 probe reviewer（不经 `review.ps1`、不碰 `.rounds`）并保全完整 stderr；**只有 probe/stderr 证实配额或其它外部失败，才判为评审者未真正运行、非真实评审分歧**。禁止靠反复 `ship` 烧轮次，更不得绕过 R3；若外部失败已误耗尽 cap，只能在确诊后 `ResetRounds`，随后仍须正常过 R3。一轮修 ≥3 条 finding 的修复 diff 常大于首轮实现，且「按条修不看整体」使新代码不再被任何人当新代码审——ship 前先派 fresh-context/换模型子代理只对**本轮修复 diff** 按 rubric 复核（新错误处理是否 fail-open？点名目标是否全覆盖？改动文件自身注释/文案还成立吗）。W2 五卡有四张的 R3 轮次通胀皆此模式（修复自己引入下一轮的缺陷）。
 - **[L266] 体量在写 RED 之前就量，别等 ship 才发现顶破预算**：验收契约那一步就用闸门自己的尺估一次——产线 + 测试 + R4 收据合计对着 R3 的 **1000 changed-lines / 60000 字符**硬上限报预算（`review.ps1` fail-closed、只许收紧），**超过约 800 行就在动手前提出拆卡**。量晚了就只剩坏选项：ship 压力下先删注释、再打包字面量、最后开始动测试用例与变异收据。**且收据钉的是生产文件的确切 SHA-256，批后任何生产改动（哪怕纯注释）都作废整批证据**（L270）——所以「为压预算而修剪」必须发生在变异批之前。L246 管「用哪把尺量」，本条管「什么时候量」。
-- **[L267] 变异批把编译失败与测试失败分开记账，辅助名避开 PowerShell 别名**：判据只看「退出码非零」时，植入环节把源文件写坏、编译失败同样非零，假证据就被报成击杀。只认「产出了测试报告且有具名失败用例」为击杀；拿不到测试名或命中 `compileDebug*Kotlin` 的一律标可疑、不计入。PowerShell 辅助函数名加前缀避开内置别名（别名优先于函数：`Del` 被 Remove-Item 抢走、`H` 被 Get-History 抢走，`Get-Alias` 一查便知）；数组字面量里每个调用单独加括号 `@((f a b), (g c))`。
+- **[L360] 变异运行器先证明自己能用，再拿它的结果当证据**：批前用同一写入路径把未变异文件重写一遍，要求字节不变且自检通过；实际执行的变异数必须等于声明数；只认「解析通过且点名的用例失败」为击杀，跑出解析错误（Kotlin 即编译失败）的一律作废。用脚本往自检里插过代码，先跑一枚必死的变异：若每枚都以退出码 0 存活，坏的是工具而不是代码（插入块少一个结尾换行，会把自检的汇总行吞成上一条用例的参数，自检于是永远 PASS）。
 
 ## 执行边界（AI 自主运行硬约束 · 每轮必载）
 > 长自主运行里边界必须显式常驻（出处：docs/references/claude-fable-5-prompting-llms.txt「划定边界」）。经验铁律管「工具坑」，本节管「行为红线」，不重复。
