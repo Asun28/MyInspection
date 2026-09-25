@@ -13,5 +13,9 @@
         </activity>
         <activity android:name=".platform.AppStorageProbeActivity" android:exported="true"
             android:permission="android.permission.DUMP" />
+        <activity android:name=".platform.LocalSecretBoxProbeActivity" android:exported="true"
+            android:permission="android.permission.DUMP" />
+        <receiver android:name=".platform.LocalSecretBoxLockedProbeReceiver" android:exported="true"
+            android:permission="android.permission.DUMP" />
     </application>
 </manifest>
