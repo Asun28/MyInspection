@@ -2727,3 +2727,19 @@
 - rule: Run a headless Claude reviewer with --output-format stream-json --verbose and --settings '{"disableAllHooks":true}', save the stream, and log turns, tool calls and files read next to the verdict. Do not use --bare: it also skips keychain reads, so a subscription login can fail.
 - enforced_by: 
 - refs:
+
+## L366
+- date: 2026-09-25 ｜ tags: gh,repo-settings,branches,ci ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 273 merged remote branches piled up although task.ps1 and L13 say GitHub deletes them on merge; gh pr checks <n> --required listed no checks at all
+- root_cause: The repo setting delete_branch_on_merge was false (gh-bootstrap.ps1 sets it true, then it drifted), and master has no ruleset or branch protection although CLAUDE.md says required and codex-review are enforced; --required only lists checks that branch protection requires
+- rule: When behaviour depends on a GitHub repo setting, read it (gh api repos/<owner>/<repo> --jq .delete_branch_on_merge; gh api repos/<owner>/<repo>/rulesets) instead of trusting bootstrap code or comments. Wait on the CI fan-in job by name (required), never on gh pr checks --required. Delete merged branches only with a lease on the merged head: git push origin --force-with-lease=refs/heads/<b>:<headRefOid> :refs/heads/<b>
+- enforced_by: none (repo settings have no local gate; post-merge.ps1 prune covers deletion)
+- refs: PR #362, PR #390, 2026-09-25 prune of 277 branches
+
+## L367
+- date: 2026-09-25 ｜ tags: cards,concurrency,multi-session ｜ tier: ledger ｜ kind: judgment ｜ severity: minor ｜ recurrence: 1
+- symptom: Two sessions registered overlapping cards for the same request within minutes (PR #359 and a draft for PR #362)
+- root_cause: Card drafting started from a stale view of master; the other session's registration PR had merged on origin minutes earlier
+- rule: Before drafting a new card, git fetch origin and read git log --oneline -10 origin/master plus gh pr list --state open for cards on the same topic; build on or amend what exists instead of opening a parallel card
+- enforced_by: 
+- refs: PR #359, PR #362
