@@ -1,6 +1,7 @@
 package nz.myinspection.app.platform
 
 import java.io.IOException
+import java.nio.CharBuffer
 import java.nio.charset.CharacterCodingException
 import java.security.AlgorithmParameters
 import java.security.Key
@@ -286,12 +287,17 @@ class LocalSecretBoxTest {
     @Test
     fun `decrypted bytes are zero after decoding succeeds or fails`() {
         val decrypted = sampleUtf8.copyOf()
-        assertEquals(sample, String(secretCharsFromUtf8(decrypted).chars))
+        val scratch = CharBuffer.allocate(decrypted.size)
+        assertEquals(sample, String(secretCharsFromUtf8(decrypted, scratch).chars))
         assertTrue(decrypted.all { it == 0.toByte() }, "success path")
+        assertTrue(scratch.array().all { it == '\u0000' }, "success path scratch")
 
         val malformed = byteArrayOf(0x61, 0xFF.toByte())
-        assertFailsWith<CharacterCodingException> { secretCharsFromUtf8(malformed) }
+        val failed = CharBuffer.allocate(malformed.size)
+        assertFailsWith<CharacterCodingException> { secretCharsFromUtf8(malformed, failed) }
         assertTrue(malformed.all { it == 0.toByte() }, "failure path")
+        assertTrue(failed.array().all { it == '\u0000' }, "failure path scratch")
+        assertFailsWith<CharacterCodingException> { secretCharsFromUtf8(sampleUtf8.copyOf(), CharBuffer.allocate(4)) }
     }
 
     @Test
@@ -431,12 +437,13 @@ private class RecordingSpi(private val iv: ByteArray) : CipherSpi() {
 private class RecordingCipher(spi: RecordingSpi) : Cipher(spi, object : Provider("RecordingGcm", 1.0, "test double") {}, "AES/GCM/NoPadding")
 
 /*
- * R4 receipt: 41/41 observable single-point mutants killed; M31 is the one survivor and cannot be observed (below).
- * Each mutant compiled, its named test failed with java.lang.AssertionError, and the production file was restored and
- * its SHA-256 re-checked before the next mutant.
- * Production SHA-256 (LocalSecretBox.kt): CE9BABCBE6E8F5A52AE31DDE7DCE6EE6A098A9485C2EFCBC32FA04912BB5CAFF
- * Pre-receipt test SHA-256: 0C26FA71F49AB95762C293B714B629FE03BA2802BB8639B06CC4C899A4D8A38A; this file is those bytes plus
- * this comment. Per mutant: cmd /c android\gradlew.bat -p android --offline --no-build-cache -q :app:testDebugUnitTest
+ * R4 receipt: 43/43 single-point mutants killed. Each compiled, its named test failed with java.lang.AssertionError,
+ * and the production file was restored and its SHA-256 re-checked before the next mutant.
+ * Production SHA-256 (LocalSecretBox.kt): D9AECFB438403F1320EB67CC66E88C5C6EE9BE3CBA1AADCAD56DF4A3F64BD4DC
+ * Test file the batch ran against: lines 1-437 of this file, i.e. every line before the blank line above this comment.
+ * `head -n 437 android/app/src/test/kotlin/nz/myinspection/app/platform/LocalSecretBoxTest.kt | sha256sum` prints
+ * 37bdb832b2bd5122426c317109e4a258f495ec46a88caf3a59d571c8086504f9 (LF line endings, per .gitattributes).
+ * Per mutant: cmd /c android\gradlew.bat -p android --offline --no-build-cache -q :app:testDebugUnitTest
  * --tests nz.myinspection.app.platform.LocalSecretBoxTest. Evidence: _local/local-secret-box/r4/{results.jsonl,Mxx.log}.
  * seal passes no IV...: M02 nonce-size check removed, M40 caller-supplied random IV
  * two seals of the same plaintext...: M01 caller-supplied fixed IV
@@ -456,10 +463,9 @@ private class RecordingCipher(spi: RecordingSpi) : Cipher(spi, object : Provider
  * a failed seal keeps the previous envelope...: M23 failure reported STORED, M24 no lock re-check
  * an Error from any port...: M25-M28 open-crypto, seal, read and unlock catches widened to Throwable
  * the UTF-8 bytes built for seal...: M29 zero-fill removed
- * decrypted bytes are zero...: M30 zero-fill removed, M38 malformed input accepted
+ * decrypted bytes are zero...: M30 byte zero-fill removed, M31 scratch zero-fill removed, M38 malformed input accepted,
+ *   M43 an overflowing decode accepted
  * closing the opened characters...: M32 close is a no-op, M33/M34 Opened/SecretChars toString print the characters
  * empty, oversized and malformed secrets...: M35 malformed input accepted, M36 length cap removed, M37 empty accepted,
  *   M42 cap check off by one
- * Survivor M31: removing the zero-fill of the decoder's intermediate CharBuffer changes nothing a test can see, because
- * that buffer never leaves secretCharsFromUtf8. The fill stays as best-effort hygiene.
  */

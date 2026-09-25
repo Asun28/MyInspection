@@ -173,16 +173,18 @@ internal fun <R> withUtf8Bytes(chars: CharArray, block: (ByteArray, Int) -> R): 
     }
 }
 
-/** Decodes [bytes], which a new decoder does strictly, and zero-fills them and the intermediate buffer either way. */
-internal fun secretCharsFromUtf8(bytes: ByteArray): SecretChars {
-    val buffer = CharBuffer.allocate(bytes.size)
+/**
+ * Decodes [bytes] strictly into [scratch] and zero-fills both, whether decoding succeeds or not. [scratch] is a parameter
+ * only so a test can see it cleared; a decode that does not consume every byte into it counts as a failure.
+ */
+internal fun secretCharsFromUtf8(bytes: ByteArray, scratch: CharBuffer = CharBuffer.allocate(bytes.size)): SecretChars {
     try {
         val decoder = Charsets.UTF_8.newDecoder()
-        val decoded = decoder.decode(ByteBuffer.wrap(bytes), buffer, true)
-        if (decoded.isError || decoder.flush(buffer).isError) throw CharacterCodingException()
-        return SecretChars(buffer.array().copyOf(buffer.position()))
+        val decoded = decoder.decode(ByteBuffer.wrap(bytes), scratch, true)
+        if (!decoded.isUnderflow || decoder.flush(scratch).isError) throw CharacterCodingException()
+        return SecretChars(scratch.array().copyOf(scratch.position()))
     } finally {
-        buffer.array().fill('\u0000')
+        scratch.array().fill('\u0000')
         bytes.fill(0)
     }
 }
