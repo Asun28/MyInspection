@@ -231,6 +231,26 @@ function Format-PostMergeRecoveryReport([string]$Branch, [string]$Head, [string]
   if (-not $PrsKnown) { $prText = 'unknown (probe failed)' }
   return "[POST-MERGE-LEFT-BEHIND] r5 failed after pushing $Branch (head $Head, base $Base). Remote branch tip: $tipText. PRs: $prText. Nothing was pruned and nothing is decided here: inspect the branch and PRs above before acting, never merge a PR by hand (only r5 re-checks head, base and CI), and rerun r5 only after the branch is gone and no PR for it is open."
 }
+# The plumbing below cannot run inside -SelfCheck, so the SelfCheck checks its wiring instead: in the given script
+# text, each Verb-Noun command resolves, each named parameter passed to it exists on it, and each Scaffold* variable
+# is defined. Run with _guard.ps1 and _ci.ps1 loaded, a helper or parameter renamed in either fails the DoD.
+function Get-PostMergeWiringIssues([string]$ScriptText) {
+  $ast = [System.Management.Automation.Language.Parser]::ParseInput($ScriptText, [ref]$null, [ref]$null)
+  $bad = [System.Collections.Generic.List[string]]::new()
+  foreach ($c in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)) {
+    $name = $c.GetCommandName()
+    if ("$name" -cnotmatch '^[A-Za-z]+-[A-Za-z]+$') { continue }
+    $cmd = Get-Command $name -ErrorAction SilentlyContinue
+    if (-not $cmd) { $bad.Add("command $name"); continue }
+    foreach ($pa in @($c.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] })) {
+      if (-not $cmd.Parameters.ContainsKey($pa.ParameterName)) { $bad.Add("parameter $name -$($pa.ParameterName)") }
+    }
+  }
+  foreach ($v in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.VariableExpressionAst] -and $n.VariablePath.UserPath -clike 'Scaffold*' }, $true)) {
+    if (-not (Get-Variable -Name $v.VariablePath.UserPath -ErrorAction SilentlyContinue)) { $bad.Add("variable $($v.VariablePath.UserPath)") }
+  }
+  return @($bad | Sort-Object -Unique)
+}
 # ── Self-check ────────────────────────────────────────────────────────────────────────────────────────
 
 function Invoke-PostMergeSelfCheck {
@@ -356,6 +376,18 @@ function Invoke-PostMergeSelfCheck {
   Check 'recovery: the advice is inspection-only for several PRs' { $r = & $rec $true $tip $true @([pscustomobject]@{ number = 5; state = 'MERGED'; headRefOid = $tip; baseRefName = 'master' }, [pscustomobject]@{ number = 6; state = 'OPEN'; headRefOid = $tip; baseRefName = 'master' }); (& $inspectOnly $r) -and $r.Contains('#5 MERGED') -and $r.Contains('#6 OPEN') }
   Check 'recovery: the advice is inspection-only when nothing is left' { & $inspectOnly (& $rec $true '' $true @()) }
   Check 'ci: a run for another commit is ignored' { (Get-PostMergeRunDecision @((Run 7 ('b' * 40) 'completed' 'success')) $tip).State -ceq 'pending' }
+
+  # Loaded last, so no earlier case runs with the libraries in scope. The defect text is single-quoted: a
+  # double-quoted string would put its variable into this file's own AST.
+  . (Join-Path $PSScriptRoot '_guard.ps1'); . (Join-Path $PSScriptRoot '_ci.ps1')
+  Check 'wiring: every command, parameter and Scaffold* variable in this file resolves' { $w = @(Get-PostMergeWiringIssues ([IO.File]::ReadAllText($PSCommandPath))); if ($w.Count) { throw "unresolved: $($w -join ', ')" }; $true }
+  $broken = @()
+  Check 'wiring: the check runs on a script text' { $script:pmBroken = @(Get-PostMergeWiringIssues 'Get-PostMergeNope; Write-Host -Nope 1; $ScaffoldNope'); $true }
+  if (Test-Path variable:script:pmBroken) { $broken = @($script:pmBroken) }
+  Check 'wiring: an unknown command is reported' { $broken -ccontains 'command Get-PostMergeNope' }
+  Check 'wiring: an unknown parameter is reported' { $broken -ccontains 'parameter Write-Host -Nope' }
+  Check 'wiring: an undefined Scaffold* variable is reported' { $broken -ccontains 'variable ScaffoldNope' }
+  Check 'wiring: one run names every break' { ($broken -join '|') -ceq 'command Get-PostMergeNope|parameter Write-Host -Nope|variable ScaffoldNope' }
   if ($fails.Count) {
     foreach ($f in $fails) { Write-Host "POST-MERGE-FAIL: $f" -ForegroundColor Red }
     Write-Host "[POST-MERGE-SELF-CHECK-FAIL] $($fails.Count) of $script:pmCount cases failed" -ForegroundColor Red
