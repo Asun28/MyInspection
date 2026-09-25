@@ -2319,7 +2319,7 @@
 - refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
 
 ## L309
-- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 14
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 15
 - symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
@@ -2545,10 +2545,10 @@
 - refs: 
 
 ## L337
-- date: 2026-09-24 ｜ tags: r3,review,remote,ship,codex-quota ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- date: 2026-09-24 ｜ tags: r3,review,remote,ship,codex-quota ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
 - symptom: Remote task.ps1 ship ran Codex for R3 (quota error, [R3-NO-OUTPUT]) even though the control checkout set _config.ps1 ReviewCommand to an Opus backend; the same edit worked for -Local ships on the older local scripts.
 - root_cause: Origin task.ps1 (T288) exports the whole reviewer bundle, _config.ps1 included, from the pinned base commit, so an uncommitted ReviewCommand in the running checkout never reaches the ship R3 leg. Separately, [SHIP-SCOPE-CARD-ABSENT] requires the card on the base commit before its product ship.
-- rule: To swap the R3 backend for a remote ship without committing machine-specific config: let the ship run every deterministic gate and open the PR, reset the round after diagnosing the quota failure, run the checkout review.ps1 (verify it is byte-identical to the base blob) with -PostStatus -PrNumber, confirm a successful ci.yml run on the same head and the PR base, then gh pr merge --squash --match-head-commit. Register cards on origin in a separate PR first.
+- rule: To swap the R3 backend for a remote ship without committing machine-specific config: let the ship run every deterministic gate and open the PR, reset the round after diagnosing the quota failure, run the checkout review.ps1 (verify it is byte-identical to the base blob) with -PostStatus -PrNumber, confirm a successful ci.yml run on the same head and the PR base, then gh pr merge --squash --match-head-commit. Register cards on origin in a separate PR first. When Codex has quota but the user wants another reviewer, run the ship from a control worktree whose uncommitted ReviewCommand passes the ship preflight, with the Codex install directory removed from PATH: the base-bundle R3 leg then stops before invoking any reviewer and spends no round (T0-POST-MERGE-R5-BOARD-TABLE, -WIRING, -GUARDS).
 - enforced_by: 
 - refs: 
 
@@ -2681,18 +2681,18 @@
 - refs: 
 
 ## L360
-- date: 2026-09-25 ｜ tags: mutation,r4,evidence,powershell ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-25 ｜ tags: mutation,r4,evidence,powershell ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: Two mutation batches for T0-POST-MERGE-DOCS-PR produced wrong evidence. The first reported 27 of 29 mutants void because every mutant died of a parse error: the runner decoded the file with its BOM and wrote a second one. A later batch ran 47 mutants while 48 were declared: a here-string inserted without a trailing newline joined the array's closing parenthesis to the previous entry, so M45 sat outside the array and never ran, and nothing reported it.
 - root_cause: A mutation runner is itself untested code that writes the file under test; a broken write path or a malformed mutant list makes every result look like evidence while proving nothing.
-- rule: Give every mutation runner two self-checks before the batch: rewrite the unmutated file through the same write path and require identical bytes and a passing run, and require the number of mutants executed to equal the number declared. Treat any parse error in a mutant run as void, never as a kill.
+- rule: Give every mutation runner two self-checks before the batch: rewrite the unmutated file through the same write path and require identical bytes and a passing run, and require the number of mutants executed to equal the number declared. Treat any parse error in a mutant run as void, never as a kill. Before trusting a PASS from a self-check you edited by script, run one mutant that must be killed: if every mutant survives with exit 0, the harness is broken, not the code (T0-POST-MERGE-R5-WIRING prototype: an inserted block with no final newline made the SelfCheck summary line extra arguments of the last case, so it always passed).
 - enforced_by: 
 - refs: 
 
 ## L361
-- date: 2026-09-25 ｜ tags: worktree,task-loop,start,git ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-25 ｜ tags: worktree,task-loop,start,git ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: task.ps1 start for a card reused a local branch and worktree of the same id left by an earlier session: the worktree sat on an eight-day-old commit without the merged prerequisites (the build could not find their types) and held three untracked test files from an abandoned attempt, which also blocked the fast-forward.
 - root_cause: start adds the worktree only when none exists; an existing branch or worktree for the card id is reused as found, with no check that it starts at the current base.
-- rule: Before start, run git worktree list and git branch --list <id>. If either exists, check rev-list origin/<base>..<branch> for commits of its own and git status --untracked-files=all for leftovers, preserve any leftovers outside the worktree, and after start confirm HEAD equals origin/<base> before writing code.
+- rule: Before start, run git worktree list and git branch --list <id>. If either exists, check rev-list origin/<base>..<branch> for commits of its own and git status --untracked-files=all for leftovers, preserve any leftovers outside the worktree, and after start confirm HEAD equals origin/<base> before writing code. If the existing worktree has uncommitted changes and another session may own it (start then refuses with "worktree 已存在"), treat it as that session's work: check its creation time against your session and ask the user before removing it, and save its full diff and changed files to _local/ first (T0-POST-MERGE-R5-GUARDS).
 - enforced_by: 
 - refs: 
 
@@ -2719,3 +2719,11 @@
 - rule: For native output that must not appear, redirect every stream with *> $null (the exit code survives) and check $LASTEXITCODE; then grep the saved logs for the forbidden pattern before calling the evidence clean.
 - enforced_by: 
 - refs: 
+
+## L365
+- date: 2026-09-25 ｜ tags: r3,review,claude-cli,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: An Opus 5.5 R3 run through ReviewCommand returned pass, but its saved raw output was 354 characters: the reviewer's last message (an answer to the project's Stop hook) and the verdict, with no record of what it had read.
+- root_cause: claude -p with --output-format text keeps only the final message, and a headless claude started in the worktree runs the project's hooks (SessionStart context and a Stop-hook turn).
+- rule: Run a headless Claude reviewer with --output-format stream-json --verbose and --settings '{"disableAllHooks":true}', save the stream, and log turns, tool calls and files read next to the verdict. Do not use --bare: it also skips keychain reads, so a subscription login can fail.
+- enforced_by: 
+- refs:
