@@ -68,12 +68,26 @@ function Test-PostMergeBoardRow([string]$Line, [string]$TaskId) {
   return ($cells.Count -ge 3 -and [string]::Equals($cells[1].Trim(), $TaskId, [StringComparison]::Ordinal))
 }
 
+function Get-PostMergeCells([string]$Line) { return @($Line.Trim().Trim('|').Split('|') | ForEach-Object { $_.Trim() }) }
+
+# The editor also requires the row to sit in a main card table, since other board tables hold card ids in their
+# second column too while their last column is not the status. The table is the run of '|' lines around the row;
+# its first line is the header, which must have '卡 id' second and '卡片状态 / 备注' last, with a '---' line under it
+# and as many cells as the row. The cell counts are compared first, which keeps $head[1] in range (the row has at
+# least three cells). The allowlist judge reads -U0 hunks with no table around them and keeps the second-cell test.
+function Test-PostMergeMainTableRow([string[]]$Lines, [int]$Index) {
+  $top = $Index
+  while ($top -gt 0 -and $Lines[$top - 1].StartsWith('|')) { $top-- }
+  $head = @(Get-PostMergeCells $Lines[$top])
+  return ($head.Count -eq @(Get-PostMergeCells $Lines[$Index]).Count -and $head[1] -ceq '卡 id' -and $head[-1] -ceq '卡片状态 / 备注' -and $Lines[$top + 1] -cmatch '^\|(\s*:?-{3,}:?\s*\|)+\s*$')
+}
+
 function Set-PostMergeBoardStatus([string]$BoardText, [string]$TaskId, [string]$Status) {
   if ([string]::IsNullOrWhiteSpace($Status) -or ($Status -match '[|\r\n]')) { throw '[POST-MERGE-INPUT] the board status must be one non-empty line without ''|''' }
   $nl = Get-PostMergeNewline $BoardText
   $lines = $BoardText -split '\r?\n'
-  $hits = @(for ($i = 0; $i -lt $lines.Count; $i++) { if (Test-PostMergeBoardRow $lines[$i] $TaskId) { $i } })
-  if ($hits.Count -ne 1) { throw "[POST-MERGE-ANCHOR] docs/TASK-BOARD.md has $($hits.Count) rows for $TaskId, expected 1" }
+  $hits = @(for ($i = 0; $i -lt $lines.Count; $i++) { if ((Test-PostMergeBoardRow $lines[$i] $TaskId) -and (Test-PostMergeMainTableRow $lines $i)) { $i } })
+  if ($hits.Count -ne 1) { throw "[POST-MERGE-ANCHOR] docs/TASK-BOARD.md has $($hits.Count) main-card-table rows for $TaskId, expected 1" }
   $row = $lines[$hits[0]].TrimEnd()
   $cut = $row.TrimEnd('|').LastIndexOf('|')
   $lines[$hits[0]] = $row.Substring(0, $cut + 1) + ' ' + $Status.Trim() + ' |'
@@ -242,10 +256,19 @@ function Invoke-PostMergeSelfCheck {
   Throws 'card: empty section' '[POST-MERGE-INPUT]' { Add-PostMergeCardSection "body`n" "  " }
   Throws 'card: section without a heading' '[POST-MERGE-INPUT]' { Add-PostMergeCardSection "body`n" "done" }
 
-  $board = "| W0 | T9-DEMO | demo | — | S | a | b | **todo** |`n| W0 | T9-DEMO-X | other | — | S | a | b | **todo** |`n"
-  Check 'board: only the card row changes' { (Set-PostMergeBoardStatus $board 'T9-DEMO' '**merged**: done') -ceq "| W0 | T9-DEMO | demo | — | S | a | b | **merged**: done |`n| W0 | T9-DEMO-X | other | — | S | a | b | **todo** |`n" }
+  # Two main card tables, and between them another table whose second column also holds T9-DEMO.
+  $mainHead = "| 波 | 卡 id | 产出（一句话） | depends_on | 难度 | 首选模型 · effort | 备选 | 卡片状态 / 备注 |`n|---|---|---|---|---|---|---|---|`n"
+  $rowX = "| W0 | T9-DEMO-X | other | — | S | a | b | **todo** |`n"
+  $remote = "`n| 远端交付卡 | 原产品卡 | 依赖 | 作者 | a | b | c | 状态 |`n|---|---|---|---|---|---|---|---|`n| T9-DEMO-REMOTE | T9-DEMO | — | x | a | b | c | done |`n`n"
+  $board = $mainHead + $rowX + $remote + $mainHead + "| W0 | T9-DEMO | demo | — | S | a | b | **todo** |`n"
+  Check 'board: only the card row changes' { (Set-PostMergeBoardStatus $board 'T9-DEMO' '**merged**: done') -ceq ($mainHead + $rowX + $remote + $mainHead + "| W0 | T9-DEMO | demo | — | S | a | b | **merged**: done |`n") }
   Throws 'board: no row' '[POST-MERGE-ANCHOR]' { Set-PostMergeBoardStatus $board 'T9-NONE' 'x' }
   Throws 'board: two rows' '[POST-MERGE-ANCHOR]' { Set-PostMergeBoardStatus ($board + "| W1 | T9-DEMO | again | — | S | a | b | x |`n") 'T9-DEMO' 'x' }
+  Throws 'board: a row in another table is not the card row' '[POST-MERGE-ANCHOR]' { Set-PostMergeBoardStatus $remote 'T9-DEMO' 'x' }
+  Throws 'board: a table whose second header cell is not 卡 id' '[POST-MERGE-ANCHOR]' { Set-PostMergeBoardStatus "| 波 | 原产品卡 | x | 卡片状态 / 备注 |`n|---|---|---|---|`n| W0 | T9-DEMO | d | s |`n" 'T9-DEMO' 'x' }
+  Throws 'board: a table whose last header cell is not the status' '[POST-MERGE-ANCHOR]' { Set-PostMergeBoardStatus "| 波 | 卡 id | x | 状态 |`n|---|---|---|---|`n| W0 | T9-DEMO | d | s |`n" 'T9-DEMO' 'x' }
+  Throws 'board: a table without a separator line' '[POST-MERGE-ANCHOR]' { Set-PostMergeBoardStatus "| 波 | 卡 id | x | 卡片状态 / 备注 |`n| W0 | T9-DEMO | d | s |`n" 'T9-DEMO' 'x' }
+  Throws 'board: a row whose cell count differs from its header' '[POST-MERGE-ANCHOR]' { Set-PostMergeBoardStatus ($mainHead + "| W0 | T9-DEMO | demo | S | **todo** |`n") 'T9-DEMO' 'x' }
   Check 'board: a longer id is not the card row' { -not (Test-PostMergeBoardRow '| W0 | T9-DEMO-X | other | x |' 'T9-DEMO') }
   Check 'board: the id cell is compared exactly' { -not (Test-PostMergeBoardRow '| W0 | t9-demo | other | x |' 'T9-DEMO') }
   Check 'board: a prose line carrying the id is not a row' { -not (Test-PostMergeBoardRow 'x | T9-DEMO | y' 'T9-DEMO') }

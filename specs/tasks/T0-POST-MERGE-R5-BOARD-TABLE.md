@@ -38,3 +38,30 @@ column means something else. The allowlist judge reads `git diff -U0` hunks, whi
 keeps identifying the row by its second cell; the editor is the only writer of the board line.
 
 R3: Opus 5.5 through `ReviewCommand` instead of Codex (user ruling 2026-09-25).
+
+## Implementation record
+
+- RED: the rebuilt and new board cases were written first. Against the unchanged functions 6 of 73 SelfCheck cases
+  failed on their own assertions: the positive case threw `[POST-MERGE-ANCHOR] ... has 2 rows for T9-DEMO` and the
+  five negative cases did not throw. GREEN: 73 of 73.
+- `Test-PostMergeMainTableRow` takes the run of `|` lines around the row as its table and checks the run's first
+  line as the header. It compares the cell counts first, so `$head[1]` stays in range under StrictMode.
+- R4 (A2): 7 single-statement mutants. Each made `-SelfCheck` exit 1 with its named case failing and no parse error;
+  the file was restored after each and ended at SHA-256 `36220F896AED91914B6BC2EC51E2B2E9B7120EE03C20FAD702C1AB8E300FD3A6`.
+
+| id | statement | mutation | killing case |
+|---|---|---|---|
+| B1 | `$head[1] -ceq '卡 id' -and ` | (deleted) | board: a table whose second header cell is not 卡 id |
+| B2 | ` -and $head[-1] -ceq '卡片状态 / 备注'` | (deleted) | board: a table whose last header cell is not the status |
+| B3 | ` -and $Lines[$top + 1] -cmatch '^\\|(\s*:?-{3,}:?\s*\\|)+\s*$'` | (deleted) | board: a table without a separator line |
+| B4 | `$head.Count -eq @(Get-PostMergeCells $Lines[$Index]).Count -and ` | (deleted) | board: a row whose cell count differs from its header |
+| B5 | ` -and (Test-PostMergeMainTableRow $lines $i)` | (deleted) | board: a row in another table is not the card row |
+| B6 | `$Lines[$top - 1].StartsWith('\|')` | `$true` | board: only the card row changes |
+| B7 | `$Lines[$top - 1].StartsWith('\|')` | `$false` | board: only the card row changes |
+
+- A3: on origin/master `354a45d4`, 221 card ids sit in the second column of a main card table. For 217 of them both
+  searches find the same single row. The other four are also in the second column of the "Round | Card" table, so
+  the old search found two rows and r5 would have stopped; the new search finds the main-table row:
+  `T1-STORAGE-PATH-BOUNDARY` (line 157; old also 431), `T3-PDF-MEASUREMENT-REQUESTS` (214; 442),
+  `T3-PDF-PAGINATION-FIXTURES` (213; 433), `T3-PDF-TYPOGRAPHY-CONTRACT` (212; 432). One edit through
+  `Set-PostMergeBoardStatus` on that board (`T0-TOOLCHAIN`) changed line 34 only.
