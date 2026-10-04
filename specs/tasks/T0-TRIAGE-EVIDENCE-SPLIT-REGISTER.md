@@ -1,7 +1,7 @@
 ---
 id: T0-TRIAGE-EVIDENCE-SPLIT-REGISTER
 title: Register one evidence-input predecessor and preserve the existing PR294 case contract
-status: todo
+status: merged
 depends_on: []
 allow_paths:
   - specs/tasks/T0-TRIAGE-EVIDENCE-SPLIT-REGISTER.md
@@ -266,3 +266,13 @@ All twelve negatives require exactly native 1 and their named diagnostic. Positi
 ## Normalized evidence metadata correction
 
 Normal DoD checks INPUTS's 6 valid and 24 invalid schema samples before the unchanged corruption controls. This registers future behavior only. CASE remains byte-identical.
+
+## 2026-10-05 R5 registration delivery
+
+PR #321 merged as `f8ca11743ab64bcd4ec17177c423f86da2a6d4de`, after reviewing exact head `879dea35374528462259ef0f85aae0c3623fe4eb`. Formal Sol/high R3 passed both spec and standards with zero findings. Exact CI workflow `37238972191`, attempt 1, passed verify and required.
+
+The continuation synchronized the current baseline and changed only three source pins for selftest, archive and configuration. All payload and historical-byte assertions remained intact. Normal DoD passed 6 valid and 24 invalid schema samples, all 12 corruption controls, and positive/restored native controls; project verify, scope, license, secrets and full diff budget also passed. Full diff was 180 changed lines / 24,950 UTF-16 units.
+
+Earlier BLOCK verdicts and their complete raw evidence remain historical records. The user authorized one further round on 2026-10-05; its normal ship returned native 0. This closes metadata registration only. INPUTS and CASE remain pending behavior tasks; no prior RED, CASE counter or original historical evidence was reclassified as new acceptance.
+
+R5.5: no new product defect or new reusable lesson was identified. Baseline pin drift and preserving actual review outcomes are already covered by existing rules; no duplicate lesson entry is added.

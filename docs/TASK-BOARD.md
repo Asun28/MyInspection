@@ -98,7 +98,7 @@
 | W0 | T0-LESSONS-CAP-CORE-SPLIT | 从超预算 PR #127 提取 resident-id 共享核与 lessons 消费者 | — | S | GPT-5.6 Sol · high | Codex R3 | **merged**（master `116a5f76`，PR #133） |
 | W0 | T0-LESSONS-CAP-TRIAGE-DOCS-SPLIT | 先同步 triage 探针 roster，解除代码片的既有 doc-count 闸循环 | T0-LESSONS-CAP-CORE-SPLIT | S | GPT-5.6 Sol · high | Codex R3 | **merged**（master `65fcfa08`，PR #136） |
 | W0 | T0-LESSONS-CAP-TRIAGE-SPLIT | 从超预算 PR #127 提取 lessons triage 探针与 hermetic 夹具 | T0-LESSONS-CAP-TRIAGE-DOCS-SPLIT | S | GPT-5.6 Sol · high | Codex R3 | **merged**（master `74d09a69`，PR #137） |
-| W0 | T0-TRIAGE-EVIDENCE-SPLIT-REGISTER | 登记 INPUTS 前置卡并保留 CASE dual-actual 合同 | — | XS | Codex | Codex R3 | PR #321 已合并；R5 文档同步待完成；INPUTS/CASE 行为仍待交付 |
+| W0 | T0-TRIAGE-EVIDENCE-SPLIT-REGISTER | 登记 INPUTS 前置卡并保留 CASE dual-actual 合同 | — | XS | Codex | Codex R3 | **merged**: PR #321; INPUTS predecessor registered, CASE dual-actual contract preserved; behavior implementation remains pending. |
 | W0 | T0-TRIAGE-EVIDENCE-CASE | triage 裁决证据身份、HEAD 绑定与失败可观测性 | T0-LESSONS-CAP-TRIAGE-SPLIT | S | GPT-5.6 Terra · high | Sonnet 5 · max | PR #137 R3 fix-forward；独立于 exact extraction；actual-root case、per-root SHA、unreadable/unknown finding |
 | W0 | T0-LESSONS-CMD-DOCSYNC | lessons.ps1 纳入 doc-drift 机检 + archive 子命令同步三处命令清单 | T0-LESSONS-COLD-RECALL | S | GPT-5.6 Terra · high | Sonnet 5 max | **merged**（master `c92018d2`，PR #202；R5 `c163ae89`，released-master final `6dd963a4`；DocSyncMap 已含 `lessons.ps1`） |
 | W0 | T0-LESSONS-BUMP-PLANE | bump 写主检出账本，复发计数不再随卡片 diff 丢失（含 L226/L106 晋升裁断） | — | S | DeepSeek V4 Pro · high | Sonnet 5 max | **merged**（master `edc2770`，PR #129；R3 第 4 轮 pass 零发现——前 3 轮：1 轮 3 条全是基线陈旧假象、2/3 轮各 1 条真缺陷；另有 R3 前 codex 预审再出 2 条真缺陷，合计 8 枚变异全杀） |
