@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+- **PDF measurement binding delivered (2026-10-04, PR #433)**: exact accepted measurement snapshots now follow all TextRun paths, including caption elision and split/rebased blocks. Head edf27103690ab6d062e95065ba2c4cf6798c6ac5 passed R3 round 2 and CI 37198374361/1; squash 16d708c0931bbe339d27d813a9e3dc717a4c66c8. PdfTextOp forwarding remains TEXT-METRICS-OPS; ADR0007 and targeted card archival remain pending.
+
 **2026-10-04 登记交付**：`T0-ARCHIVE-TARGETED-CARDS-REGISTER`（PR #432，squash `be5c5043`，reviewed `5c3aca0c`）登记定向卡片归档契约与两张卡的看板行。登记 DoD、防泄露检查和 10 项契约正反例通过，独立修复复核通过，正式 Sol/high R3 第 2 轮 pass 零 finding，精确 CI `37195579926` attempt 1 success。首轮三项契约问题已修复，未重置轮次。`T0-ARCHIVE-TARGETED-CARDS` 及其看板仍为 todo；本次未实现归档行为，零新增产品。
 
 **2026-09-26 远端交付**：`T0-CLAUDE-MD-RETIRE-MERGE` 经 [PR #428](https://github.com/Asun28/MyInspection/pull/428) 合并（`e89baad9`；reviewed head `a3ed42a0`，CI `36194273222` success，Codex R3 第 2 轮 pass、零 finding）。按用户 2026-09-26 裁定，「执行边界」的无 R3 合并范围加上 `post-merge.ps1 retire`：它开的退役 PR 只能把指名卡片的 status 改为 merged 并在其后加一行 superseded_by、在卡末追加一节、改该卡的看板行，越界即 `[POST-MERGE-SCOPE]`；「开发工作流」的 R5 行同步写明 retire 同样 CI 通过即合并。R3 第 1 轮指出 DoD 只查词，删掉 `[POST-MERGE-SCOPE]` 或 CI 子句仍会通过；DoD 改为逐字比对这两行（#429）后第 2 轮 pass。
