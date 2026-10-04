@@ -1,7 +1,7 @@
 ---
 id: T0-ARCHIVE-TARGETED-CARDS-REGISTER
 title: Register the bounded targeted-card archive contract without implementing it
-status: todo
+status: merged
 branch: T0-ARCHIVE-TARGETED-CARDS-REGISTER
 worktree: C:\wt\T0-ARCHIVE-TARGETED-CARDS-REGISTER
 depends_on: []
@@ -39,3 +39,13 @@ Only this PR may use the approved bootstrap sequence rather than task ship: exac
 DoD verifies contract shape, seals the complete reviewed future-card bytes with SHA256, checks A3 lifecycle wording, and verifies the exact three-path diff plus both added main-table identities; A2 semantic completeness, A3 truthful status and A4 external delivery evidence also require the registration workflow and R3. The byte seal prevents removing or substituting contract semantics after independent review; it is registration integrity evidence, not runtime behavior evidence. No claim that the DoD alone proves R3 or CI. If refs, scope or reviewed head change, invalidate old bindings and re-verify; never waive a failed result.
 
 After merge, retain actual R3/CI/PR/head/base/merge records and keep the future card todo. Standard cleanup can use its existing online MERGED+exact-head fallback when no task-generated T24 exists; never forge one or pass Force to manufacture success. Then the distinct implementation ID starts from the merged origin card and follows normal task.ps1 R1/RED/ship. Registration and implementation have separate branches, review histories and round counters.
+
+## R5 registration delivery (2026-10-04)
+
+Registration merged through PR #432 as `be5c50437f367d6fd50a4a3ed1c760a1e2562fa3`, from reviewed HEAD `5c3aca0c2f1471c3a56b2bcab686697c95d4fe5e` against `b356c225fe004ebbad0cb343f001b373ff1c79d2`. The approved one-time bootstrap was limited to the two new cards and their two new Board rows; no direct master push or runtime implementation occurred.
+
+Original-D `review.ps1` round 2 returned actual `pass`, both axes pass with zero findings, using `gpt-5.6-sol` / high. First-round contract-sealing, coverage-obligation and stale-status findings were repaired and independently checked; the original block remains recorded and no round reset was used. Exact-head pull_request ci.yml run `37195579926`, attempt 1, had successful `verify` and `required` jobs. GitHub codex-review success status: `55544675920`.
+
+The registration DoD, strict secret scan and diff check passed. Ten isolated registration-integrity cases passed: one positive and nine expected rejections. These are contract checks, not tests of the future archive behavior. The complete reviewed diff was 116 changed lines / 18064 UTF-16 units; 25% reserve remained within 1000/60000.
+
+The future implementation card and its Board row remain todo. Its four-file scope and UTF-8/LF/no-BOM bytes remain unchanged at SHA256 `B780289226D5DC1D0FA077D8882E3D6E6FD46ECE85E5A08B8126B42D48A67D25`. Normal separate R1, RED, GREEN, Tier-S proof and task ship are still required. No product-count increase is claimed.
