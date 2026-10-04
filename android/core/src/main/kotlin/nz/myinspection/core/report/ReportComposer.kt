@@ -337,8 +337,11 @@ class ReportComposer(
         val caption = "${photo.reference} · ${photo.source} · ${isoUtc(capturedAt)}"
         val measured = measureText(caption, TextLanguage.NEUTRAL, TextStyle.CAPTION, widthMm)
         val kept = measured.lines.take(MAX_CAPTION_LINES).toMutableList()
+        var lastSnapshot = measured.metricSnapshot
         if (measured.lines.size > MAX_CAPTION_LINES) {
-            kept[kept.lastIndex] = elidedLineThatFits(kept.last(), widthMm)
+            val (candidate, snapshot) = elidedLineThatFits(kept.last(), widthMm)
+            kept[kept.lastIndex] = candidate
+            lastSnapshot = snapshot
         }
         val textRuns = kept.mapIndexed { index, line ->
             TextRun(
@@ -349,6 +352,7 @@ class ReportComposer(
                 y + imageHeightMm + index * measured.lineHeightMm,
                 widthMm,
                 measured.lineHeightMm,
+                if (index == kept.lastIndex) lastSnapshot else measured.metricSnapshot,
             )
         }
         val height = imageHeightMm + kept.size * measured.lineHeightMm + 2
@@ -397,11 +401,12 @@ class ReportComposer(
     }
 
     /** Removes complete Unicode code points until the marker measures as one line in the target column. */
-    private fun elidedLineThatFits(line: String, widthMm: Int): String {
+    private fun elidedLineThatFits(line: String, widthMm: Int): Pair<String, TextMetricSnapshot> {
         var prefix = line
         while (true) {
             val candidate = prefix + CAPTION_ELISION
-            if (measureText(candidate, TextLanguage.NEUTRAL, TextStyle.CAPTION, widthMm).lines.size == 1) return candidate
+            val measured = measureText(candidate, TextLanguage.NEUTRAL, TextStyle.CAPTION, widthMm)
+            if (measured.lines.size == 1) return candidate to measured.metricSnapshot
             require(prefix.isNotEmpty()) {
                 "the caption elision marker cannot fit the ${widthMm}mm caption column"
             }
@@ -457,6 +462,7 @@ class ReportComposer(
                 0,
                 BODY_WIDTH_MM,
                 measured.lineHeightMm,
+                measured.metricSnapshot,
             ),
         )
         return PlacedBlock(
@@ -482,7 +488,10 @@ class ReportComposer(
     ): List<TextRun> {
         val measured = measureText(text, language, style, widthMm)
         return measured.lines.mapIndexed { index, line ->
-            TextRun(line, language, style, 0, startY + index * measured.lineHeightMm, widthMm, measured.lineHeightMm)
+            TextRun(
+                line, language, style, 0, startY + index * measured.lineHeightMm,
+                widthMm, measured.lineHeightMm, measured.metricSnapshot,
+            )
         }
     }
 
