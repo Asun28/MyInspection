@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+- **Round4 metadata closeout contract registered (2026-10-05, PR #438)**: reviewed head d364c40f40cce5309ec87886689dde6c62cfd31b, R3 round 2 spec/standards pass with zero findings, exact CI 37213732874/1, squash 5575294855b188db5c4e317924fdf2c4ffb3feb0. The eight-path future card binds StorageAndroid and MeasurementBinding source-plus-append bytes and whole-document preservation. Registration does not execute the future task or archive product cards; its separate R1-R5 remains required. Fixture and TEXT-METRICS-OPS remain round5, after full round4 closure.
+
 **2026-10-04 定向归档能力交付**：`T0-ARCHIVE-TARGETED-CARDS` 经 [PR #436](https://github.com/Asun28/MyInspection/pull/436) 合并（reviewed head `52c1e0a75eaa54737ec35576acb91e00f10b452a`，CI `37207356196` attempt 1，merge `83b2f87ba5b2997beffb9418d86a9006586e3002`）。`archive.ps1 -CardsOnly -CardIds` 仅归档指名的 merged 卡，整批预检后移动，并由既有生成器重算冷卡索引。正式 R3 第 2 轮 spec/standards 均 pass、零 finding；全量五分片覆盖 17 闸，native 0。首轮两项测试覆盖缺口已修复，原始失败保留，未 Reset。本次没有移动真实产品卡；AndroidStorage、DeviceFixture、MeasurementBinding 的归档与记账由后继单元完成。必要交付拆分，零新增产品。
 
 - **PDF measurement binding delivered (2026-10-04, PR #433)**: exact accepted measurement snapshots now follow all TextRun paths, including caption elision and split/rebased blocks. Head edf27103690ab6d062e95065ba2c4cf6798c6ac5 passed R3 round 2 and CI 37198374361/1; squash 16d708c0931bbe339d27d813a9e3dc717a4c66c8. PdfTextOp forwarding remains TEXT-METRICS-OPS; ADR0007 and targeted card archival remain pending.

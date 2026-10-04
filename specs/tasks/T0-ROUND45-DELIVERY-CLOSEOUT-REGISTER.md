@@ -1,7 +1,7 @@
 ---
 id: T0-ROUND45-DELIVERY-CLOSEOUT-REGISTER
 title: Register the round4 StorageAndroid and MeasurementBinding closeout contract and two Board rows
-status: todo
+status: merged
 branch: T0-ROUND45-DELIVERY-CLOSEOUT-REGISTER
 worktree: C:\wt\T0-ROUND45-DELIVERY-CLOSEOUT-REGISTER
 depends_on: [T0-ARCHIVE-TARGETED-CARDS]
@@ -76,3 +76,13 @@ Registration and future closure have separate branches, review histories and rou
 The proposed ceiling is 750 changed lines; include BOTH whole new cards, both Board rows, all inline DoD/constants and all card documentation in the actual review diff. First-candidate planning target is <=45000 UTF-16 units; show separate 25% repair reserve against 1000/60000. Never use the previous registration's measured116/18064 as this unit's budget. The finalization package records a complete private three-path Git projection; its measured budget applies only to those exact bytes. It is not proof of fit for the future eight-path metadata implementation.
 
 This repair creates only private text and Git projection evidence. Static parsing is allowed only after complete budget fit; behavioral execution and formal round2 require later authorization. PR438 round1 is an actual BLOCK, with its prior CI and successful registration integrity checks preserved separately. Future metadata acceptance remains unexecuted.
+
+## R5 registration delivery (2026-10-05)
+
+PR #438 reviewed head d364c40f40cce5309ec87886689dde6c62cfd31b merged as 5575294855b188db5c4e317924fdf2c4ffb3feb0 at 2026-10-04T15:45:19Z. Formal R3 round 1 blocked two missing verification guarantees; original verdict and counter history remain preserved. The round4 repair passed round 2 on both axes with zero findings, without Reset or a routed skip. Exact CI 37213732874 attempt 1 passed verify and required.
+
+This delivery registers only the two-product round4 metadata closure contract and two Board rows. Complete registration diff: 344 lines / 42879 UTF-16 units. Exact registration DoD, card checks, diff check and strict secrets passed; the existing history scanner's >5MB limit remains. Private synthetic verification passed original targeted archival, DryRun, index check, repeat idempotence, two complete positives and 21 specific negative controls with restored files. That diagnostic evidence is not official future RED/GREEN or actual product archival.
+
+The future task remains todo and must separately complete R1, official RED, exact full DoD and generator evidence, formal R3, exact CI, protected merge and R5/cleanup. Fixture and TEXT-METRICS-OPS remain deferred until round4 is fully closed. This registration adds zero products and zero strict closures.
+
+R5.5: no duplicate lesson added. Existing L345 covers culture-sensitive identity comparison; L165/L196 cover intended assertion evidence and mutation restoration. Original failed harness attempts and later corrections remain in the sealed private evidence.
