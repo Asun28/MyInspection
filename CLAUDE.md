@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-10-05 登记交付**：`T0-TRIAGE-EVIDENCE-SPLIT-REGISTER` 经 PR #321 合并（reviewed head `879dea35374528462259ef0f85aae0c3623fe4eb`，CI `37238972191` attempt 1，squash `f8ca11743ab64bcd4ec17177c423f86da2a6d4de`）。登记 INPUTS 前置卡并保留 CASE 的 dual-actual 最终验收；当前主线同步后只更新三项源码摘要绑定。30 个 schema 样例与 14 个原生子检查、verify、范围、许可、防泄露和完整 diff 预算均通过；正式 Sol/high R3 的 spec/standards 均 pass、零 finding。此前 BLOCK 与全部历史证据保留。本次仅完成登记，INPUTS/CASE 行为仍待各自交付，不计新增产品。
+
 - **Round4 evidence contract delivered (2026-10-05, PR #441)**: head 5163db1b2c60483e20476ec1341718288a502460, independent Sol/high R3 round1 spec/standards pass with zero findings, exact CI 37218685621/1, squash b68235dba6f01130711f99b370eea4b6c03495d7. The existing closeout card now carries the fixed original runtime-data entry, complete readable verifier and negative harness. Original eight paths, four document operations, cold hashes and read-only DoD remain unchanged. Original and synthetic verification are distinct; missing historical endpoint arrays remain disclosed. PR440 still requires its own later authorized continuation; no product or strict-closure increment.
 
 - **Round4 metadata closeout contract registered (2026-10-05, PR #438)**: reviewed head d364c40f40cce5309ec87886689dde6c62cfd31b, R3 round 2 spec/standards pass with zero findings, exact CI 37213732874/1, squash 5575294855b188db5c4e317924fdf2c4ffb3feb0. The eight-path future card binds StorageAndroid and MeasurementBinding source-plus-append bytes and whole-document preservation. Registration does not execute the future task or archive product cards; its separate R1-R5 remains required. Fixture and TEXT-METRICS-OPS remain round5, after full round4 closure.
