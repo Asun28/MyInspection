@@ -32,7 +32,7 @@
 | 波 | 卡 id | 产出（一句话） | depends_on | 难度 | 首选模型 · effort | 备选 | 卡片状态 / 备注 |
 |---|---|---|---|---|---|---|---|
 | W0 | T0-ARCHIVE-TARGETED-CARDS-REGISTER | 登记定向卡片归档契约与两张卡的看板行 | — | XS | Codex | Codex R3 | **merged**（PR #432，squash `be5c5043`，reviewed `5c3aca0c`，R3 第 2 轮 pass，CI `37195579926` attempt 1 success）：已登记契约及两卡看板行；归档运行时仍待实现，零新增产品。 |
-| W0 | T0-ARCHIVE-TARGETED-CARDS | 仅归档显式选中的已合并卡片，保留其它卡片与债务 | — | S | Codex | Codex R3 | **todo**：必要交付拆分，零新增产品 |
+| W0 | T0-ARCHIVE-TARGETED-CARDS | 仅归档显式选中的已合并卡片，保留其它卡片与债务 | — | S | Codex | Codex R3 | merged: PR436; head52c1e0a7; R3 round2 spec/standards PASS0; CI37207356196/1; merge83b2f87b; full17 PASS; targeted archival capability only, zero new products. |
 | W0 | T0-TOOLCHAIN | JDK17+SDK+`android/` Gradle 骨架空编译绿+verify/ci 收紧 | — | M | Sonnet 5 · max | Opus 5 | **merged**（本地合并 `eb22da38`；R3 pass 证据 `5fec73c`） |
 | W0 | T0-GATE-HARDENING | 许可闸递归发现+verify 确定性+两枚闸门自测（拆自 T0-TOOLCHAIN） | T0-TOOLCHAIN | M | Sonnet 5 · max | DeepSeek V4 Pro | **merged**（本地合并 `5ba3319e`；事后 R3 finding 由 T0-GATE-FIXFORWARD PR #4 `6f255d35` 结清） |
 | W0 | T0-HARNESS-PERF | 横切优化 selftest 与 CI 墙钟时间（约 300 行 harness 改动） | T0-GATE-HARDENING | M | Sonnet 5 · max | DeepSeek V4 Pro | **merged**（master `fc1e763f`，PR #1） |

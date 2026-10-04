@@ -1,7 +1,7 @@
 ---
 id: T0-ARCHIVE-TARGETED-CARDS
 title: Archive only explicitly selected merged task cards
-status: todo
+status: merged
 branch: T0-ARCHIVE-TARGETED-CARDS
 worktree: C:\wt\T0-ARCHIVE-TARGETED-CARDS
 depends_on: []
@@ -71,3 +71,13 @@ I/O failures are nonzero failures, not validation refusals: no global rollback i
 ## Delivery status
 
 This PR registers future work. The todo status means no targeted archive implementation or executable targeted behavior fixtures have been delivered. Registration checks, existing legacy selftests and CI are separate evidence and do not prove this capability. After registration passes independent R3 and exact CI and merges, implementation starts through separate R1, RED, GREEN, Tier-S proof and normal task ship. The registration and future four-file implementation are separate review units; the unwritten implementation budget remains unproven.
+
+## Implementation delivery receipt (2026-10-04)
+
+The earlier registration-era Delivery status is historical. This implementation was delivered by PR436: reviewed head52c1e0a75eaa54737ec35576acb91e00f10b452a, squash83b2f87ba5b2997beffb9418d86a9006586e3002 at2026-10-04T14:04:58Z. Original-D normal ship exited0 at14:05:00Z. R3 round2 returned spec=pass and standards=pass, zero findings, run_status=success. Exact-head ci.yml pull_request run37207356196 attempt1 succeeded: verify111451222145 and required111452911842.
+
+The four-file implementation measures597 changed lines/40002 UTF16, with separate25% reserve747/50003. Registered scoped fixtures retain77 cases and the original22 unique compiling R4 controls. R3 round1 on82d5 reported two real coverage gaps: missing success-marker/Quiet-output assertions and incomplete observation of Test-Path/debt/lessons enumeration. The repair changes only selftest.ps1. Fifteen identical production faults survived before repair and triggered their named assertions after repair; every mutant parsed, with8 normal baseline and2 helper controls exiting0. These fifteen pairs verify the repaired tests; the original22 R4 controls are inherited, not claimed as newly rerun. Final scoped Only12 exited0. Fixed52c1 full Parallel acceptance exited0 across five shards, union17 gates, wall1242.3s; optional fixture skips remain visible in the raw log.
+
+Root evidence under _local/rotating-card-orchestrator: targeted-archive-r3-round1-preserved-20261004 manifest442AE6DE retains the first BLOCK and first full/ship records; targeted-archive-r3-repair-preserved-20261004 manifestD3F6A668 preserves1701 payloads/19177247 bytes; targeted-archive-full-r2-preserved-20261004 manifestF3D320D5 preserves six payloads/776588 bytes. These are late byte-preserving copies, not reconstructed runtime seals. Repair diff captures differed only in LF/CRLF representation; normalized equality is not raw-byte equality. Reviewer shutdown hook/MCP warnings are retained with the successful native verdict and ship result. No review Reset occurred.
+
+This PR changes no real task card or archive index. AndroidStorage, DeviceFixture and MeasurementBinding metadata closure remains separate. Runtime I/O failures are nonzero and preserve completed moves for repair by rerun; no atomic rollback or concurrent-writer guarantee is claimed. This is a necessary delivery split, zero new products. R5 synchronization and subsequent normal cleanup have their own evidence and are not claimed by the feature merge alone.
