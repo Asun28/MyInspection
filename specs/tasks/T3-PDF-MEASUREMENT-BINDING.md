@@ -1,7 +1,7 @@
 ---
 id: T3-PDF-MEASUREMENT-BINDING
 title: Exact TextRun measurement snapshots and final caption provenance
-status: todo
+status: merged
 depends_on: [T3-PDF-MEASUREMENT-REQUESTS]
 parallelizable_with: [T3-PDF-DEVICE-FIXTURE]
 allow_paths:
@@ -47,3 +47,11 @@ Legacy profile and request migration is delivered by MEASUREMENT-REQUESTS; fixed
 The PDF builder test file is allowed only to adapt three existing direct TextRun constructors; matching Composer profiles come from the predecessor. PdfTextOp fields and direct-run placed-box validation belong to OPS. Actual Android glyph/Typeface/CJK/clipping evidence remains in DEVICE-ACCEPTANCE.
 
 The round-2 draft has not run RED or GREEN. A fresh pre-RED audit found the unsplit47,164-character estimate lacked25% repair reserve (58,955–60,890 with reserve), so request validation is now a complete predecessor. This four-file successor forecasts175–202 lines/14,358–19,258 characters including R4, or219–253 lines/17,948–24,073 with25% repair reserve. Preserve intact the parked every-output snapshot, final-elision snapshot and DEFAULT two-photo tests and their exclusive helpers. After the predecessor closes, preserve the old draft again, refresh only owned files safely, and obtain this card's official RED before production. Early650 lines/45k and hard1,000/60k remain; no compressed code or deleted acceptance. Author GPT-6 Astra · high; independent GPT-5.6 Sol · high formal R3.
+
+## R5 remote delivery record — 2026-10-04
+
+The historical pre-RED paragraph above describes the original parked draft and is retained. This delivery used a preserved draft, fresh official RED, and the four-file successor contract. PR #433 reviewed head edf27103690ab6d062e95065ba2c4cf6798c6ac5 merged at 2026-10-04T11:27:15Z as 16d708c0931bbe339d27d813a9e3dc717a4c66c8. Exact CI 37198374361 attempt 1 passed verify and required. Formal R3 round 1 blocked two test gaps; the corrected round 2 passed spec and standards with zero findings. No Reset or waived gate was used.
+
+Verification: 344 report tests and 6 e2e tests passed, with zero failures/errors/skips; final immutable-head full selftest passed all five shards and full gate 17 (native 0, 1494 seconds). R4 retained 13 unique semantic faults across 16 executions, including three reruns; named assertions killed compiling mutations, and production was restored. Distinguishable accepted/rejected caption snapshots and forced generic/item split/rebase/moved-thumbnail cases close the first review's findings. Original first failures and tool warnings remain in evidence.
+
+TextRun carries the complete actual accepted snapshot; no PdfTextOp, Android glyph, CJK, visual-clipping or full DeviceAcceptance claim is made. TEXT-METRICS-OPS can now consume this delivered dependency. ADR0007 synchronization and generated targeted archive/index remain pending in the necessary metadata closure work; this narrow R5 record alone does not claim strict product closure. Cleanup is not yet claimed here.
