@@ -6826,9 +6826,19 @@ function Invoke-TargetArchiveBound([string]$Root, [hashtable]$Parameters) {
   $text = & pwsh -NoProfile -EncodedCommand ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))) 2>&1 | Out-String
   return [pscustomobject]@{ Code = $LASTEXITCODE; Text = $text }
 }
-function Assert-TargetArchiveResult($Result, [bool]$Success, [string]$Marker = '') {
-  if (($Result.Code -eq 0) -ne $Success -or ($Marker -and -not $Result.Text.Contains($Marker))) {
+function Assert-TargetArchiveResult($Result, [bool]$Success, [string]$Marker, [string]$QuietSummary = '') {
+  if (-not $Marker -or ($Result.Code -eq 0) -ne $Success -or -not $Result.Text.Contains($Marker)) {
     throw "[12E-TARGETED-RESULT] expected success=$Success marker=$Marker; rc=$($Result.Code); $($Result.Text)"
+  }
+  if ($Success) {
+    $shape = if ($Marker -ceq '[ARCHIVE-CARDS-DRYRUN]') {
+      '^\[ARCHIVE-CARDS-DRYRUN\] selected=[1-9]\d*; no writes$'
+    } else { '^\[ARCHIVE-CARDS-OK\] selected=[1-9]\d*; moved=\d+$' }
+    $summaries = @($Result.Text -split '\r?\n' | Where-Object { $_ -cmatch '^\[ARCHIVE-CARDS-' })
+    if ($summaries.Count -ne 1 -or $summaries[0] -cnotmatch $shape) { throw '[12E-TARGETED-SUMMARY]' }
+    if ($QuietSummary -and -not [string]::Equals($Result.Text.Trim(), $QuietSummary, [StringComparison]::Ordinal)) {
+      throw "[12E-TARGETED-QUIET] expected only: $QuietSummary; got: $($Result.Text)"
+    }
   }
 }
 function Get-TargetArchiveExpectedIndex([string[]]$Ids, [string]$Newline = "`n") {
@@ -6864,7 +6874,7 @@ try {
         $hashes[$id] = (Get-FileHash -LiteralPath (Join-Path $root "specs/tasks/$id.md")).Hash
         $allowed += "specs/tasks/$id.md", "specs/archive/tasks/$id.md"
       }
-      Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', $ids, '-Quiet')) $true
+      Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', $ids, '-Quiet')) $true '[ARCHIVE-CARDS-OK]' "[ARCHIVE-CARDS-OK] selected=$($selected.Count); moved=$($selected.Count)"
       foreach ($id in $selected) {
         if (Test-Path -LiteralPath (Join-Path $root "specs/tasks/$id.md")) { throw '[12E-TARGETED-MOVE] hot card remains' }
         if ((Get-FileHash -LiteralPath (Join-Path $root "specs/archive/tasks/$id.md")).Hash -cne $hashes[$id]) { throw '[12E-TARGETED-BYTES] card changed' }
@@ -6872,24 +6882,24 @@ try {
       Assert-TargetArchiveSame $before (Get-TargetArchiveState $root) $allowed
       Assert-TargetArchiveIndex $root @(@('T0-COLD') + $selected | Sort-Object) $eol
       $repeat = Get-TargetArchiveState $root
-      Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', $ids)) $true
+      Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', $ids)) $true '[ARCHIVE-CARDS-OK]'
       Assert-TargetArchiveSame $repeat (Get-TargetArchiveState $root)
       $taCases++
     }
   }
   # P2: valid DryRun has no filesystem changes, including no generated index.
   $root = New-TargetArchiveFixture; $before = Get-TargetArchiveState $root
-  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', 'T0-ONE,T0-TWO', '-DryRun')) $true
+  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', 'T0-ONE,T0-TWO', '-DryRun')) $true '[ARCHIVE-CARDS-DRYRUN]'
   Assert-TargetArchiveSame $before (Get-TargetArchiveState $root); $taCases++
   # P3: byte-identical duplicate is completed; cold-only rerun can repair a stale index.
   $root = New-TargetArchiveFixture
   Copy-Item -LiteralPath (Join-Path $root 'specs/tasks/T0-ONE.md') -Destination (Join-Path $root 'specs/archive/tasks/T0-ONE.md')
   $before = Get-TargetArchiveState $root
-  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', 'T0-ONE')) $true
+  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', 'T0-ONE')) $true '[ARCHIVE-CARDS-OK]'
   Assert-TargetArchiveSame $before (Get-TargetArchiveState $root) @('specs/tasks/T0-ONE.md', 'specs/archive/cards-index.md')
   if (Test-Path -LiteralPath (Join-Path $root 'specs/tasks/T0-ONE.md')) { throw '[12E-TARGETED-DUPLICATE] hot duplicate remains' }
   [IO.File]::WriteAllText((Join-Path $root 'specs/archive/cards-index.md'), 'stale')
-  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', 'T0-ONE')) $true
+  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', 'T0-ONE')) $true '[ARCHIVE-CARDS-OK]'
   Assert-TargetArchiveIndex $root @('T0-COLD', 'T0-ONE'); $taCases++
   # R1: canonical syntax, unknown, state, conflict and whole-batch validation (valid item first).
   $rejects = @(
@@ -6969,11 +6979,11 @@ try {
   # P4: a declared worktree path that does not exist does not hold the card.
   $root = New-TargetArchiveFixture; $hot = Join-Path $root 'specs/tasks/T0-ONE.md'
   [IO.File]::WriteAllText($hot, ([IO.File]::ReadAllText($hot).Replace('status: merged', "status: merged`nworktree: missing")))
-  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly','-CardIds','T0-ONE')) $true
+  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly','-CardIds','T0-ONE')) $true '[ARCHIVE-CARDS-OK]'
   Assert-TargetArchiveIndex $root @('T0-COLD','T0-ONE'); $taCases++
   # P5/R4: genuine PowerShell array/null/empty binding and explicitly false mixed switches.
   $root = New-TargetArchiveFixture
-  Assert-TargetArchiveResult (Invoke-TargetArchiveBound $root @{ CardsOnly=$true; CardIds=@(' T0-TWO , T0-ONE ') }) $true
+  Assert-TargetArchiveResult (Invoke-TargetArchiveBound $root @{ CardsOnly=$true; CardIds=@(' T0-TWO , T0-ONE ') }) $true '[ARCHIVE-CARDS-OK]'
   Assert-TargetArchiveIndex $root @('T0-COLD','T0-ONE','T0-TWO'); $taCases++
   foreach ($parameters in @(
     @{ CardsOnly=$true; CardIds=$null },
@@ -6999,9 +7009,9 @@ try {
   $root = Join-Path $ar ('targeted-bare-' + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path (Join-Path $root 'specs/tasks') -Force | Out-Null
   [IO.File]::WriteAllText((Join-Path $root 'specs/tasks/T0-ONE.md'), "---`nid: T0-ONE`ntitle: T0-ONE title`nstatus: merged`n---`n")
-  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly','-CardIds','T0-ONE','-DryRun')) $true
+  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly','-CardIds','T0-ONE','-DryRun')) $true '[ARCHIVE-CARDS-DRYRUN]'
   if (Test-Path -LiteralPath (Join-Path $root 'specs/archive')) { throw '[12E-TARGETED-DRYRUN] created archive directory' }
-  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly','-CardIds','T0-ONE')) $true
+  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly','-CardIds','T0-ONE')) $true '[ARCHIVE-CARDS-OK]'
   Assert-TargetArchiveIndex $root @('T0-ONE'); $taCases++
   # R5: archived-only selections must still be merged with matching identity and no live declared worktree.
   foreach ($variant in @('status','identity','worktree')) {
@@ -7032,16 +7042,30 @@ $p = Get-Content -LiteralPath $Payload -Raw | ConvertFrom-Json -AsHashtable
 $global:taEvents = [Collections.Generic.List[object]]::new()
 $global:taFault = $p.Fault
 $global:taOrdinal = 0
+$global:taRoot = [IO.Path]::GetFullPath($p.Root)
 function global:Observe-TargetIO([string]$Operation, $Arguments) {
-  $global:taEvents.Add(@{ Operation=$Operation; Arguments=$Arguments })
-  $values = @($Arguments.Values | ForEach-Object { [string]$_ }) -join '|'
-  if ($Operation -in @('Get-Content','Get-ScaffoldTextNewline','ReadAllBytes') -and
-      $values -match '(tech-debt-(tracker|archive|index)\.md|LEDGER\.md|lessons-archive\.md)') {
-    throw '[12E-TARGETED-FORBIDDEN-READ]'
+  $data = $false; $forbidden = $false; $hotScan = $false
+  foreach ($key in @('LiteralPath','Path')) {
+    if (-not $Arguments.ContainsKey($key)) { continue }
+    foreach ($path in @($Arguments[$key])) {
+      $rel = [IO.Path]::GetRelativePath($global:taRoot, [IO.Path]::GetFullPath([string]$path)).Replace('\','/')
+      if ($rel -eq '..' -or $rel.StartsWith('../') -or [IO.Path]::IsPathRooted($rel)) { continue }
+      $data = $true
+      if ($Operation -in @('Test-Path','Get-ChildItem','Get-Content','Get-ScaffoldTextNewline','ReadAllBytes')) {
+        if ($rel -match '^(specs/(tech-debt-tracker\.md|archive/(tech-debt-(archive|index)\.md|lessons-archive\.md))|docs/(LESSONS\.md|lessons(/|$)))') {
+          $forbidden = $true
+        }
+        if ($Operation -eq 'Get-ChildItem') {
+          if ($rel -match '^specs/tasks(/|$)') { $hotScan = $true }
+          # Only the complete cold-card projection may enumerate fixture data.
+          if ($rel -notmatch '^specs/archive/tasks(/|$)') { $forbidden = $true }
+        }
+      }
+    }
   }
-  if ($Operation -eq 'Get-ChildItem' -and $values.Replace('\','/') -match '/specs/tasks/?(?:\||$)') {
-    throw '[12E-TARGETED-HOT-SCAN]'
-  }
+  $global:taEvents.Add(@{ Operation=$Operation; Arguments=$Arguments; Data=$data; Forbidden=$forbidden })
+  if ($hotScan) { throw '[12E-TARGETED-HOT-SCAN]' }
+  if ($forbidden) { throw '[12E-TARGETED-FORBIDDEN-READ]' }
   if ($Operation -eq $global:taFault) {
     $global:taOrdinal++
     if ($global:taOrdinal -eq 2 -or $Operation -eq 'Write-ScaffoldUtf8Text') {
@@ -7057,7 +7081,7 @@ function global:Write-TargetArchiveText([string]$Path, [string]$Text, [Text.Enco
   Observe-TargetIO 'WriteAllText' @{Path=$Path}
   [IO.File]::WriteAllText($Path, $Text, $Encoding)
 }
-foreach ($name in @('Get-Content','Get-ChildItem','Move-Item','Remove-Item','New-Item')) {
+foreach ($name in @('Test-Path','Get-Content','Get-ChildItem','Move-Item','Remove-Item','New-Item')) {
   $meta = [Management.Automation.CommandMetadata]::new((Get-Command $name -CommandType Cmdlet))
   $proxy = [Management.Automation.ProxyCommand]::Create($meta).Replace("`r`n","`n")
   $anchor = "begin`n{"
@@ -7132,13 +7156,10 @@ function Invoke-TargetArchiveObserved([string]$Root, [hashtable]$Parameters, [st
 }
 function Assert-TargetArchiveObservation($Result, [switch]$NoData, [switch]$NoWrites) {
   foreach ($event in $Result.Events) {
-    $values = @($event.Arguments.psobject.Properties.Value | ForEach-Object { [string]$_ }) -join '|'
-    if ($event.Operation -like 'FORBIDDEN:*' -or
-        ($event.Operation -in @('Get-Content','Get-ScaffoldTextNewline','ReadAllBytes') -and
-         $values -match '(tech-debt-(tracker|archive|index)\.md|LEDGER\.md|lessons-archive\.md)')) {
+    if ($event.Operation -like 'FORBIDDEN:*' -or $event.Forbidden) {
       throw '[12E-TARGETED-OBSERVED-FORBIDDEN]'
     }
-    if ($NoData -and $event.Operation -in @('Get-Content','Get-ChildItem','Get-ScaffoldTextNewline','ReadAllBytes')) {
+    if ($NoData -and $event.Data -and $event.Operation -in @('Test-Path','Get-Content','Get-ChildItem','Get-ScaffoldTextNewline','ReadAllBytes')) {
       throw '[12E-TARGETED-EARLY-READ]'
     }
     if ($NoWrites -and $event.Operation -in @('Move-Item','Remove-Item','New-Item','Write-ScaffoldUtf8Text','WriteAllText')) {
@@ -7151,15 +7172,15 @@ try {
   $root = New-TargetArchiveFixture
   $params = @{CardsOnly=$true;CardIds=@('T0-ONE','T0-TWO');Quiet=$true}
   $result = Invoke-TargetArchiveObserved $root $params
-  Assert-TargetArchiveResult $result $true
+  Assert-TargetArchiveResult $result $true '[ARCHIVE-CARDS-OK]' '[ARCHIVE-CARDS-OK] selected=2; moved=2'
   Assert-TargetArchiveObservation $result
-  foreach ($op in @('Get-Content','Get-ScaffoldTextNewline','Move-Item','Write-ScaffoldUtf8Text')) {
+  foreach ($op in @('Test-Path','Get-ChildItem','Get-Content','Get-ScaffoldTextNewline','Move-Item','Write-ScaffoldUtf8Text')) {
     if ($op -notin $result.Events.Operation) { throw "[12E-TARGETED-OBSERVER-INACTIVE] $op" }
   }
   Assert-TargetArchiveIndex $root @('T0-COLD','T0-ONE','T0-TWO')
   $before = Get-TargetArchiveState $root
   $result = Invoke-TargetArchiveObserved $root $params
-  Assert-TargetArchiveResult $result $true
+  Assert-TargetArchiveResult $result $true '[ARCHIVE-CARDS-OK]' '[ARCHIVE-CARDS-OK] selected=2; moved=0'
   Assert-TargetArchiveObservation $result -NoWrites
   Assert-TargetArchiveSame $before (Get-TargetArchiveState $root)
   # O2: all mixed parameters, including bound false/empty values, refuse before archive reads.
@@ -7175,7 +7196,7 @@ try {
   }
   $root = New-TargetArchiveFixture; $before = Get-TargetArchiveState $root
   $result = Invoke-TargetArchiveObserved $root @{CardsOnly=$true;CardIds='T0-ONE';DryRun=$true;Quiet=$true}
-  Assert-TargetArchiveResult $result $true
+  Assert-TargetArchiveResult $result $true '[ARCHIVE-CARDS-DRYRUN]' '[ARCHIVE-CARDS-DRYRUN] selected=1; no writes'
   Assert-TargetArchiveObservation $result -NoWrites
   Assert-TargetArchiveSame $before (Get-TargetArchiveState $root)
   # O3: failure on second move/removal or final index write retains completed work; rerun repairs index.
@@ -7209,7 +7230,7 @@ try {
     Assert-TargetArchiveSame $before (Get-TargetArchiveState $root) @('specs/tasks/T0-ONE.md',
       'specs/tasks/T0-TWO.md','specs/archive/tasks/T0-ONE.md','specs/archive/tasks/T0-TWO.md','specs/archive/cards-index.md')
     # Recovery runs the untouched production script, not the observer copy.
-    Assert-TargetArchiveResult (Invoke-TargetArchiveBound $root $params) $true
+    Assert-TargetArchiveResult (Invoke-TargetArchiveBound $root $params) $true '[ARCHIVE-CARDS-OK]'
     Assert-TargetArchiveIndex $root @('T0-COLD','T0-ONE','T0-TWO')
     foreach ($id in @('T0-ONE','T0-TWO')) {
       if (Test-Path (Join-Path $root "specs/tasks/$id.md")) { throw '[12E-TARGETED-RECOVERY] source remains' }
@@ -7221,7 +7242,7 @@ try {
     [IO.File]::WriteAllText((Join-Path $root 'specs/archive/tech-debt-archive.md'), "debt`r`n", [Text.UTF8Encoding]::new($true))
     if ($null -ne $seed) { [IO.File]::WriteAllText((Join-Path $root 'specs/archive/cards-index.md'), $seed) }
     $result = Invoke-TargetArchiveObserved $root @{CardsOnly=$true;CardIds='T0-ONE'}
-    Assert-TargetArchiveResult $result $true
+    Assert-TargetArchiveResult $result $true '[ARCHIVE-CARDS-OK]'
     Assert-TargetArchiveObservation $result
     Assert-TargetArchiveIndex $root @('T0-COLD','T0-ONE') "`n"
   }
