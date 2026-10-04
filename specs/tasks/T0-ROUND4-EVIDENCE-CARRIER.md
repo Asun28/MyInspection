@@ -1,7 +1,7 @@
 ---
 id: T0-ROUND4-EVIDENCE-CARRIER
 title: Expose and independently verify the preserved round4 generation evidence
-status: todo
+status: merged
 branch: T0-ROUND4-EVIDENCE-CARRIER
 worktree: C:\wt\T0-ROUND4-EVIDENCE-CARRIER
 depends_on: [T0-ROUND45-DELIVERY-CLOSEOUT-REGISTER]
@@ -114,3 +114,15 @@ exit 0
 Private future publication values are null. Before any actual bootstrap or normal lifecycle, re-query refs and source seals, require explicit root adoption authorization and measure that actual entire candidate. This new task uses its own ordinary review history. Do not reset PR440 or count this amendment as another product.
 
 After amendment R3/CI/merge/R5/cleanup, later authorized closeout must absorb the actual new base without rewriting history. Preserve original d4aa/70ba/tree4898 evidence and independently validate the new complete candidate from its own base plus the same frozen operations. If sources, unique blocks or scope drift, stop; do not relabel old runtime as a run on the new head.
+
+## R5 evidence-contract delivery (2026-10-05)
+
+PR #441 reviewed head 5163db1b2c60483e20476ec1341718288a502460 merged as b68235dba6f01130711f99b370eea4b6c03495d7 at 2026-10-04T17:12:14Z. Original-D independent Sol/high R3 round1 passed both axes with zero findings. Exact pull_request ci.yml run 37218685621 attempt 1 passed verify and required. There was no routed skip, Reset or substituted review.
+
+The complete three-path amendment is 596 changed lines /39432 UTF-16, with 25% reserve745/49290. Metadata integrity DoD, all137 card checks, archive-index check, diff check and strict secrets passed. The docs classifier selected its normal docs route; the existing history scanner's >5MB limit remains disclosed. Private evidence includes the original-head positive, a separately identified synthetic B1/H1 positive and23 intended negatives with restored fixtures. No generator was rerun. Original runtime records, later extraction/seals, unsaved independent post-DryRun/post-repeat arrays and uncaptured Python optimization environment remain distinct.
+
+Preparation retained the first private fence-extraction error, the first-to-final budget change adding the synthetic-positive requirement, and the publication helper's incorrect expectation of mode=docs-only where the delivered classifier emits mode=docs. Those helper errors did not change candidate bytes or become formal failures.
+
+This necessary metadata amendment adds zero products and zero strict closures. Original closeout PR440/head70ba retains its prior BLOCK/history until a separate authorization advances it from the actual new base. Future current-base verification cannot relabel original d4aa/70ba/tree4898 runtime. Round5, Fixture and TEXT-METRICS-OPS remain deferred until full round4 closure.
+
+R5.5: no duplicate lesson added. Existing L165 covers exact intended guards/machine markers; L196 covers complete fixture restoration. Cleanup is recorded by the subsequent original-D command and preserved evidence, not assumed from this note.

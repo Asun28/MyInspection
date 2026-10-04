@@ -31,7 +31,7 @@
 
 | 波 | 卡 id | 产出（一句话） | depends_on | 难度 | 首选模型 · effort | 备选 | 卡片状态 / 备注 |
 |---|---|---|---|---|---|---|---|
-| W0 | T0-ROUND4-EVIDENCE-CARRIER | 第4轮原始生成证据入口与独立校验 | T0-ROUND45-DELIVERY-CLOSEOUT-REGISTER | S | GPT-6 Astra · high | GPT-5.6 Terra · high | **todo**：仅补证据契约；不改变产品与原评审历史 |
+| W0 | T0-ROUND4-EVIDENCE-CARRIER | 第4轮原始生成证据入口与独立校验 | T0-ROUND45-DELIVERY-CLOSEOUT-REGISTER | S | GPT-6 Astra · high | GPT-5.6 Terra · high | **merged** via PR #441 (head 5163db1b2c60483e20476ec1341718288a502460, CI 37218685621/1, squash b68235dba6f01130711f99b370eea4b6c03495d7); original round4 generation evidence is discoverable and independently checkable; PR440 remains separate; zero new products or strict closures. |
 | W0 | T0-ROUND45-DELIVERY-CLOSEOUT-REGISTER | 登记第4轮双产品收尾契约及两行看板 | T0-ARCHIVE-TARGETED-CARDS | S | GPT-6 Astra · high | GPT-5.6 Terra · high | **merged** via PR #438 (head d364c40f40cce5309ec87886689dde6c62cfd31b, CI 37213732874/1, squash 5575294855b188db5c4e317924fdf2c4ffb3feb0); round4 two-product closeout contract registered; future execution remains todo; zero new products or strict closures. |
 | W0 | T0-ROUND45-DELIVERY-CLOSEOUT | 第4轮StorageAndroid与Binding记录同步及定向归档 | T0-ARCHIVE-TARGETED-CARDS,T1-APP-STORAGE-ANDROID,T3-PDF-MEASUREMENT-BINDING | S | GPT-6 Astra · high | GPT-5.6 Terra · high | **todo**：八路径收尾；完整第4轮结束后再执行第5轮；零新增产品 |
 | W0 | T0-ARCHIVE-TARGETED-CARDS-REGISTER | 登记定向卡片归档契约与两张卡的看板行 | — | XS | Codex | Codex R3 | **merged**（PR #432，squash `be5c5043`，reviewed `5c3aca0c`，R3 第 2 轮 pass，CI `37195579926` attempt 1 success）：已登记契约及两卡看板行；归档运行时仍待实现，零新增产品。 |
