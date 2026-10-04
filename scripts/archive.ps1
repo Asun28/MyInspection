@@ -31,6 +31,8 @@
 .PARAMETER DryRun    只报「会搬什么」、写零文件（首用/核验安全网）。
 .PARAMETER CheckCardsIndex  只读核验 cards-index.md 是否与归档卡投影逐字节一致；不搬运、不修复。
 .PARAMETER Quiet     仅打印一行汇总。
+.PARAMETER CardsOnly  仅归档 CardIds 指定的 merged 卡；不读写技术债或 lessons。
+.PARAMETER CardIds    卡 id 数组或逗号列表；必须与 CardsOnly 同用。
 .PARAMETER LessonsOnly  仅执行 -LessonIds 路径；不读写技术债、任务卡及其索引。
 .PARAMETER RestoreLessonIds  把指定 lesson 整块从冷库移回热账本；仅可与 -LessonsOnly 同用。
 .EXAMPLE
@@ -45,6 +47,8 @@ param(
   [switch]$Check,
   [switch]$CheckCardsIndex,
   [switch]$Quiet,
+  [switch]$CardsOnly,
+  [string[]]$CardIds,
   [switch]$LessonsOnly,
   [string[]]$LessonIds,   # T40-LEDGERARCH：lessons 账本冷存目标（如 -LessonIds L32,L34）
   [string[]]$RestoreLessonIds
@@ -54,6 +58,27 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出；缺失即 fail-open（同其它脚本）
 . (Join-Path $PSScriptRoot '_cards.ps1')
+
+$targetedCards = $PSBoundParameters.ContainsKey('CardsOnly') -or $PSBoundParameters.ContainsKey('CardIds')
+if ($targetedCards) {
+  if (-not $CardsOnly -or -not $PSBoundParameters.ContainsKey('CardIds')) {
+    throw '[ARCHIVE-CARD-MODE] CardsOnly and CardIds must be supplied together.'
+  }
+  foreach ($mode in @('Check','CheckCardsIndex','LessonsOnly','LessonIds','RestoreLessonIds')) {
+    if ($PSBoundParameters.ContainsKey($mode)) { throw "[ARCHIVE-CARD-MODE] Cannot combine targeted cards with $mode." }
+  }
+  if ($null -eq $CardIds -or $CardIds.Count -eq 0) { throw '[ARCHIVE-CARD-BADID] CardIds is empty.' }
+  $selectedCardIds = [Collections.Generic.List[string]]::new()
+  $seenCardIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach ($item in $CardIds) {
+    foreach ($token in ([string]$item).Split(',')) {
+      $id = $token.Trim()
+      if (-not (Test-ScaffoldCardId $id)) { throw "[ARCHIVE-CARD-BADID] Invalid card id: $id" }
+      if (-not $seenCardIds.Add($id)) { throw "[ARCHIVE-CARD-DUPLICATE] Repeated card id: $id" }
+      $selectedCardIds.Add($id)
+    }
+  }
+}
 
 if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
 $archiveLessonsUsed = $PSBoundParameters.ContainsKey('LessonIds')
@@ -151,7 +176,7 @@ $stats = [ordered]@{ td_archived = 0; td_kept = 0; cards_archived = 0; cards_kep
 
 # ── 1. 技术债：拆热/冷 ──
 $trackerHeader = $null; $trackerSep = $null; $statusIdx = 5
-if (-not $LessonsOnly -and (Test-Path $TrackerPath)) {
+if (-not $targetedCards -and -not $LessonsOnly -and (Test-Path $TrackerPath)) {
   $lines = Get-Content $TrackerPath
   $keptLines = [System.Collections.Generic.List[string]]::new()
   foreach ($line in $lines) {
@@ -232,6 +257,69 @@ function Get-ScaffoldTextNewline([string]$Path, [string]$Fallback = "`n") {
 
 function Write-ScaffoldUtf8Text([string]$Path, [string]$Text) {
   [IO.File]::WriteAllText($Path, $Text, [Text.UTF8Encoding]::new($false))
+}
+
+if ($targetedCards) {
+  # Freeze the entire selection before creating directories or changing any file.
+  $selection = [Collections.Generic.List[object]]::new()
+  foreach ($id in $selectedCardIds) {
+    $hot = Join-Path $TasksDir "$id.md"
+    $cold = Join-Path $ArchTasksDir "$id.md"
+    $hotExists = Test-Path -LiteralPath $hot
+    $coldExists = Test-Path -LiteralPath $cold
+    if (-not $hotExists -and -not $coldExists) { throw "[ARCHIVE-CARD-UNKNOWN] No card: $id" }
+    foreach ($path in @($hot,$cold)) {
+      if (-not (Test-Path -LiteralPath $path)) { continue }
+      if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "[ARCHIVE-CARD-PATH] Not a file: $path" }
+      $raw = Get-Content -LiteralPath $path -Raw
+      if ((Get-CardField $raw 'id') -cne $id) { throw "[ARCHIVE-CARD-IDENTITY] Mismatched id: $path" }
+      if ((Get-CardField $raw 'status') -cne 'merged') { throw "[ARCHIVE-CARD-NOT-MERGED] Not merged: $id" }
+      $declaredWorktree = Get-CardField $raw 'worktree'
+      if (-not [string]::IsNullOrWhiteSpace($declaredWorktree)) {
+        $worktreePath = if ([IO.Path]::IsPathRooted($declaredWorktree)) { $declaredWorktree } else {
+          Join-Path $RepoRoot $declaredWorktree
+        }
+        if (Test-Path -LiteralPath $worktreePath -PathType Container) { throw "[ARCHIVE-HELD] Worktree exists: $id" }
+      }
+    }
+    if ($hotExists -and $coldExists -and
+        -not (Test-ExactBytes ([IO.File]::ReadAllBytes($hot)) ([IO.File]::ReadAllBytes($cold)))) {
+      throw "[ARCHIVE-CARD-DIVERGED] Hot and cold bytes differ: $id"
+    }
+    $selection.Add([pscustomobject]@{ Id=$id; Hot=$hot; Cold=$cold; HasHot=$hotExists; HasCold=$coldExists })
+  }
+  if ($DryRun) {
+    Write-Host "[ARCHIVE-CARDS-DRYRUN] selected=$($selection.Count); no writes"
+    exit 0
+  }
+  if (-not (Test-Path -LiteralPath $ArchTasksDir -PathType Container)) {
+    New-Item -ItemType Directory -Path $ArchTasksDir -Force | Out-Null
+  }
+  $moved = 0
+  foreach ($card in $selection) {
+    if (-not $card.HasHot) { continue }
+    if ($card.HasCold) {
+      # Recheck the complete destination immediately before deleting a duplicate source.
+      if (-not (Test-ExactBytes ([IO.File]::ReadAllBytes($card.Hot)) ([IO.File]::ReadAllBytes($card.Cold)))) {
+        throw "[ARCHIVE-CARD-DIVERGED] Duplicate changed before removal: $($card.Id)"
+      }
+      Remove-Item -LiteralPath $card.Hot
+    } else {
+      if (Test-Path -LiteralPath $card.Cold) { throw "[ARCHIVE-CARD-PATH] Destination appeared: $($card.Id)" }
+      Move-Item -LiteralPath $card.Hot -Destination $card.Cold
+    }
+    $moved++
+  }
+  # Only this index supplies its delimiter; absent/newline-free indices fall back to LF.
+  $newline = Get-ScaffoldTextNewline $CardsIndex
+  $indexText = Get-CardsIndexText $ArchTasksDir $newline
+  $indexBytes = [Text.UTF8Encoding]::new($false).GetBytes($indexText)
+  [byte[]]$previousBytes = if (Test-Path -LiteralPath $CardsIndex -PathType Leaf) {
+    [IO.File]::ReadAllBytes($CardsIndex)
+  } else { $null }
+  if (-not (Test-ExactBytes $previousBytes $indexBytes)) { Write-ScaffoldUtf8Text $CardsIndex $indexText }
+  Write-Host "[ARCHIVE-CARDS-OK] selected=$($selection.Count); moved=$moved"
+  exit 0
 }
 
 function Get-FirstTextDifferenceLine([string]$Actual, [string]$Expected) {
