@@ -262,3 +262,482 @@ foreach ($path in @('docs/adr/0007-report-interchange.md', 'docs/TASK-BOARD.md',
 Write-Output '[ROUND4-CLOSEOUT-OK]'
 exit 0
 ```
+
+## Round4 original generation evidence carrier
+
+This appendix supplies the separately required A1/A2 evidence. The entire original card above, including eight allowed paths, six acceptance items, four document operations, two append payloads/cold hashes and read-only DoD, is unchanged. No new product or original cleanup run is claimed. The checker below is additional read-only evidence verification, not a replacement for the original DoD or formal R3.
+
+The reviewer receives this complete card from the fixed baseline via review.ps1:591–602/885–886. The local, gitignored worktree-relative input is `_local/round4-review-evidence/`: `original/` is the complete 231-file original bundle plus its original root artifact-manifest.json; `runtime.jsonl` is the exact original outer-call excerpt. Missing input is a verification failure. No PR comment, external path alone, symlink, model change or permission change is part of this mechanism.
+
+Original manifest SHA256 is A65E109B142A9AED3EA3F4A2BD01A04EA0117E55831A6BE2DA5F47A4CFE432DD. Original runtime excerpt SHA256 is ADEA5CEEB8E7798250871086C57EEE24FDF9990BB8B3F992D61A71C098525DE2. Raw payload is 2236636 bytes plus manifest 41157 bytes and excerpt 49034 bytes. Every physical original file, including metadata, cache and nested manifests, is retained; only its exact root manifest is excluded from its own inventory. Never execute archived generate/capture code with historical absolute paths.
+
+The original JSONL source is owner session 01a0aab2-5a58-7341-b127-757880b5d8fa, lines14784–14803, byte offset62434409/length49034; source prefix through byte62483443 has SHA256 BE498E328C91F60221EFD02D068FE1161336203FE5C8888C65269F66FF3A9B5F. Original outer prepare/dryrun/generate/documents records return native0 and include call/result linkage and UTC. Their source is preserved exactly; extraction and byte seals are later preservation, not original signed timestamps.
+
+Original runtime was based at d4aa3418176922fc890f3763946c6b4a8c1facf1 and bound to head70ba04304de3cb490be748476215f7014a9c8852/tree4898df2bf33d49b159a27fb57ced5907fcfa3d1a. The helper performed in-memory inventory equality assertions after DryRun/repeat; independently saved post-DryRun/post-repeat arrays are absent, and Python optimization environment was not separately captured. The saved pre/post generation arrays, actual commands, helper source, outer exits and committed artifacts remain verifiable. No replay is performed or claimed by this checker.
+
+For verification, extract the exact `round4-evidence-python` fence to a TEMP Python file and invoke it with the reviewed repository directory and the evidence directory. It reads full raw material and Git objects, validates the historical fixed tree, then checks the current clean candidate against its actual local origin/master with the same operations and the delivered read-only index check. The caller/root separately pins remote freshness and actual publication identity; a local-ref check is not a remote freshness check. Retain both historical and current identity fields from its output. A new publication must not relabel the original runtime.
+
+Expected success is native0 with `[ROUND4-EVIDENCE-OK]` only after custody, runtime and historical-tree stages. Failures retain native1 and a specific code. The second fence is the complete real-stage negative harness, used only on private copies as specified by T0-ROUND4-EVIDENCE-CARRIER. It intentionally corrupts inputs after custody for later-stage tests; the public verifier has no flag bypassing custody. Formal review still independently judges this evidence and its stated limitations.
+
+<!-- round4-evidence-python -->
+```python
+"""Read-only verification of the fixed Round4 evidence and a current candidate."""
+import datetime
+import hashlib
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+from pathlib import Path, PurePosixPath
+
+BASE = 'd4aa3418176922fc890f3763946c6b4a8c1facf1'
+HEAD = '70ba04304de3cb490be748476215f7014a9c8852'
+TREE = '4898df2bf33d49b159a27fb57ced5907fcfa3d1a'
+CARD = 'specs/tasks/T0-ROUND45-DELIVERY-CLOSEOUT.md'
+MANIFEST = 'A65E109B142A9AED3EA3F4A2BD01A04EA0117E55831A6BE2DA5F47A4CFE432DD'
+TRACE = 'ADEA5CEEB8E7798250871086C57EEE24FDF9990BB8B3F992D61A71C098525DE2'
+IDS = ['T1-APP-STORAGE-ANDROID', 'T3-PDF-MEASUREMENT-BINDING']
+COLD = ['DEA9373D95B5C00FBBAE7DEB1FDA814041BE8EC5D9EAD647CCC30278C9B23B47',
+        '71264073438BE0853CD85DD0BD69CAE8CCE6AEB64A8C58A31101D9AF88FA3077']
+ARCHIVE = ['pwsh', '-NoProfile', '-File', 'scripts/archive.ps1', '-CardsOnly', '-CardIds', ','.join(IDS)]
+INDEX = 'specs/archive/cards-index.md'
+SELECTED = {f'specs/{folder}/{name}.md' for folder in ['tasks', 'archive/tasks'] for name in IDS} | {INDEX}
+DOCS = {'docs/adr/0007-report-interchange.md', 'docs/TASK-BOARD.md', 'CLAUDE.md'}
+BLOCKS = [
+    ('adr-current-request-boundary', 'docs/adr/0007-report-interchange.md', r'^After the remote Typography and Pagination predecessors,[^\n]+$', '82DE24F2105B91EC0D1DD3D82B6DEAF4EB4EB4D5B7568EEE11740DC916F27E39', False),
+    ('adr-binding-publication', 'docs/adr/0007-report-interchange.md', r'^### TextRun measurement binding remote publication\n\n[^\n]+$', 'D8B5D7432D267C63CB8BD2A36FB4D3629CF410C473B589DF9B27EAD30272F615', True),
+    ('board-binding-row', 'docs/TASK-BOARD.md', r'^\| W4 \| T3-PDF-MEASUREMENT-BINDING \|[^\n]+$', 'E2E367EAC34C887EA1F74D98BDB694A8EACF201942F969B6499AF97E8551E8A6', False),
+    ('claude-binding-current', 'CLAUDE.md', r'^- \*\*PDF measurement binding delivered \(2026-10-04, PR #433\)\*\*:[^\n]+$', '89012AC55455AE7E2119C57C024214BC760972A2D845CCB602EEAC1466F0F500', False),
+]
+
+
+class EvidenceError(Exception):
+    pass
+
+
+def need(condition, code):
+    if not condition:
+        raise EvidenceError(code)
+
+
+def sha(raw):
+    return hashlib.sha256(raw).hexdigest().upper()
+
+
+def decode_json(raw):
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            need(key not in result, 'DUPLICATE')
+            result[key] = value
+        return result
+    return json.loads(raw, object_pairs_hook=pairs)
+
+
+def read_json(path):
+    return decode_json(path.read_bytes())
+
+
+def physical(root):
+    need(root.is_dir(), 'BUNDLE')
+    result = {}
+    for parent, dirs, files in os.walk(root, followlinks=False):
+        for path in [Path(parent)] + [Path(parent) / name for name in dirs + files]:
+            info = path.lstat()
+            need(not stat.S_ISLNK(info.st_mode) and not getattr(info, 'st_file_attributes', 0) & 1024, 'REPARSE')
+        for name in files:
+            path = Path(parent) / name
+            need(path.is_file(), 'PATH')
+            result[path.relative_to(root).as_posix()] = sha(path.read_bytes())
+    return result
+
+
+def manifest_paths(entries):
+    result = {}
+    for entry in entries:
+        name = entry['path']
+        path = PurePosixPath(name)
+        need(name and not path.is_absolute() and path.as_posix() == name and
+             all(part not in ('', '.', '..') and ':' not in part and '\\' not in part for part in path.parts), 'PATH')
+        need(name not in result, 'DUPLICATE')
+        result[name] = entry
+    return result
+
+
+def bundle(evidence):
+    all_files = physical(evidence)
+    root = evidence / 'original'
+    need(root.is_dir() and (evidence / 'runtime.jsonl').is_file(), 'BUNDLE')
+    raw = (root / 'artifact-manifest.json').read_bytes()
+    need(sha(raw) == MANIFEST, 'ROOT-MANIFEST')
+    entries = manifest_paths(decode_json(raw)['files'])
+    expected = {'original/' + name for name in entries} | {'original/artifact-manifest.json', 'runtime.jsonl'}
+    need(set(all_files) == expected, 'INVENTORY')
+    for name, entry in entries.items():
+        data = (root / name).read_bytes()
+        need(len(data) == entry['bytes'] and sha(data) == entry['sha256'], 'PAYLOAD')
+    trace = (evidence / 'runtime.jsonl').read_bytes()
+    need(sha(trace) == TRACE, 'TRACE')
+    return root, [decode_json(line) for line in trace.splitlines()]
+
+
+def utc(text):
+    value = datetime.datetime.fromisoformat(text.replace('Z', '+00:00'))
+    need(value.utcoffset() == datetime.timedelta(0), 'ORDER')
+    return value
+
+
+def phase(execution, start, stdout, argv, marker):
+    need(execution.get('argv') == argv and start.get('argv') == argv, 'ARGV')
+    need(type(execution.get('nativeExit')) is int and execution['nativeExit'] == 0, 'NATIVE')
+    need(execution.get('cwd') == 'C:\\wt\\T0-ROUND45-DELIVERY-CLOSEOUT', 'CWD')
+    need(start == {key: execution[key] for key in ('argv', 'cwd', 'startedUtc')}, 'START')
+    a, b = utc(execution['startedUtc']), utc(execution['endedUtc'])
+    need(a < b, 'ORDER')
+    need(stdout.splitlines().count(marker) == 1, 'OUTPUT')
+    return a, b
+
+
+def outer(records, helper):
+    payloads = [record['payload'] for record in records]
+    calls = {p['call_id']: p for p in payloads if p.get('type') == 'custom_tool_call'}
+    outputs = {p['call_id']: p for p in payloads if p.get('type') == 'custom_tool_call_output'}
+    expected = ['call_tfTVDcx89hcpe54Gx7b8Q2Xq', 'call_JFQ5JAHDp6kk9I8AEe2OksqI', 'call_R1T3DAOMIh1MRsKsW9l7AJVK']
+    need(set(calls) == set(outputs) == set(expected), 'CALL-ID')
+    source = calls[expected[0]]['input']
+    patch = json.JSONDecoder().raw_decode(source[source.index('tools.apply_patch(') + len('tools.apply_patch('):])[0]
+    recovered = ('\n'.join(line[1:] for line in patch.splitlines() if line.startswith('+')) + '\n').encode('utf8')
+    need(recovered == helper and sha(helper) == '4B2F771C39A7CE171E0B951BCFE7960A0E27DF8F1E9CCB6A46F4A175F174C988', 'HELPER-SOURCE')
+    ends = []
+    for number, name in enumerate(['prepare', 'dryrun', 'generate', 'documents']):
+        command = 'python _local/round4-real-closeout-20261004/generate-candidate.py ' + name
+        events = [p for p in payloads if p.get('type') == 'item_completed' and p.get('item', {}).get('command', [''])[-1] == command]
+        need(len(events) == 1, 'OUTER-COMMAND')
+        event = events[0]
+        item = event['item']
+        need(item['command'] == ['C:\\Program Files\\PowerShell\\7\\pwsh.exe', '-Command', command], 'OUTER-COMMAND')
+        need(type(item['exit_code']) is int and item['exit_code'] == 0, 'OUTER-NATIVE')
+        need(decode_json(item['stdout'].splitlines()[-1]) == {'phase': name, 'completed': True}, 'OUTER-OUTPUT')
+        start, end = event['started_at_ms'], event['completed_at_ms']
+        need(start < end and (not ends or ends[-1] < start), 'ORDER')
+        ends.append(end)
+        call = expected[0 if number < 2 else number - 1]
+        need(command in calls[call]['input'], 'OUTER-COMMAND')
+        returned = [decode_json(x['text']) for x in outputs[call]['output'] if x.get('text', '').startswith('{"chunk_id"')]
+        need(any(r.get('exit_code') == 0 and r.get('output') == item['stdout'] for r in returned), 'OUTER-OUTPUT')
+
+
+def runtime(root, records):
+    outer(records, (root / 'generate-candidate.py').read_bytes())
+    need(sha((root / 'capture.py').read_bytes()) == '0C7EC9718FDF9780B6AF2DE91CBCF0C4657A92B9EC6EBA5CD56780718DEEAF84', 'CAPTURE-SOURCE')
+    for name in ['prepare', 'dryrun', 'generate', 'documents']:
+        folder = root / 'runs' / (name + '-refs')
+        record = read_json(folder / 'execution.json')
+        need(record['argv'] == ['git', 'rev-parse', 'HEAD', 'origin/master'] and record['nativeExit'] == 0 and
+             (folder / 'stdout.raw').read_bytes().splitlines() == [BASE.encode(), BASE.encode()], 'RUNTIME-BASE')
+    previous = None
+    phases = [('actual-generator-dryrun', ARCHIVE + ['-DryRun'], b'[ARCHIVE-CARDS-DRYRUN] selected=2; no writes'),
+              ('actual-generator', ARCHIVE, b'[ARCHIVE-CARDS-OK] selected=2; moved=2'),
+              ('actual-generated-index-check', ['pwsh', '-NoProfile', '-File', 'scripts/archive.ps1', '-CheckCardsIndex'], b'[ARCHIVE-CHECK-OK] archive cards-index check: PASS'),
+              ('actual-generator-repeat', ARCHIVE, b'[ARCHIVE-CARDS-OK] selected=2; moved=0')]
+    for name, argv, marker in phases:
+        folder = root / 'runs' / name
+        start, end = phase(read_json(folder / 'execution.json'), read_json(folder / 'start.json'), (folder / 'stdout.raw').read_bytes(), argv, marker)
+        need(previous is None or previous < start, 'ORDER')
+        need((folder / 'stderr.raw').read_bytes() == b'', 'STDERR')
+        need(type(read_json(folder / 'process.json')['pid']) is int, 'PROCESS')
+        outer_name = 'dryrun' if name == 'actual-generator-dryrun' else 'generate'
+        command = 'python _local/round4-real-closeout-20261004/generate-candidate.py ' + outer_name
+        event = next(r['payload'] for r in records if r['payload'].get('item', {}).get('command', [''])[-1] == command)
+        need(event['started_at_ms'] <= start.timestamp() * 1000 < end.timestamp() * 1000 <= event['completed_at_ms'], 'ORDER')
+        previous = end
+
+
+def git(repo, *args, data=None):
+    env = os.environ.copy()
+    env['GIT_OPTIONAL_LOCKS'] = '0'
+    result = subprocess.run(['git', '-C', str(repo), *args], input=data, capture_output=True, env=env)
+    need(result.returncode == 0, 'GIT')
+    return result.stdout
+
+
+def tree(repo, revision):
+    entries = []
+    for record in git(repo, 'ls-tree', '-rz', '--full-tree', revision).split(b'\0'):
+        if record:
+            meta, path = record.split(b'\t', 1)
+            mode, kind, oid = meta.split()
+            need(kind == b'blob' and mode in (b'100644', b'100755'), 'TREE-TYPE')
+            entries.append((path.decode('utf8'), oid))
+    raw = git(repo, 'cat-file', '--batch', data=b'\n'.join(oid for _, oid in entries) + b'\n')
+    offset, result = 0, {}
+    for path, oid in entries:
+        end = raw.index(b'\n', offset)
+        found, kind, size = raw[offset:end].split()
+        need(found == oid and kind == b'blob', 'GIT-BLOB')
+        size = int(size)
+        result[path] = raw[end + 1:end + 1 + size]
+        offset = end + size + 2
+    need(offset == len(raw), 'GIT-BLOB')
+    return result
+
+
+def binding(record):
+    need(record.get('head') == HEAD, 'HEAD')
+    need(record.get('tree') == TREE, 'TREE')
+
+
+def inventories(baseline, before, prepared, generated):
+    extras = {'.git', '.review/T0-ROUND45-DELIVERY-CLOSEOUT.red'}
+    need(set(before) == set(baseline) | extras and all(before[path] == sha(raw) for path, raw in baseline.items()), 'BASE-INVENTORY')
+    hot = {f'specs/tasks/{name}.md' for name in IDS}
+    need(set(prepared) == set(before) and all(prepared[path] == before[path] for path in before if path not in hot), 'PREPARED')
+    need([prepared[f'specs/tasks/{name}.md'] for name in IDS] == COLD, 'PREPARED')
+    need({p: value for p, value in before.items() if p not in SELECTED} ==
+         {p: value for p, value in generated.items() if p not in SELECTED}, 'UNSELECTED')
+    need(set(generated) == (set(before) - hot) | {f'specs/archive/tasks/{name}.md' for name in IDS}, 'GENERATED')
+    need([generated[f'specs/archive/tasks/{name}.md'] for name in IDS] == COLD, 'GENERATED')
+    need(generated[INDEX] == 'C45A6F193B0E0FC20C3E4612F820A6A99A0AE580918228D7C448A36D5FB188AB', 'GENERATED')
+
+
+def one(text, pattern):
+    matches = list(re.finditer(pattern, text, re.MULTILINE))
+    need(len(matches) == 1, 'UNIQUE')
+    return matches[0]
+
+
+def candidate(baseline, actual, card):
+    expected = dict(baseline)
+    text = card.decode('utf8')
+    for name, digest in zip(IDS, COLD):
+        hot, cold = f'specs/tasks/{name}.md', f'specs/archive/tasks/{name}.md'
+        suffix = one(text, '(?s)<!-- append:' + re.escape(name) + ' -->\n```text\n(.*?)```').group(1).encode('utf8')
+        expected[cold] = baseline[hot] + suffix
+        del expected[hot]
+        need(hot not in actual and actual.get(cold) == expected[cold] and sha(expected[cold]) == digest, 'COLD')
+    for name, path, pattern, digest, append in BLOCKS:
+        block = one(text, '(?s)### ' + re.escape(name) + '\n.*?```markdown\n(.*?)\n```').group(1)
+        need(sha(block.encode('utf8')) == digest, 'BLOCK')
+        before = expected[path].decode('utf8')
+        if append:
+            need(not re.search(pattern, before, re.MULTILINE), 'UNIQUE')
+            after = before + '\n' + block + '\n'
+        else:
+            match = one(before, pattern)
+            after = before[:match.start()] + block + before[match.end():]
+        expected[path] = after.encode('utf8')
+    need(all(actual.get(path) == expected[path] for path in DOCS), 'DOCUMENT')
+    expected[INDEX] = actual[INDEX]
+    need(actual == expected, 'SCOPE')
+
+
+def verify(repo, evidence):
+    root, records = bundle(evidence)
+    print('[EVIDENCE-CUSTODY-OK]')
+    runtime(root, records)
+    print('[EVIDENCE-RUNTIME-OK]')
+    binding(read_json(root / 'candidate-binding.json'))
+    need(git(repo, 'rev-parse', HEAD + '^{tree}').decode().strip() == TREE, 'TREE')
+    baseline, historical = tree(repo, BASE), tree(repo, HEAD)
+    need(sha(baseline[CARD]) == 'D936EF9F65F9BE5FE22CA526B566F5F46206F86AE85679668D581227E787E1EE', 'CONTRACT')
+    inventories(baseline, *[read_json(root / name) for name in ['before-actual-inventory.json', 'before-generator-inventory.json', 'after-generator-inventory.json']])
+    candidate(baseline, historical, baseline[CARD])
+    need(sha(historical[INDEX]) == 'C45A6F193B0E0FC20C3E4612F820A6A99A0AE580918228D7C448A36D5FB188AB', 'INDEX')
+    for path in DOCS | {INDEX} | {f'specs/archive/tasks/{name}.md' for name in IDS}:
+        need((root / 'canonical-preserved' / path).read_bytes() == historical[path], 'PRESERVED')
+    print('[EVIDENCE-HISTORICAL-TREE-OK]')
+    current = git(repo, 'rev-parse', 'HEAD').decode().strip()
+    base = git(repo, 'rev-parse', 'origin/master').decode().strip()
+    git(repo, 'merge-base', '--is-ancestor', BASE, base)
+    need(git(repo, 'merge-base', current, base).decode().strip() == base, 'CURRENT-BASE')
+    need(not git(repo, 'status', '--porcelain'), 'CURRENT-DIRTY')
+    base_files, head_files = tree(repo, base), tree(repo, current)
+    need(base_files[CARD] == head_files[CARD], 'CURRENT-CONTRACT')
+    candidate(base_files, head_files, base_files[CARD])
+    changes = git(repo, 'diff', '--raw', '--no-renames', base, current).decode().splitlines()
+    need({line.split('\t')[1] for line in changes} == SELECTED | DOCS, 'CURRENT-SCOPE')
+    for line in changes:
+        old, new = line.split('\t')[0].split()[:2]
+        need(old[1:] in ('000000', '100644') and new in ('000000', '100644'), 'CURRENT-MODE')
+    check = subprocess.run(['pwsh', '-NoProfile', '-File', 'scripts/archive.ps1', '-CheckCardsIndex'], cwd=repo, capture_output=True)
+    need(check.returncode == 0 and check.stdout.splitlines().count(b'[ARCHIVE-CHECK-OK] archive cards-index check: PASS') == 1, 'INDEX')
+    print(json.dumps({'originalBase': BASE, 'originalHead': HEAD, 'originalTree': TREE,
+                      'currentBase': base, 'currentHead': current,
+                      'currentTree': git(repo, 'rev-parse', current + '^{tree}').decode().strip(),
+                      'originalEndpointArrays': 'not separately saved; original in-memory assertions and outer native exits retained',
+                      'replayPerformed': False}))
+    print('[ROUND4-EVIDENCE-OK]')
+
+
+if __name__ == '__main__':
+    try:
+        verify(Path(sys.argv[1]), Path(sys.argv[2]))
+    except Exception as error:
+        print(f'[ROUND4-EVIDENCE-FAIL] {error}', file=sys.stderr)
+        sys.exit(1)
+```
+
+<!-- round4-evidence-tests -->
+```python
+"""One case per process; fixtures are private copies of the fixed original data."""
+import copy
+import importlib.util
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+source, evidence, repo, case = map(Path, sys.argv[1:5])
+case = str(case)
+spec = importlib.util.spec_from_file_location('evidence', source)
+v = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(v)
+root = evidence / 'original'
+before = v.physical(evidence)
+saved = {}
+created = []
+
+
+def overwrite(path, content):
+    saved[path] = path.read_bytes()
+    path.write_bytes(content)
+
+
+def expect(code, action):
+    try:
+        action()
+    except v.EvidenceError as error:
+        if str(error) != code:
+            raise AssertionError(f'{case}: wanted {code}, got {error}')
+        print(f'[EXPECTED-{code}]')
+        return
+    raise AssertionError(f'{case}: did not reject {code}')
+
+
+try:
+    if case == 'positive':
+        v.verify(repo, evidence)
+    elif case in {'missing-bundle', 'missing-file', 'tampered-file', 'root-manifest', 'extra-file', 'reparse'}:
+        target = root / 'runs/actual-generator/stdout.raw'
+        if case == 'missing-bundle':
+            expect('BUNDLE', lambda: v.verify(repo, evidence / 'absent'))
+        elif case == 'missing-file':
+            saved[target] = target.read_bytes()
+            target.unlink()
+            expect('INVENTORY', lambda: v.bundle(evidence))
+        elif case == 'tampered-file':
+            overwrite(target, target.read_bytes() + b'x')
+            expect('PAYLOAD', lambda: v.bundle(evidence))
+        elif case == 'root-manifest':
+            target = root / 'artifact-manifest.json'
+            overwrite(target, target.read_bytes() + b' ')
+            expect('ROOT-MANIFEST', lambda: v.bundle(evidence))
+        elif case == 'extra-file':
+            target = root / 'unexpected.txt'
+            target.write_bytes(b'extra')
+            created.append(target)
+            expect('INVENTORY', lambda: v.bundle(evidence))
+        else:
+            target = root / 'unexpected-link'
+            quote = lambda path: "'" + str(path).replace("'", "''") + "'"
+            command = f"New-Item -ItemType Junction -Path {quote(target)} -Target {quote(root / 'runs')} | Out-Null"
+            result = subprocess.run(['pwsh', '-NoProfile', '-Command', command], capture_output=True)
+            if result.returncode:
+                raise RuntimeError(result.stderr.decode('utf8', errors='replace'))
+            created.append(target)
+            expect('REPARSE', lambda: v.bundle(evidence))
+    elif case in {'path-escape', 'duplicate-path'}:
+        entries = v.read_json(root / 'artifact-manifest.json')['files']
+        if case == 'path-escape':
+            entries[0]['path'] = '../outside'
+            expect('PATH', lambda: v.manifest_paths(entries))
+        else:
+            entries.append(copy.deepcopy(entries[0]))
+            expect('DUPLICATE', lambda: v.manifest_paths(entries))
+    elif case in {'argv', 'native', 'order', 'missing-command'}:
+        label = 'actual-generator'
+        execution = v.read_json(root / 'runs' / label / 'execution.json')
+        start = v.read_json(root / 'runs' / label / 'start.json')
+        output = (root / 'runs' / label / 'stdout.raw').read_bytes()
+        if case == 'argv':
+            execution['argv'][-1] += ',T3-PDF-DEVICE-FIXTURE'
+            start['argv'] = execution['argv']
+            code = 'ARGV'
+        elif case == 'native':
+            execution['nativeExit'] = 1
+            code = 'NATIVE'
+        elif case == 'missing-command':
+            del execution['argv']
+            code = 'ARGV'
+        else:
+            execution['endedUtc'] = '2026-10-04T15:00:00+00:00'
+            code = 'ORDER'
+        expect(code, lambda: v.phase(execution, start, output, v.ARCHIVE, b'[ARCHIVE-CARDS-OK] selected=2; moved=2'))
+    elif case in {'outer-native', 'outer-call', 'helper-source'}:
+        records = [v.decode_json(line) for line in (evidence / 'runtime.jsonl').read_bytes().splitlines()]
+        helper = (root / 'generate-candidate.py').read_bytes()
+        if case == 'outer-native':
+            event = next(x for x in records if x.get('payload', {}).get('item', {}).get('command', [''])[-1].endswith('generate-candidate.py dryrun'))
+            event['payload']['item']['exit_code'] = 1
+            code = 'OUTER-NATIVE'
+        elif case == 'outer-call':
+            event = next(x for x in records if x.get('payload', {}).get('type') == 'custom_tool_call_output')
+            event['payload']['call_id'] = 'wrong-call'
+            code = 'CALL-ID'
+        else:
+            helper += b'# changed\n'
+            code = 'HELPER-SOURCE'
+        expect(code, lambda: v.outer(records, helper))
+    elif case in {'head', 'tree'}:
+        binding = v.read_json(root / 'candidate-binding.json')
+        binding[case] = v.BASE
+        expect(case.upper(), lambda: v.binding(binding))
+    elif case in {'unselected', 'missing-unselected', 'base-inventory'}:
+        baseline = v.tree(repo, v.BASE)
+        a = v.read_json(root / 'before-actual-inventory.json')
+        b = v.read_json(root / 'before-generator-inventory.json')
+        c = v.read_json(root / 'after-generator-inventory.json')
+        name = 'specs/tasks/T3-PDF-DEVICE-FIXTURE.md'
+        if case == 'base-inventory':
+            a[name] = '0' * 64
+            code = 'BASE-INVENTORY'
+        elif case == 'missing-unselected':
+            del c[name]
+            code = 'UNSELECTED'
+        else:
+            c[name] = '0' * 64
+            code = 'UNSELECTED'
+        expect(code, lambda: v.inventories(baseline, a, b, c))
+    elif case in {'cold', 'document', 'outside-scope'}:
+        baseline = v.tree(repo, v.BASE)
+        candidate = v.tree(repo, v.HEAD)
+        card = baseline[v.CARD]
+        if case == 'cold':
+            path = f'specs/archive/tasks/{v.IDS[0]}.md'
+            candidate[path] += b'x'
+            code = 'COLD'
+        elif case == 'document':
+            candidate['docs/adr/0007-report-interchange.md'] += b'outside\n'
+            code = 'DOCUMENT'
+        else:
+            candidate['docs/QUALITY-RUBRIC.md'] += b'x'
+            code = 'SCOPE'
+        expect(code, lambda: v.candidate(baseline, candidate, card))
+    else:
+        raise ValueError(case)
+finally:
+    for path, data in saved.items():
+        path.write_bytes(data)
+    for path in created:
+        if path.is_dir():
+            path.rmdir()
+        else:
+            path.unlink()
+    if v.physical(evidence) != before:
+        raise AssertionError('fixture restoration failed')
+print(json.dumps({'case': case, 'completed': True, 'fixtureRestored': True}))
+sys.exit(0 if case == 'positive' else 1)
+```
