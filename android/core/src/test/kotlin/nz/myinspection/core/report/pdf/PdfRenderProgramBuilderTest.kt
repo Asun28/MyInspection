@@ -16,6 +16,7 @@ import nz.myinspection.core.report.PlacedBlock
 import nz.myinspection.core.report.ReportComposer
 import nz.myinspection.core.report.ReportTestFixtures
 import nz.myinspection.core.report.TextLanguage
+import nz.myinspection.core.report.TextMetricSnapshot
 import nz.myinspection.core.report.TextRun
 import nz.myinspection.core.report.TextStyle
 
@@ -70,6 +71,10 @@ import nz.myinspection.core.report.TextStyle
 class PdfRenderProgramBuilderTest {
     private val builder = PdfRenderProgramBuilder()
     private val fingerprint = "f".repeat(64)
+
+    private fun testMetric(style: TextStyle, language: TextLanguage) = TextMetricSnapshot(
+        style, language, ReportTestFixtures.typography.roleFor(language), 2.0, 8.0, -8.0, 3.0,
+    )
 
     // --- A1 -----------------------------------------------------------------------------------------
 
@@ -308,7 +313,10 @@ class PdfRenderProgramBuilderTest {
             "GOOD",
             null,
             null,
-            listOf(TextRun(text, TextLanguage.EN, TextStyle.BODY, runXMm, 0, runWidthMm, 4)),
+            listOf(
+                TextRun(text, TextLanguage.EN, TextStyle.BODY, runXMm, 0, runWidthMm, 4,
+                    testMetric(TextStyle.BODY, TextLanguage.EN)),
+            ),
         ),
     )
 
@@ -357,7 +365,10 @@ class PdfRenderProgramBuilderTest {
             "POOR",
             null,
             null,
-            listOf(TextRun("row", TextLanguage.EN, TextStyle.BODY, 0, 0, 60, 4)),
+            listOf(
+                TextRun("row", TextLanguage.EN, TextStyle.BODY, 0, 0, 60, 4,
+                    testMetric(TextStyle.BODY, TextLanguage.EN)),
+            ),
             listOf(
                 ImageSlotBlock(
                     photoId = photoId,
@@ -365,7 +376,10 @@ class PdfRenderProgramBuilderTest {
                     reference = "1.2.1",
                     source = "camera",
                     capturedAt = 1_755_303_100_000L,
-                    textRuns = listOf(TextRun("cap", TextLanguage.NEUTRAL, TextStyle.CAPTION, 70, 24, 30, 4)),
+                    textRuns = listOf(
+                        TextRun("cap", TextLanguage.NEUTRAL, TextStyle.CAPTION, 70, 24, 30, 4,
+                            testMetric(TextStyle.CAPTION, TextLanguage.NEUTRAL)),
+                    ),
                     xMm = 70,
                     yMm = 0,
                     widthMm = 30,
