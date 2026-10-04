@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-10-05 prereview 来源校验交付**：`T0-PREREVIEW-POLICY-SOURCE-CHECK` 经 [PR #318](https://github.com/Asun28/MyInspection/pull/318) 合并（reviewed head `29e3d44721c57f778cea1060dc686216c7a27939`，CI `37243668732/1`，squash `4ec53add20b62a02c021301a397a3eaa63cfe281`）。固定 manifest 校验两份已提交来源的身份、完整替换重放与候选正文；两项正例和八项负例通过，含三项等长 SHA-256 探针。当前候选普通全量自检五分片覆盖 17 闸、DoD、verify、范围、许可、防泄露均通过；正式 Sol/high R3 双轴 pass、零 finding。历史四次 BLOCK 与完整证据保留；本轮经用户授权在原配置下恢复实际读取和验收后正常交付。未运行 IncludeMeta；POLICY／FACTS 后续工作独立处理，零新增产品。
+
 **2026-10-05 登记交付**：`T0-TRIAGE-EVIDENCE-SPLIT-REGISTER` 经 PR #321 合并（reviewed head `879dea35374528462259ef0f85aae0c3623fe4eb`，CI `37238972191` attempt 1，squash `f8ca11743ab64bcd4ec17177c423f86da2a6d4de`）。登记 INPUTS 前置卡并保留 CASE 的 dual-actual 最终验收；当前主线同步后只更新三项源码摘要绑定。30 个 schema 样例与 14 个原生子检查、verify、范围、许可、防泄露和完整 diff 预算均通过；正式 Sol/high R3 的 spec/standards 均 pass、零 finding。此前 BLOCK 与全部历史证据保留。本次仅完成登记，INPUTS/CASE 行为仍待各自交付，不计新增产品。
 
 - **Round4 evidence contract delivered (2026-10-05, PR #441)**: head 5163db1b2c60483e20476ec1341718288a502460, independent Sol/high R3 round1 spec/standards pass with zero findings, exact CI 37218685621/1, squash b68235dba6f01130711f99b370eea4b6c03495d7. The existing closeout card now carries the fixed original runtime-data entry, complete readable verifier and negative harness. Original eight paths, four document operations, cold hashes and read-only DoD remain unchanged. Original and synthetic verification are distinct; missing historical endpoint arrays remain disclosed. PR440 still requires its own later authorized continuation; no product or strict-closure increment.

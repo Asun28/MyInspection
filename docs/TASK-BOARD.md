@@ -31,7 +31,7 @@
 
 | 波 | 卡 id | 产出（一句话） | depends_on | 难度 | 首选模型 · effort | 备选 | 卡片状态 / 备注 |
 |---|---|---|---|---|---|---|---|
-| W0 | T0-PREREVIEW-POLICY-SOURCE-CHECK | 已提交 prereview 来源身份与完整策略重放校验 | T0-PREREVIEW-POLICY-SOURCE | M | GPT-6 Astra · high | GPT-5.6 Terra · high | **todo**：功能 PR #318 已合并，待原 post-merge R5 同步状态与交付记录；零新增产品。 |
+| W0 | T0-PREREVIEW-POLICY-SOURCE-CHECK | 已提交 prereview 来源身份与完整策略重放校验 | T0-PREREVIEW-POLICY-SOURCE | M | GPT-6 Astra · high | GPT-5.6 Terra · high | **merged**：PR #318，reviewed head `29e3d447`，CI `37243668732/1`，squash `4ec53add`；正式 Sol/high R3 双轴 pass、零 finding。来源身份与完整替换重放校验已交付；八项负例含三项等长 SHA-256 探针。POLICY／FACTS 后续工作独立处理，零新增产品。 |
 | W0 | T0-ROUND4-EVIDENCE-CARRIER | 第4轮原始生成证据入口与独立校验 | T0-ROUND45-DELIVERY-CLOSEOUT-REGISTER | S | GPT-6 Astra · high | GPT-5.6 Terra · high | **merged** via PR #441 (head 5163db1b2c60483e20476ec1341718288a502460, CI 37218685621/1, squash b68235dba6f01130711f99b370eea4b6c03495d7); original round4 generation evidence is discoverable and independently checkable; PR440 remains separate; zero new products or strict closures. |
 | W0 | T0-ROUND45-DELIVERY-CLOSEOUT-REGISTER | 登记第4轮双产品收尾契约及两行看板 | T0-ARCHIVE-TARGETED-CARDS | S | GPT-6 Astra · high | GPT-5.6 Terra · high | **merged** via PR #438 (head d364c40f40cce5309ec87886689dde6c62cfd31b, CI 37213732874/1, squash 5575294855b188db5c4e317924fdf2c4ffb3feb0); round4 two-product closeout contract registered; future execution remains todo; zero new products or strict closures. |
 | W0 | T0-ROUND45-DELIVERY-CLOSEOUT | 第4轮StorageAndroid与Binding记录同步及定向归档 | T0-ARCHIVE-TARGETED-CARDS,T1-APP-STORAGE-ANDROID,T3-PDF-MEASUREMENT-BINDING | S | GPT-6 Astra · high | GPT-5.6 Terra · high | **todo**：八路径收尾；完整第4轮结束后再执行第5轮；零新增产品 |
