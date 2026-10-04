@@ -21,6 +21,13 @@
 > （如 spec-kit 的 `clarify` 消歧纪律、Given/When/Then 验收），别整框架搬。
 
 ## 校验
+
+已合并卡可定向冷存：先运行 `pwsh -NoProfile -File scripts/archive.ps1 -CardsOnly -CardIds T1-ONE,T1-TWO -DryRun`，核对后去掉 `-DryRun`。
+只接受明确的卡 id；整批须为 id 匹配的 `merged` 文件，声明的 worktree 目录不能仍存在。无效输入或热冷字节分歧会整批拒绝且不写。
+成功只移动所选卡并更新全部冷库卡的索引，不处理技术债、lessons、Git 或工作区清理。冷库已有卡可安全重跑，相同索引不重写。
+I/O 失败退出非零并保留已完成移动及完整副本；排除故障后重跑可修复索引，不承诺跨文件事务或并发写入。
+参数组合、字节/换行规则及恢复边界见 [归档说明](archive/README.md#只归档指定任务卡)。
+
 `pwsh -File scripts\check-cards.ps1`（单卡 `-TaskId T1-FOO`）静态校验所有真实卡：id=文件名、`status` 枚举、
 `branch`/`worktree` 不与 id 漂移、`dod_command`/`allow_paths` 完整、卡文无模板占位符 token 字面量（双大括号大写蛇形，L61/TD111；selftest 闸10g 回归）。`task.ps1 -Phase start` 会前置自动跑它，
 selftest 闸 ⑩ 与 CI 也跑——卡写错在动手前即暴露，而非拖到 `ship`。`_TEMPLATE.md` 跳过（占位故意违规）。
