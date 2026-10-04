@@ -1240,6 +1240,17 @@ $coreExampleFindings = @(Test-ScaffoldCoreSelfCheckExamples)
 $coreExampleFindings += @(Test-ScaffoldSymbolMarkdownExamples)
 $coreExampleFindings += @(Test-ScaffoldUnicodeExamples)
 $coreExampleFindings += @(Test-ScaffoldValidationExamples)
+# The local prereview cores (records, facts, state) joined in the 2026-09 local/origin reconcile. Each runs
+# its own -SelfCheck through a child process, so none of their functions or StrictMode settings enter this
+# scope; a core whose self-check does not end on its pass sentinel returns one finding.
+foreach ($preCore in @(
+    @{ File = '_prereview-records.ps1'; Check = 'Test-ScaffoldPrereviewRecordsExamples' },
+    @{ File = '_prereview-facts.ps1'; Check = 'Test-ScaffoldPrereviewFactsExamples' },
+    @{ File = '_prereview-state.ps1'; Check = 'Test-ScaffoldPrereviewStateExamples' })) {
+  $preOut = @(& pwsh -NoProfile -Command ". '$(Join-Path $PSScriptRoot $preCore.File)' -AsLibrary; $($preCore.Check)" 2>&1 | ForEach-Object { "$_" } | Where-Object { $_.Trim() })
+  if ($LASTEXITCODE -ne 0 -and $preOut.Count -eq 0) { $preOut = @("$($preCore.File): the $($preCore.Check) child process exited $LASTEXITCODE without reporting") }
+  $coreExampleFindings += $preOut
+}
 if ($coreFiles.Count -lt 1) { Fail '1h: no scripts/_*.ps1 found at all - the gate would pass vacuously, so the discovery itself is the first assertion.' }
 elseif ($coreExampleFindings.Count) { $coreExampleFindings | ForEach-Object { Fail "1h: $_" } }
 elseif (@(Test-ScaffoldCoreSelfCheckExamples -Variant 'name-only').Count -lt 1) {
@@ -1404,6 +1415,12 @@ else {
 #     Negative controls, without which the whole gate is satisfiable by deletion: T2 must still request 8
 #     lenses AND 24 refutation judges (a router that always returns the small set fails here), and both
 #     verdict paths must still reach Lens-Audit and Synthesize and still return their findings keys.
+#     T0-OPUS55-PROMPT-FIT adds five fixture runs: `overflow` seeds 5 FATAL findings per lens (the cap of 3
+#     must hand the rest to synthesis and log them, not drop them) and `t1Overflow` does the same at T1, where
+#     no judge runs and the log must not claim one; `mixed` seeds [HIGH, HIGH, HIGH, FATAL]
+#     (the script, not the lens, puts FATAL first); `nullLens` returns null for the boundary lens (an unaudited
+#     dimension must turn ready-to-decompose into fix-first); `nullSynth` adds a null synthesis to that, so the
+#     synthesis-skipped return is driven too. Every return carries skipped_lenses.
 Step '1i/17 plan-forge tier routing + stop at the verdict (TD180, subsuming TD179)'
 $pfFlowPath = Join-Path $RepoRoot '.claude/workflows/plan-forge.mjs'
 if (-not (Test-Path $pfFlowPath)) {
@@ -1418,20 +1435,32 @@ const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
 const workflow = new AsyncFunction('args', 'log', 'pipeline', 'agent', 'parallel', src.replace('export const meta =', 'const meta ='))
 const PHASES = ['Lens-Audit', 'Adversarial-Verify', 'Synthesize', 'Decompose', 'Card-Audit']
 const nil = (v) => (v === undefined ? null : v)
-async function run(verdict, tier) {
+async function run(verdict, tier, fixture = {}) {
+  const severities = fixture.severities || Array.from({ length: fixture.seedCount || 1 }, () => 'FATAL')
   const counts = {}
   for (const p of PHASES) counts[p] = 0
   let total = 0
+  let synthPrompt = ''
+  let lensPrompt = ''
   const lensLabels = []
-  const agent = async (_prompt, opts = {}) => {
+  const verifyLabels = []
+  const logs = []
+  const agent = async (prompt, opts = {}) => {
     total += 1
     if (Object.prototype.hasOwnProperty.call(counts, opts.phase)) counts[opts.phase] += 1
     switch (opts.phase) {
       case 'Lens-Audit':
         lensLabels.push(opts.label || 'unlabelled')
-        return { lens: opts.label, findings: [{ id: (opts.label || 'x') + '-1', title: 'seed', severity: 'FATAL', where: 'stub', claim: 'stub', fix: 'stub' }] }
-      case 'Adversarial-Verify': return { refuted: true, reasoning: 'stub' }
-      case 'Synthesize': return { verdict, fatal_count: verdict === 'fix-first' ? 1 : 0, high_count: 0, corrections: [], rationale: 'stub' }
+        lensPrompt = lensPrompt || prompt
+        if (opts.label === fixture.nullLens) return null
+        return { lens: opts.label, findings: severities.map((severity, i) => ({ id: (opts.label || 'x') + '-' + (i + 1), title: 'seed', severity, where: 'stub', claim: 'stub', fix: 'stub' })) }
+      case 'Adversarial-Verify':
+        verifyLabels.push(opts.label || 'unlabelled')
+        return { refuted: true, reasoning: 'stub' }
+      case 'Synthesize':
+        synthPrompt = prompt
+        if (fixture.nullSynth) return null
+        return { verdict, fatal_count: verdict === 'fix-first' ? 1 : 0, high_count: 0, corrections: [], rationale: 'stub' }
       case 'Decompose': return { cards: [], freeze_point: 'none', topo_valid: true, parallel_window: '' }
       case 'Card-Audit': return { graph_ok: true, issues: [], cycles: [], dod_not_machine_checkable: [], boundary_violations: [] }
       default: throw new Error('unexpected phase: ' + opts.phase)
@@ -1442,11 +1471,12 @@ async function run(verdict, tier) {
     const mapped = await Promise.all(items.map((item) => first(item)))
     return Promise.all(mapped.map((value, i) => second(value, items[i])))
   }
-  const result = await workflow(tier === null ? {} : { tier }, () => {}, pipeline, agent, parallel)
+  const result = await workflow(tier === null ? {} : { tier }, (m) => logs.push(String(m)), pipeline, agent, parallel)
   return {
-    total, counts, lensLabels,
+    total, counts, lensLabels, verifyLabels, logs, lensPrompt, synthPrompt,
     verdict: nil(result.verdict), tier: nil(result.tier), verifyMode: nil(result.verify_mode),
     decomp: nil(result.decomp), cardAudit: nil(result.cardAudit), keys: Object.keys(result),
+    skippedLenses: nil(result.skipped_lenses), corrections: nil(result.synth && result.synth.corrections),
   }
 }
 console.log(JSON.stringify({
@@ -1455,6 +1485,11 @@ console.log(JSON.stringify({
   t0: await run('ready-to-decompose', 'T0'),
   t1: await run('ready-to-decompose', 'T1'),
   absent: await run('ready-to-decompose', null),
+  overflow: await run('ready-to-decompose', 'T2', { seedCount: 5 }),
+  t1Overflow: await run('ready-to-decompose', 'T1', { seedCount: 5 }),
+  mixed: await run('ready-to-decompose', 'T2', { severities: ['HIGH', 'HIGH', 'HIGH', 'FATAL'] }),
+  nullLens: await run('ready-to-decompose', 'T2', { nullLens: 'lens:boundary' }),
+  nullSynth: await run('ready-to-decompose', 'T2', { nullLens: 'lens:boundary', nullSynth: true }),
 }))
 '@
   $tmp1i = Join-Path ([System.IO.Path]::GetTempPath()) "selftest-1i-$PID.mjs"
@@ -1551,11 +1586,68 @@ console.log(JSON.stringify({
     if ($missing1i.Count) {
       $f1i += "[anti-vacuous] the fix-first return dropped $($missing1i -join ', ') - the surviving findings and corrections a human needs in order to repair the plan are exactly what this path exists to deliver."
     }
+    # (h) T0-OPUS55-PROMPT-FIT: lenses now report everything they can locate (discovery is not filtering), so the
+    #     per-lens cap of 3 must stay a hand-off and never a silent drop. With 5 seeded FATAL findings per lens the
+    #     judges stay at 8 x 3 x 3 = 72, and every lens's 4th and 5th finding must reach the synthesis prompt.
+    if ($parsed1i.overflow.counts.'Adversarial-Verify' -ne 72) {
+      $f1i += "[overflow] a T2 run seeding 5 FATAL findings per lens requested $($parsed1i.overflow.counts.'Adversarial-Verify') Adversarial-Verify agents, expected 72 (8 lenses x the 3-finding cap x 3 angles). More means the cap is gone; fewer means findings were dropped before verification."
+    }
+    $lostOverflow1i = @(@($parsed1i.overflow.lensLabels) | ForEach-Object { foreach ($n1i in 4, 5) { "$_-$n1i" } } | Where-Object { -not ([string]$parsed1i.overflow.synthPrompt).Contains('"' + $_ + '"') })
+    if ($lostOverflow1i.Count) {
+      $f1i += "[overflow] findings past the per-lens verification cap never reached the synthesis prompt: $($lostOverflow1i -join ', '). The cap bounds how many are VERIFIED; a finding past it goes to synthesis as unverified."
+    }
+    if (-not @($parsed1i.overflow.logs | Where-Object { ([string]$_).Contains('FATAL/HIGH') -and ([string]$_).Contains(' 16 ') -and ([string]$_).Contains('对抗核验') }).Count) {
+      $f1i += "[overflow] no log line reports the 16 findings past the adversarial-verification cap (8 lenses x 2). A bounded workflow says what it did not verify; silence reads as full coverage."
+    }
+    if (-not ([string]$parsed1i.overflow.synthPrompt).Contains('核验上限')) {
+      $f1i += '[overflow] at T2 the synthesis prompt no longer tells the judge that the handed-over findings are the ones past the verification cap.'
+    }
+    # T1 runs no judges, so its overflow must still reach synthesis and its log must not describe an adversarial cap.
+    $t1Lost1i = @(@($parsed1i.t1Overflow.lensLabels) | ForEach-Object { foreach ($n1i in 4, 5) { "$_-$n1i" } } | Where-Object { -not ([string]$parsed1i.t1Overflow.synthPrompt).Contains('"' + $_ + '"') })
+    $t1Log1i = @($parsed1i.t1Overflow.logs | Where-Object { ([string]$_).Contains('FATAL/HIGH') -and ([string]$_).Contains(' 6 ') })
+    if ($t1Lost1i.Count -or ($t1Log1i.Count -ne 1) -or ([string]$t1Log1i[0]).Contains('核验') -or ([string]$parsed1i.t1Overflow.synthPrompt).Contains('核验上限')) {
+      $f1i += "[overflow] at T1 (no judges) the capped findings missing from synthesis were '$($t1Lost1i -join ', ')', and the overflow log lines counting 6 were '$($t1Log1i -join ' | ')'. Expected every 4th and 5th finding in the synthesis prompt, exactly one log line that mentions no verification, and a synthesis prompt that describes no verification cap."
+    }
+    if (-not ([string]$parsed1i.overflow.lensPrompt).Contains('confidence')) {
+      $f1i += '[overflow] the lens prompt no longer asks for a confidence per finding, so the downstream steps cannot rank what discovery reported.'
+    }
+    # (h2) The script, not the lens, puts FATAL first. Each lens returns [HIGH, HIGH, HIGH, FATAL]: the FATAL (id -4)
+    #      must be among the verified three and the third HIGH (id -3) must be the one handed over unverified.
+    $unsortedVerify1i = @(@($parsed1i.mixed.lensLabels) | Where-Object { @($parsed1i.mixed.verifyLabels) -notcontains ('verify:' + $_ + '-4') })
+    $unsortedOverflow1i = @(@($parsed1i.mixed.lensLabels) | Where-Object { -not ([string]$parsed1i.mixed.synthPrompt).Contains('"' + $_ + '-3"') })
+    if ($unsortedVerify1i.Count -or $unsortedOverflow1i.Count) {
+      $f1i += "[severity-sort] with each lens returning [HIGH, HIGH, HIGH, FATAL], the FATAL was not verified for $($unsortedVerify1i -join ', ') and the third HIGH did not reach synthesis for $($unsortedOverflow1i -join ', '). The verification cap must take FATAL before HIGH whatever order the lens used."
+    }
+    # (i) A lens that returns nothing (skipped, refused, or no structured output: agent() gives null) is a dimension
+    #     nobody audited. The verdict must not read ready-to-decompose, whatever the synthesis agent said.
+    if ($parsed1i.nullLens.verdict -ne 'fix-first') {
+      $f1i += "[skipped-lens] a T2 run whose boundary lens returned null, with synthesis saying ready-to-decompose, returned verdict '$($parsed1i.nullLens.verdict)', expected 'fix-first'. An audit missing a dimension cannot clear a plan for decomposition."
+    }
+    if ((@($parsed1i.nullLens.skippedLenses) -join ',') -cne 'boundary') {
+      $f1i += "[skipped-lens] the null-lens run reported skipped_lenses '$(@($parsed1i.nullLens.skippedLenses) -join ',')', expected exactly 'boundary'."
+    }
+    if (@($parsed1i.nullLens.corrections | Where-Object { ($_.PSObject.Properties['where'].Value -ceq 'lens:boundary') -and ($_.PSObject.Properties['severity'].Value -ceq 'HIGH') }).Count -ne 1) {
+      $f1i += '[skipped-lens] the null-lens return carries no single HIGH correction naming lens:boundary, so the human learns the verdict but not which lens to re-run.'
+    }
+    if (-not @($parsed1i.nullLens.logs | Where-Object { ([string]$_).Contains('boundary') -and ([string]$_).Contains('ready-to-decompose') }).Count) {
+      $f1i += '[skipped-lens] no log line names the boundary lens as unaudited before the verdict, so the run reads as complete until someone opens the return value.'
+    }
+    # (i2) The synthesis-skipped return carries skipped_lenses too: a run with a null lens AND a null synthesis.
+    if (($parsed1i.nullSynth.verdict -ne 'synthesis-skipped') -or ((@($parsed1i.nullSynth.skippedLenses) -join ',') -cne 'boundary')) {
+      $f1i += "[skipped-lens] a run whose boundary lens and synthesis both returned null gave verdict '$($parsed1i.nullSynth.verdict)' with skipped_lenses '$(@($parsed1i.nullSynth.skippedLenses) -join ',')', expected 'synthesis-skipped' with exactly 'boundary'."
+    }
+    foreach ($k1i in @($runs1i.Keys)) {
+      if (@($runs1i[$k1i].keys) -notcontains 'skipped_lenses') {
+        $f1i += "[skipped-lens] the '$k1i' return omits skipped_lenses; every return path carries it, empty when every lens reported."
+      } elseif (@($runs1i[$k1i].skippedLenses).Count -ne 0) {
+        $f1i += "[skipped-lens] the '$k1i' run reported skipped lenses $(@($runs1i[$k1i].skippedLenses) -join ', ') although every lens returned a result."
+      }
+    }
   }
   if ($f1i.Count) {
     foreach ($x1i in $f1i) { Fail "1i tier-depth: $x1i Re-check with: selftest.ps1 -Only 1" }
   } else {
-    Write-Host '  1i tier routing + no-projection OK (T0 0 agents; T1 3 lens / 0 verify / 1 synth; T2 8 lens / 24 verify / 1 synth; no tier reaches Decompose or Card-Audit)' -ForegroundColor Green
+    Write-Host '  1i tier routing + no-projection OK (T0 0 agents; T1 3 lens / 0 verify / 1 synth; T2 8 lens / 24 verify / 1 synth; no tier reaches Decompose or Card-Audit; FATAL verified before HIGH; capped findings logged and handed to synthesis; a null lens forces fix-first and is listed on every return)' -ForegroundColor Green
   }
 }
 
@@ -6678,6 +6770,484 @@ else {
     if (@(Compare-Object $cardsDriftTreeBefore $cardsDriftTreeAfter).Count) { $arFail += '12e(7e): cards-index drift check modified or self-repaired the fixture tree.' }
     [IO.File]::WriteAllBytes($cardsIndexPath, $cardsCorrectBytes)
   }
+
+# Targeted card archive: production-script fixtures within existing 12e.
+# Requires ar, arScript, arFail from that block. Never dot-source production archive.ps1 (it exits).
+# Faults detected: over-selection, weak validation, partial mutation on refusal, byte loss,
+# stale/incomplete index, touched unrelated state, no-op implementation, and swallowed I/O errors.
+$taCases = 0
+function New-TargetArchiveFixture {
+  $root = Join-Path $ar ('targeted-' + [guid]::NewGuid().ToString('N'))
+  foreach ($dir in @('specs/tasks', 'specs/archive/tasks', 'docs/lessons')) {
+    New-Item -ItemType Directory -Path (Join-Path $root $dir) -Force | Out-Null
+  }
+  foreach ($id in @('T0-ONE', 'T0-TWO', 'T0-OTHER')) {
+    $text = "---`nid: $id`ntitle: $id title`nstatus: merged`n---`nbody $id`n"
+    [IO.File]::WriteAllText((Join-Path $root "specs/tasks/$id.md"), $text)
+  }
+  $cold = "---`nid: T0-COLD`ntitle: Cold title`nstatus: merged`n---`n"
+  [IO.File]::WriteAllText((Join-Path $root 'specs/archive/tasks/T0-COLD.md'), $cold)
+  foreach ($rel in @('specs/tech-debt-tracker.md', 'specs/archive/tech-debt-archive.md',
+      'specs/archive/tech-debt-index.md', 'docs/lessons/LEDGER.md', 'specs/archive/lessons-archive.md')) {
+    [IO.File]::WriteAllText((Join-Path $root $rel), "SENTINEL $rel`n| TD1 | d | p | debt | minor | paid | p |`n")
+  }
+  return $root
+}
+function Get-TargetArchiveState([string]$Root) {
+  $result = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+  foreach ($item in Get-ChildItem -LiteralPath $Root -Recurse -Force) {
+    $rel = [IO.Path]::GetRelativePath($Root, $item.FullName).Replace('\', '/')
+    $result[$rel] = if ($item.PSIsContainer) { 'directory' } else {
+      "$((Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash):$($item.LastWriteTimeUtc.Ticks)"
+    }
+  }
+  return ,$result
+}
+function Assert-TargetArchiveSame($Before, $After, [string[]]$Except = @()) {
+  $keys = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach ($key in @($Before.Keys) + @($After.Keys)) { [void]$keys.Add($key) }
+  foreach ($key in $keys) {
+    if ($Except -ccontains $key) { continue }
+    if (-not $Before.ContainsKey($key) -or -not $After.ContainsKey($key) -or
+        -not [string]::Equals($Before[$key], $After[$key], [StringComparison]::Ordinal)) {
+      throw "[12E-TARGETED-SIDE-EFFECT] unexpected change: $key"
+    }
+  }
+}
+function Invoke-TargetArchive([string]$Root, [string[]]$Arguments) {
+  $text = & pwsh -NoProfile -File $arScript -RepoRoot $Root @Arguments 2>&1 | Out-String
+  return [pscustomobject]@{ Code = $LASTEXITCODE; Text = $text }
+}
+function Invoke-TargetArchiveBound([string]$Root, [hashtable]$Parameters) {
+  $payload = @{ Script = $arScript; Root = $Root; Parameters = $Parameters } | ConvertTo-Json -Depth 5 -Compress
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payload))
+  $command = '$ErrorActionPreference = "Stop"; $p = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("PAYLOAD")) | ConvertFrom-Json -AsHashtable; $bound = $p.Parameters; & $p.Script -RepoRoot $p.Root @bound; exit $LASTEXITCODE'
+  $command = $command.Replace('PAYLOAD', $encoded)
+  $text = & pwsh -NoProfile -EncodedCommand ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))) 2>&1 | Out-String
+  return [pscustomobject]@{ Code = $LASTEXITCODE; Text = $text }
+}
+function Assert-TargetArchiveResult($Result, [bool]$Success, [string]$Marker, [string]$QuietSummary = '') {
+  if (-not $Marker -or ($Result.Code -eq 0) -ne $Success -or -not $Result.Text.Contains($Marker)) {
+    throw "[12E-TARGETED-RESULT] expected success=$Success marker=$Marker; rc=$($Result.Code); $($Result.Text)"
+  }
+  if ($Success) {
+    $shape = if ($Marker -ceq '[ARCHIVE-CARDS-DRYRUN]') {
+      '^\[ARCHIVE-CARDS-DRYRUN\] selected=[1-9]\d*; no writes$'
+    } else { '^\[ARCHIVE-CARDS-OK\] selected=[1-9]\d*; moved=\d+$' }
+    $summaries = @($Result.Text -split '\r?\n' | Where-Object { $_ -cmatch '^\[ARCHIVE-CARDS-' })
+    if ($summaries.Count -ne 1 -or $summaries[0] -cnotmatch $shape) { throw '[12E-TARGETED-SUMMARY]' }
+    if ($QuietSummary -and -not [string]::Equals($Result.Text.Trim(), $QuietSummary, [StringComparison]::Ordinal)) {
+      throw "[12E-TARGETED-QUIET] expected only: $QuietSummary; got: $($Result.Text)"
+    }
+  }
+}
+function Get-TargetArchiveExpectedIndex([string[]]$Ids, [string]$Newline = "`n") {
+  # Hand-derived fixture oracle; no production generator/helper is called.
+  $lines = @('# 已归档任务卡索引（merged cards · cold storage）', '',
+    ('> 一行一条已 `merged` 的卡，共 {0} 张；完整卡在 `specs/archive/tasks/<id>.md`。' -f $Ids.Count),
+    '> 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。', '',
+    '| id | 状态 | 标题 |', '|---|---|---|')
+  foreach ($id in $Ids) {
+    $title = if ($id -ceq 'T0-COLD') { 'Cold title' } else { "$id title" }
+    $lines += "| $id | merged | $title |"
+  }
+  return [Text.UTF8Encoding]::new($false).GetBytes(($lines -join $Newline) + $Newline)
+}
+function Assert-TargetArchiveIndex([string]$Root, [string[]]$Ids, [string]$Newline = "`n") {
+  $actual = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $Root 'specs/archive/cards-index.md')))
+  $want = [Convert]::ToBase64String((Get-TargetArchiveExpectedIndex $Ids $Newline))
+  if (-not [string]::Equals($actual, $want, [StringComparison]::Ordinal)) { throw '[12E-TARGETED-INDEX] exact projection differs' }
+}
+try {
+  # P1: single/multiple selections, exact source bytes including BOM/CRLF, full cold projection, repeat no-op.
+  foreach ($ids in @('T0-ONE', ' T0-TWO , T0-ONE ')) {
+    foreach ($eol in @("`n", "`r`n")) {
+      $root = New-TargetArchiveFixture
+      $hot = Join-Path $root 'specs/tasks/T0-ONE.md'
+      $raw = [Text.UTF8Encoding]::new($true).GetPreamble() + [Text.Encoding]::UTF8.GetBytes(([IO.File]::ReadAllText($hot).Replace("`n", "`r`n")))
+      [IO.File]::WriteAllBytes($hot, $raw)
+      [IO.File]::WriteAllBytes((Join-Path $root 'specs/archive/cards-index.md'), (Get-TargetArchiveExpectedIndex @('T0-COLD') $eol))
+      $before = Get-TargetArchiveState $root
+      $selected = @($ids.Split(',') | ForEach-Object { $_.Trim() })
+      $hashes = @{}; $allowed = @('specs/archive/cards-index.md')
+      foreach ($id in $selected) {
+        $hashes[$id] = (Get-FileHash -LiteralPath (Join-Path $root "specs/tasks/$id.md")).Hash
+        $allowed += "specs/tasks/$id.md", "specs/archive/tasks/$id.md"
+      }
+      Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', $ids, '-Quiet')) $true '[ARCHIVE-CARDS-OK]' "[ARCHIVE-CARDS-OK] selected=$($selected.Count); moved=$($selected.Count)"
+      foreach ($id in $selected) {
+        if (Test-Path -LiteralPath (Join-Path $root "specs/tasks/$id.md")) { throw '[12E-TARGETED-MOVE] hot card remains' }
+        if ((Get-FileHash -LiteralPath (Join-Path $root "specs/archive/tasks/$id.md")).Hash -cne $hashes[$id]) { throw '[12E-TARGETED-BYTES] card changed' }
+      }
+      Assert-TargetArchiveSame $before (Get-TargetArchiveState $root) $allowed
+      Assert-TargetArchiveIndex $root @(@('T0-COLD') + $selected | Sort-Object) $eol
+      $repeat = Get-TargetArchiveState $root
+      Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', $ids)) $true '[ARCHIVE-CARDS-OK]'
+      Assert-TargetArchiveSame $repeat (Get-TargetArchiveState $root)
+      $taCases++
+    }
+  }
+  # P2: valid DryRun has no filesystem changes, including no generated index.
+  $root = New-TargetArchiveFixture; $before = Get-TargetArchiveState $root
+  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', 'T0-ONE,T0-TWO', '-DryRun')) $true '[ARCHIVE-CARDS-DRYRUN]'
+  Assert-TargetArchiveSame $before (Get-TargetArchiveState $root); $taCases++
+  # P3: byte-identical duplicate is completed; cold-only rerun can repair a stale index.
+  $root = New-TargetArchiveFixture
+  Copy-Item -LiteralPath (Join-Path $root 'specs/tasks/T0-ONE.md') -Destination (Join-Path $root 'specs/archive/tasks/T0-ONE.md')
+  $before = Get-TargetArchiveState $root
+  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', 'T0-ONE')) $true '[ARCHIVE-CARDS-OK]'
+  Assert-TargetArchiveSame $before (Get-TargetArchiveState $root) @('specs/tasks/T0-ONE.md', 'specs/archive/cards-index.md')
+  if (Test-Path -LiteralPath (Join-Path $root 'specs/tasks/T0-ONE.md')) { throw '[12E-TARGETED-DUPLICATE] hot duplicate remains' }
+  [IO.File]::WriteAllText((Join-Path $root 'specs/archive/cards-index.md'), 'stale')
+  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly', '-CardIds', 'T0-ONE')) $true '[ARCHIVE-CARDS-OK]'
+  Assert-TargetArchiveIndex $root @('T0-COLD', 'T0-ONE'); $taCases++
+  # R1: canonical syntax, unknown, state, conflict and whole-batch validation (valid item first).
+  $rejects = @(
+    @{ Ids = ''; Marker = '[ARCHIVE-CARD-BADID]' },
+    @{ Ids = ','; Marker = '[ARCHIVE-CARD-BADID]' },
+    @{ Ids = 'T0-ONE,'; Marker = '[ARCHIVE-CARD-BADID]' },
+    @{ Ids = 'T0-ONE, ,T0-TWO'; Marker = '[ARCHIVE-CARD-BADID]' },
+    @{ Ids = 'T0-ONE,../T0-TWO'; Marker = '[ARCHIVE-CARD-BADID]' },
+    @{ Ids = 'T0-ONE,t0-two'; Marker = '[ARCHIVE-CARD-BADID]' },
+    @{ Ids = 'T0-ONE,T0-*'; Marker = '[ARCHIVE-CARD-BADID]' },
+    @{ Ids = 'T0-ONE,T0-ONE'; Marker = '[ARCHIVE-CARD-DUPLICATE]' },
+    @{ Ids = 'T0-ONE,T0-UNKNOWN'; Marker = '[ARCHIVE-CARD-UNKNOWN]' }
+  )
+  foreach ($case in $rejects) {
+    foreach ($dry in @($false, $true)) {
+      $root = New-TargetArchiveFixture; $before = Get-TargetArchiveState $root
+      $arguments = @('-CardsOnly', '-CardIds', $case.Ids); if ($dry) { $arguments += '-DryRun' }
+      Assert-TargetArchiveResult (Invoke-TargetArchive $root $arguments) $false $case.Marker
+      Assert-TargetArchiveSame $before (Get-TargetArchiveState $root); $taCases++
+    }
+  }
+  foreach ($variant in @('todo','in-progress','in-review','unknown-status','upper-status','identity','worktree-relative','worktree-absolute','diverged-case','diverged-bom','diverged-eol','directory','hot-directory','no-frontmatter','missing-id','missing-status')) {
+    foreach ($dry in @($false, $true)) {
+      $root = New-TargetArchiveFixture; $path = Join-Path $root 'specs/tasks/T0-TWO.md'
+      $raw = [IO.File]::ReadAllText($path); $marker = '[ARCHIVE-CARD-NOT-MERGED]'
+      switch ($variant) {
+        'identity' { $raw = $raw.Replace('id: T0-TWO', 'id: T0-WRONG'); $marker = '[ARCHIVE-CARD-IDENTITY]' }
+        { $_ -like 'worktree-*' } {
+          New-Item -ItemType Directory -Path (Join-Path $root 'held') | Out-Null
+          $worktree = if ($_ -ceq 'worktree-relative') { 'held' } else { Join-Path $root 'held' }
+          $raw = $raw.Replace('status: merged', "status: merged`nworktree: $worktree"); $marker = '[ARCHIVE-HELD]'
+        }
+        { $_ -like 'diverged-*' } {
+          $dest = Join-Path $root 'specs/archive/tasks/T0-TWO.md'; $marker = '[ARCHIVE-CARD-DIVERGED]'
+          $bytes = [Text.Encoding]::UTF8.GetBytes($raw)
+          if ($_ -ceq 'diverged-case') { $bytes = [Text.Encoding]::UTF8.GetBytes($raw.Replace('body', 'BODY')) }
+          if ($_ -ceq 'diverged-bom') { $bytes = [Text.UTF8Encoding]::new($true).GetPreamble() + $bytes }
+          if ($_ -ceq 'diverged-eol') { $bytes = [Text.Encoding]::UTF8.GetBytes($raw.Replace("`n", "`r`n")) }
+          [IO.File]::WriteAllBytes($dest, $bytes)
+        }
+        'directory' {
+          New-Item -ItemType Directory -Path (Join-Path $root 'specs/archive/tasks/T0-TWO.md') | Out-Null
+          $marker = '[ARCHIVE-CARD-PATH]'
+        }
+        'hot-directory' {
+          Remove-Item -LiteralPath $path
+          New-Item -ItemType Directory -Path $path | Out-Null
+          $marker = '[ARCHIVE-CARD-PATH]'
+        }
+        'no-frontmatter' { $raw = 'no front matter'; $marker = '[ARCHIVE-CARD-IDENTITY]' }
+        'missing-id' { $raw = $raw.Replace('id: T0-TWO', ''); $marker = '[ARCHIVE-CARD-IDENTITY]' }
+        'missing-status' { $raw = $raw.Replace('status: merged', '') }
+        'upper-status' { $raw = $raw.Replace('status: merged', 'status: MERGED') }
+        default { $raw = $raw.Replace('status: merged', "status: $variant") }
+      }
+      if ($variant -cne 'hot-directory') { [IO.File]::WriteAllText($path, $raw) }
+      $before = Get-TargetArchiveState $root
+      $arguments = @('-CardsOnly', '-CardIds', 'T0-ONE,T0-TWO'); if ($dry) { $arguments += '-DryRun' }
+      Assert-TargetArchiveResult (Invoke-TargetArchive $root $arguments) $false $marker
+      Assert-TargetArchiveSame $before (Get-TargetArchiveState $root); $taCases++
+    }
+  }
+  # R2: mode presence cannot be swallowed by an earlier check/lessons branch.
+  $modes = @(
+    @('-CardsOnly'), @('-CardIds', 'T0-ONE'),
+    @('-CardsOnly', '-CardIds', 'T0-ONE', '-Check'),
+    @('-CardsOnly', '-CardIds', 'T0-ONE', '-CheckCardsIndex'),
+    @('-CardsOnly', '-CardIds', 'T0-ONE', '-LessonsOnly'),
+    @('-CardsOnly', '-CardIds', 'T0-ONE', '-LessonIds', 'L1'),
+    @('-CardsOnly', '-CardIds', 'T0-ONE', '-RestoreLessonIds', 'L1')
+  )
+  foreach ($arguments in $modes) {
+    $root = New-TargetArchiveFixture; $before = Get-TargetArchiveState $root
+    Assert-TargetArchiveResult (Invoke-TargetArchive $root $arguments) $false '[ARCHIVE-CARD-MODE]'
+    Assert-TargetArchiveSame $before (Get-TargetArchiveState $root); $taCases++
+  }
+  # P4: a declared worktree path that does not exist does not hold the card.
+  $root = New-TargetArchiveFixture; $hot = Join-Path $root 'specs/tasks/T0-ONE.md'
+  [IO.File]::WriteAllText($hot, ([IO.File]::ReadAllText($hot).Replace('status: merged', "status: merged`nworktree: missing")))
+  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly','-CardIds','T0-ONE')) $true '[ARCHIVE-CARDS-OK]'
+  Assert-TargetArchiveIndex $root @('T0-COLD','T0-ONE'); $taCases++
+  # P5/R4: genuine PowerShell array/null/empty binding and explicitly false mixed switches.
+  $root = New-TargetArchiveFixture
+  Assert-TargetArchiveResult (Invoke-TargetArchiveBound $root @{ CardsOnly=$true; CardIds=@(' T0-TWO , T0-ONE ') }) $true '[ARCHIVE-CARDS-OK]'
+  Assert-TargetArchiveIndex $root @('T0-COLD','T0-ONE','T0-TWO'); $taCases++
+  foreach ($parameters in @(
+    @{ CardsOnly=$true; CardIds=$null },
+    @{ CardsOnly=$true; CardIds=@() },
+    @{ CardsOnly=$true; CardIds=@('T0-ONE','') }
+  )) {
+    $root = New-TargetArchiveFixture; $before = Get-TargetArchiveState $root
+    Assert-TargetArchiveResult (Invoke-TargetArchiveBound $root $parameters) $false '[ARCHIVE-CARD-BADID]'
+    Assert-TargetArchiveSame $before (Get-TargetArchiveState $root); $taCases++
+  }
+  foreach ($key in @('Check','CheckCardsIndex','LessonsOnly')) {
+    $parameters = @{ CardsOnly=$true; CardIds=@('T0-ONE') }; $parameters[$key] = $false
+    $root = New-TargetArchiveFixture; $before = Get-TargetArchiveState $root
+    Assert-TargetArchiveResult (Invoke-TargetArchiveBound $root $parameters) $false '[ARCHIVE-CARD-MODE]'
+    Assert-TargetArchiveSame $before (Get-TargetArchiveState $root); $taCases++
+  }
+  foreach ($parameters in @(@{CardsOnly=$false;CardIds=@('T0-ONE')}, @{CardsOnly=$false})) {
+    $root = New-TargetArchiveFixture; $before = Get-TargetArchiveState $root
+    Assert-TargetArchiveResult (Invoke-TargetArchiveBound $root $parameters) $false '[ARCHIVE-CARD-MODE]'
+    Assert-TargetArchiveSame $before (Get-TargetArchiveState $root); $taCases++
+  }
+  # P6: a first archive starts without a cold directory; no debt/lessons source exists.
+  $root = Join-Path $ar ('targeted-bare-' + [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path (Join-Path $root 'specs/tasks') -Force | Out-Null
+  [IO.File]::WriteAllText((Join-Path $root 'specs/tasks/T0-ONE.md'), "---`nid: T0-ONE`ntitle: T0-ONE title`nstatus: merged`n---`n")
+  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly','-CardIds','T0-ONE','-DryRun')) $true '[ARCHIVE-CARDS-DRYRUN]'
+  if (Test-Path -LiteralPath (Join-Path $root 'specs/archive')) { throw '[12E-TARGETED-DRYRUN] created archive directory' }
+  Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly','-CardIds','T0-ONE')) $true '[ARCHIVE-CARDS-OK]'
+  Assert-TargetArchiveIndex $root @('T0-ONE'); $taCases++
+  # R5: archived-only selections must still be merged with matching identity and no live declared worktree.
+  foreach ($variant in @('status','identity','worktree')) {
+    $root = New-TargetArchiveFixture; $path = Join-Path $root 'specs/archive/tasks/T0-COLD.md'
+    $raw = [IO.File]::ReadAllText($path); $marker = '[ARCHIVE-CARD-NOT-MERGED]'
+    if ($variant -ceq 'status') { $raw = $raw.Replace('status: merged','status: todo') }
+    if ($variant -ceq 'identity') { $raw = $raw.Replace('id: T0-COLD','id: T0-WRONG'); $marker='[ARCHIVE-CARD-IDENTITY]' }
+    if ($variant -ceq 'worktree') {
+      New-Item -ItemType Directory -Path (Join-Path $root 'held') | Out-Null
+      $raw = $raw.Replace('status: merged',"status: merged`nworktree: held"); $marker='[ARCHIVE-HELD]'
+    }
+    [IO.File]::WriteAllText($path,$raw); $before = Get-TargetArchiveState $root
+    Assert-TargetArchiveResult (Invoke-TargetArchive $root @('-CardsOnly','-CardIds','T0-ONE,T0-COLD')) $false $marker
+    Assert-TargetArchiveSame $before (Get-TargetArchiveState $root); $taCases++
+  }
+  Write-Host "[12E-TARGETED-PASS] cases=$taCases"
+} catch {
+  $arFail += "12e targeted archive: $($_.Exception.Message)"
+}
+
+# O1-O4: observe operations, not just final bytes. The normal cases above run the
+# unchanged production script. This copy adds entry probes to the two existing
+# I/O helpers; transparent cmdlet proxies retain their real filesystem behavior.
+$taObserver = @'
+param([string]$Payload)
+$ErrorActionPreference = 'Stop'
+$p = Get-Content -LiteralPath $Payload -Raw | ConvertFrom-Json -AsHashtable
+$global:taEvents = [Collections.Generic.List[object]]::new()
+$global:taFault = $p.Fault
+$global:taOrdinal = 0
+$global:taRoot = [IO.Path]::GetFullPath($p.Root)
+function global:Observe-TargetIO([string]$Operation, $Arguments) {
+  $data = $false; $forbidden = $false; $hotScan = $false
+  foreach ($key in @('LiteralPath','Path')) {
+    if (-not $Arguments.ContainsKey($key)) { continue }
+    foreach ($path in @($Arguments[$key])) {
+      $rel = [IO.Path]::GetRelativePath($global:taRoot, [IO.Path]::GetFullPath([string]$path)).Replace('\','/')
+      if ($rel -eq '..' -or $rel.StartsWith('../') -or [IO.Path]::IsPathRooted($rel)) { continue }
+      $data = $true
+      if ($Operation -in @('Test-Path','Get-ChildItem','Get-Content','Get-ScaffoldTextNewline','ReadAllBytes')) {
+        if ($rel -match '^(specs/(tech-debt-tracker\.md|archive/(tech-debt-(archive|index)\.md|lessons-archive\.md))|docs/(LESSONS\.md|lessons(/|$)))') {
+          $forbidden = $true
+        }
+        if ($Operation -eq 'Get-ChildItem') {
+          if ($rel -match '^specs/tasks(/|$)') { $hotScan = $true }
+          # Only the complete cold-card projection may enumerate fixture data.
+          if ($rel -notmatch '^specs/archive/tasks(/|$)') { $forbidden = $true }
+        }
+      }
+    }
+  }
+  $global:taEvents.Add(@{ Operation=$Operation; Arguments=$Arguments; Data=$data; Forbidden=$forbidden })
+  if ($hotScan) { throw '[12E-TARGETED-HOT-SCAN]' }
+  if ($forbidden) { throw '[12E-TARGETED-FORBIDDEN-READ]' }
+  if ($Operation -eq $global:taFault) {
+    $global:taOrdinal++
+    if ($global:taOrdinal -eq 2 -or $Operation -eq 'Write-ScaffoldUtf8Text') {
+      throw '[12E-TARGETED-INJECTED-IO]'
+    }
+  }
+}
+function global:Read-TargetArchiveBytes([string]$Path) {
+  Observe-TargetIO 'ReadAllBytes' @{Path=$Path}
+  return ,([IO.File]::ReadAllBytes($Path))
+}
+function global:Write-TargetArchiveText([string]$Path, [string]$Text, [Text.Encoding]$Encoding = [Text.UTF8Encoding]::new($false)) {
+  Observe-TargetIO 'WriteAllText' @{Path=$Path}
+  [IO.File]::WriteAllText($Path, $Text, $Encoding)
+}
+foreach ($name in @('Test-Path','Get-Content','Get-ChildItem','Move-Item','Remove-Item','New-Item')) {
+  $meta = [Management.Automation.CommandMetadata]::new((Get-Command $name -CommandType Cmdlet))
+  $proxy = [Management.Automation.ProxyCommand]::Create($meta).Replace("`r`n","`n")
+  $anchor = "begin`n{"
+  if (-not $proxy.Contains($anchor)) { throw '[12E-TARGETED-PROXY-ANCHOR]' }
+  $proxy = $proxy.Replace($anchor, ($anchor + "`n    Observe-TargetIO '$name' `$PSBoundParameters"))
+  Set-Item -Path "Function:global:$name" -Value ([scriptblock]::Create($proxy))
+}
+foreach ($name in @('git','gh','curl','wget','Invoke-WebRequest','Invoke-RestMethod',
+    'Start-Process','pwsh','powershell','task.ps1','cleanup.ps1')) {
+  $body = "`$global:taEvents.Add(@{Operation='FORBIDDEN:$name';Arguments=@{}}); throw '[12E-TARGETED-FORBIDDEN-CALL]'"
+  Set-Item -Path "Function:global:$name" -Value ([scriptblock]::Create($body))
+}
+try {
+  $bound = $p.Parameters
+  & $p.Script -RepoRoot $p.Root @bound
+  $code = $LASTEXITCODE
+} catch { Write-Output $_; $code = 1 }
+finally {
+  [IO.File]::WriteAllText($p.Trace, (ConvertTo-Json -InputObject @($global:taEvents.ToArray()) -Depth 8))
+}
+exit $code
+'@
+$taObservedDir = Join-Path $ar 'targeted-observer'
+New-Item -ItemType Directory -Path $taObservedDir | Out-Null
+$taObservedScript = Join-Path $taObservedDir 'archive.ps1'
+foreach ($name in @('_cards.ps1','_encoding.ps1')) {
+  Copy-Item -LiteralPath (Join-Path (Split-Path $arScript) $name) -Destination $taObservedDir
+}
+$taSource = [IO.File]::ReadAllText($arScript)
+$taTokens = $null; $taErrors = $null
+$taAst = [Management.Automation.Language.Parser]::ParseInput($taSource, [ref]$taTokens, [ref]$taErrors)
+if ($taErrors.Count) { throw '[12E-TARGETED-SOURCE-PARSE]' }
+$taHelpers = @($taAst.FindAll({ param($n)
+  $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+  $n.Name -in @('Get-ScaffoldTextNewline','Write-ScaffoldUtf8Text')
+}, $true))
+if ($taHelpers.Count -ne 2) { throw '[12E-TARGETED-HELPER-ANCHOR]' }
+$taEdits = @($taHelpers | ForEach-Object {
+  @{ Offset=$_.Body.EndBlock.Statements[0].Extent.StartOffset; Length=0;
+     Text="Observe-TargetIO '$($_.Name)' @{Path=`$Path}; " }
+})
+# Trace direct byte reads too: a forbidden debt probe must not hide behind the helper.
+foreach ($call in $taAst.FindAll({ param($n)
+  $n -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Static -and
+  $n.Expression.Extent.Text -match '^\[(?:System\.)?IO\.File\]$'
+}, $true)) {
+  $wrapper = switch ($call.Member.Value) {
+    'ReadAllBytes' { 'Read-TargetArchiveBytes' }
+    'WriteAllText' { 'Write-TargetArchiveText' }
+    default { throw "[12E-TARGETED-UNOBSERVED-FILE-API] $($call.Member.Value)" }
+  }
+  $argsText = @($call.Arguments | ForEach-Object { '(' + $_.Extent.Text + ')' }) -join ' '
+  $taEdits += @{Offset=$call.Extent.StartOffset;Length=$call.Extent.EndOffset-$call.Extent.StartOffset;
+    Text="($wrapper $argsText)"}
+}
+foreach ($edit in $taEdits | Sort-Object @{Expression='Offset';Descending=$true}, @{Expression='Length';Descending=$true}) {
+  $taSource = $taSource.Remove($edit.Offset,$edit.Length).Insert($edit.Offset,$edit.Text)
+}
+[IO.File]::WriteAllText($taObservedScript, $taSource)
+$taRunner = Join-Path $taObservedDir 'observe.ps1'
+[IO.File]::WriteAllText($taRunner, $taObserver)
+function Invoke-TargetArchiveObserved([string]$Root, [hashtable]$Parameters, [string]$Fault = '') {
+  $id = [guid]::NewGuid().ToString('N')
+  $trace = Join-Path $taObservedDir "$id.trace.json"
+  $payload = Join-Path $taObservedDir "$id.payload.json"
+  @{ Script=$taObservedScript; Root=$Root; Parameters=$Parameters; Fault=$Fault; Trace=$trace } |
+    ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $payload -Encoding utf8
+  $text = & pwsh -NoProfile -File $taRunner -Payload $payload 2>&1 | Out-String
+  $code = $LASTEXITCODE
+  if (-not (Test-Path -LiteralPath $trace)) { throw "[12E-TARGETED-TRACE-MISSING] $text" }
+  return [pscustomobject]@{ Code=$code; Text=$text; Events=@(Get-Content $trace -Raw | ConvertFrom-Json) }
+}
+function Assert-TargetArchiveObservation($Result, [switch]$NoData, [switch]$NoWrites) {
+  foreach ($event in $Result.Events) {
+    if ($event.Operation -like 'FORBIDDEN:*' -or $event.Forbidden) {
+      throw '[12E-TARGETED-OBSERVED-FORBIDDEN]'
+    }
+    if ($NoData -and $event.Data -and $event.Operation -in @('Test-Path','Get-Content','Get-ChildItem','Get-ScaffoldTextNewline','ReadAllBytes')) {
+      throw '[12E-TARGETED-EARLY-READ]'
+    }
+    if ($NoWrites -and $event.Operation -in @('Move-Item','Remove-Item','New-Item','Write-ScaffoldUtf8Text','WriteAllText')) {
+      throw '[12E-TARGETED-OBSERVED-WRITE]'
+    }
+  }
+}
+try {
+  # O1: successful Quiet call observes real moves/index writes; repeat detects even same-byte rewrites.
+  $root = New-TargetArchiveFixture
+  $params = @{CardsOnly=$true;CardIds=@('T0-ONE','T0-TWO');Quiet=$true}
+  $result = Invoke-TargetArchiveObserved $root $params
+  Assert-TargetArchiveResult $result $true '[ARCHIVE-CARDS-OK]' '[ARCHIVE-CARDS-OK] selected=2; moved=2'
+  Assert-TargetArchiveObservation $result
+  foreach ($op in @('Test-Path','Get-ChildItem','Get-Content','Get-ScaffoldTextNewline','Move-Item','Write-ScaffoldUtf8Text')) {
+    if ($op -notin $result.Events.Operation) { throw "[12E-TARGETED-OBSERVER-INACTIVE] $op" }
+  }
+  Assert-TargetArchiveIndex $root @('T0-COLD','T0-ONE','T0-TWO')
+  $before = Get-TargetArchiveState $root
+  $result = Invoke-TargetArchiveObserved $root $params
+  Assert-TargetArchiveResult $result $true '[ARCHIVE-CARDS-OK]' '[ARCHIVE-CARDS-OK] selected=2; moved=0'
+  Assert-TargetArchiveObservation $result -NoWrites
+  Assert-TargetArchiveSame $before (Get-TargetArchiveState $root)
+  # O2: all mixed parameters, including bound false/empty values, refuse before archive reads.
+  foreach ($key in @('Check','CheckCardsIndex','LessonsOnly','LessonIds','RestoreLessonIds')) {
+    foreach ($value in @($false,$true)) {
+      $root = New-TargetArchiveFixture; $before = Get-TargetArchiveState $root
+      $params = @{CardsOnly=$true;CardIds=@('T0-ONE')}; $params[$key] = $value
+      $result = Invoke-TargetArchiveObserved $root $params
+      Assert-TargetArchiveResult $result $false '[ARCHIVE-CARD-MODE]'
+      Assert-TargetArchiveObservation $result -NoData -NoWrites
+      Assert-TargetArchiveSame $before (Get-TargetArchiveState $root)
+    }
+  }
+  $root = New-TargetArchiveFixture; $before = Get-TargetArchiveState $root
+  $result = Invoke-TargetArchiveObserved $root @{CardsOnly=$true;CardIds='T0-ONE';DryRun=$true;Quiet=$true}
+  Assert-TargetArchiveResult $result $true '[ARCHIVE-CARDS-DRYRUN]' '[ARCHIVE-CARDS-DRYRUN] selected=1; no writes'
+  Assert-TargetArchiveObservation $result -NoWrites
+  Assert-TargetArchiveSame $before (Get-TargetArchiveState $root)
+  # O3: failure on second move/removal or final index write retains completed work; rerun repairs index.
+  foreach ($fault in @('Move-Item','Remove-Item','Write-ScaffoldUtf8Text')) {
+    $root = New-TargetArchiveFixture
+    if ($fault -eq 'Remove-Item') {
+      foreach ($id in @('T0-ONE','T0-TWO')) {
+        Copy-Item -LiteralPath (Join-Path $root "specs/tasks/$id.md") -Destination (Join-Path $root "specs/archive/tasks/$id.md")
+      }
+    }
+    $before = Get-TargetArchiveState $root
+    $hashes = @{}
+    foreach ($id in @('T0-ONE','T0-TWO')) { $hashes[$id] = (Get-FileHash (Join-Path $root "specs/tasks/$id.md")).Hash }
+    $params = @{CardsOnly=$true;CardIds=@('T0-ONE','T0-TWO')}
+    $result = Invoke-TargetArchiveObserved $root $params $fault
+    Assert-TargetArchiveResult $result $false '[12E-TARGETED-INJECTED-IO]'
+    Assert-TargetArchiveObservation $result
+    $completed = @($result.Events | Where-Object { $_.Operation -in @('Move-Item','Remove-Item') })[0]
+    $completedPath = if ($completed.Arguments.psobject.Properties['LiteralPath']) {
+      @($completed.Arguments.LiteralPath)[0]
+    } else { @($completed.Arguments.Path)[0] }
+    if (Test-Path -LiteralPath $completedPath) { throw '[12E-TARGETED-ROLLBACK] completed operation undone' }
+    foreach ($id in @('T0-ONE','T0-TWO')) {
+      $copies = @('specs/tasks','specs/archive/tasks') | ForEach-Object { Join-Path $root "$_/$id.md" } |
+        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+      if (-not @($copies).Count) { throw '[12E-TARGETED-LOSS] no copy' }
+      foreach ($copy in $copies) {
+        if ((Get-FileHash $copy).Hash -cne $hashes[$id]) { throw '[12E-TARGETED-LOSS] incomplete copy' }
+      }
+    }
+    Assert-TargetArchiveSame $before (Get-TargetArchiveState $root) @('specs/tasks/T0-ONE.md',
+      'specs/tasks/T0-TWO.md','specs/archive/tasks/T0-ONE.md','specs/archive/tasks/T0-TWO.md','specs/archive/cards-index.md')
+    # Recovery runs the untouched production script, not the observer copy.
+    Assert-TargetArchiveResult (Invoke-TargetArchiveBound $root $params) $true '[ARCHIVE-CARDS-OK]'
+    Assert-TargetArchiveIndex $root @('T0-COLD','T0-ONE','T0-TWO')
+    foreach ($id in @('T0-ONE','T0-TWO')) {
+      if (Test-Path (Join-Path $root "specs/tasks/$id.md")) { throw '[12E-TARGETED-RECOVERY] source remains' }
+    }
+  }
+  # O4: a BOM/CRLF debt file must not influence absent or newline-free cards-index LF fallback.
+  foreach ($seed in @($null,'no-newline')) {
+    $root = New-TargetArchiveFixture
+    [IO.File]::WriteAllText((Join-Path $root 'specs/archive/tech-debt-archive.md'), "debt`r`n", [Text.UTF8Encoding]::new($true))
+    if ($null -ne $seed) { [IO.File]::WriteAllText((Join-Path $root 'specs/archive/cards-index.md'), $seed) }
+    $result = Invoke-TargetArchiveObserved $root @{CardsOnly=$true;CardIds='T0-ONE'}
+    Assert-TargetArchiveResult $result $true '[ARCHIVE-CARDS-OK]'
+    Assert-TargetArchiveObservation $result
+    Assert-TargetArchiveIndex $root @('T0-COLD','T0-ONE') "`n"
+  }
+  Write-Host '[12E-TARGETED-OBSERVATION-PASS] operation boundaries and failure recovery'
+} catch { $arFail += "12e targeted observations: $($_.Exception.Message)" }
 
   Remove-Item -Recurse -Force $ar -ErrorAction SilentlyContinue
   if ($arFail.Count) { Fail ("12e archive.ps1 冷存压缩闸失败：`n    - " + ($arFail -join "`n    - ")) }
@@ -14861,12 +15431,13 @@ if (-not $fail -and -not $gitPost) {
   Write-Host '  17ib skipped (git absent; the hermetic review repo cannot be built)' -ForegroundColor DarkGray
 }
 elseif (-not $fail) {
-  # The repository's deployed policy deliberately remains tier-0=advisory under an armed required gate.
-  # The hermetic cases below exercise a stricter synthetic map; assert the live policy separately so that
-  # fixture setup cannot silently redefine what this checkout actually ships.
+  # The repository's deployed policy is tier-0=adversarial under an armed required gate
+  # (T0-REVIEW-GOVERNING-DOCS raised it from advisory, so docs that define the gates keep the full class).
+  # The hermetic cases below exercise a synthetic map with all three classes; assert the live policy
+  # separately so that fixture setup cannot silently redefine what this checkout actually ships.
   $ibProductionIntensity = Get-ScaffoldReviewIntensityByTier
-  if (([string]$ibProductionIntensity['0'] -ne 'advisory') -or (([string]$ScaffoldConfig.ReviewGate).Trim() -ne 'required')) {
-    Fail "17ib production-policy drift: expected ReviewIntensityByTier['0']='advisory' with ReviewGate='required'; fixture-only skip routing must not mask a changed local policy."
+  if (([string]$ibProductionIntensity['0'] -ne 'adversarial') -or (([string]$ScaffoldConfig.ReviewGate).Trim() -ne 'required')) {
+    Fail "17ib production-policy drift: expected ReviewIntensityByTier['0']='adversarial' with ReviewGate='required'; fixture-only skip routing must not mask a changed local policy."
   }
   $ibRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("st17ib_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
   $ibSavedPath = $env:PATH

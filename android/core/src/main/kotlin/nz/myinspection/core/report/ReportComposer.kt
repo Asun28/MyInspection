@@ -6,12 +6,16 @@ import nz.myinspection.core.report.content.ReportContentItem
 import nz.myinspection.core.report.content.ReportContentPhoto
 import nz.myinspection.core.report.content.ReportContentRoom
 import nz.myinspection.core.report.content.ReportContentSummaryItem
+import nz.myinspection.core.report.pdf.PdfGeometry
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 /** Pure Kotlin layout engine. Renderers consume measured runs and slots without wrapping or pagination. */
-class ReportComposer(private val textMeasurer: TextMeasurer) {
+class ReportComposer(
+    private val textMeasurer: TextMeasurer,
+    private val typography: ReportTypography = ReportTypography.DEFAULT,
+) {
     private val adapter = ReportContentAdapter()
 
     /**
@@ -236,7 +240,7 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
     private fun coverElision(remaining: Int): String = "$CAPTION_ELISION $remaining more rows / 另有 $remaining 行见摘要"
 
     private fun measuredHeight(text: String, style: TextStyle): Int =
-        textMeasurer.measure(text, style, BODY_WIDTH_MM).let { it.lines.size * it.lineHeightMm }
+        measureText(text, TextLanguage.NEUTRAL, style, BODY_WIDTH_MM).let { it.lines.size * it.lineHeightMm }
 
     private fun sectionTitle(key: String, title: BilingualText): SizedBlock {
         val textRuns = bilingualRuns(title, TextStyle.TITLE, 180)
@@ -331,10 +335,13 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
     ): ImageSlotBlock {
         val capturedAt = photo.capturedAt
         val caption = "${photo.reference} · ${photo.source} · ${isoUtc(capturedAt)}"
-        val measured = textMeasurer.measure(caption, TextStyle.CAPTION, widthMm)
+        val measured = measureText(caption, TextLanguage.NEUTRAL, TextStyle.CAPTION, widthMm)
         val kept = measured.lines.take(MAX_CAPTION_LINES).toMutableList()
+        var lastSnapshot = measured.metricSnapshot
         if (measured.lines.size > MAX_CAPTION_LINES) {
-            kept[kept.lastIndex] = elidedLineThatFits(kept.last(), widthMm)
+            val (candidate, snapshot) = elidedLineThatFits(kept.last(), widthMm)
+            kept[kept.lastIndex] = candidate
+            lastSnapshot = snapshot
         }
         val textRuns = kept.mapIndexed { index, line ->
             TextRun(
@@ -345,6 +352,7 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
                 y + imageHeightMm + index * measured.lineHeightMm,
                 widthMm,
                 measured.lineHeightMm,
+                if (index == kept.lastIndex) lastSnapshot else measured.metricSnapshot,
             )
         }
         val height = imageHeightMm + kept.size * measured.lineHeightMm + 2
@@ -393,11 +401,12 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
     }
 
     /** Removes complete Unicode code points until the marker measures as one line in the target column. */
-    private fun elidedLineThatFits(line: String, widthMm: Int): String {
+    private fun elidedLineThatFits(line: String, widthMm: Int): Pair<String, TextMetricSnapshot> {
         var prefix = line
         while (true) {
             val candidate = prefix + CAPTION_ELISION
-            if (textMeasurer.measure(candidate, TextStyle.CAPTION, widthMm).lines.size == 1) return candidate
+            val measured = measureText(candidate, TextLanguage.NEUTRAL, TextStyle.CAPTION, widthMm)
+            if (measured.lines.size == 1) return candidate to measured.metricSnapshot
             require(prefix.isNotEmpty()) {
                 "the caption elision marker cannot fit the ${widthMm}mm caption column"
             }
@@ -440,7 +449,7 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         // FooterBlock.dataHash for verification.
         val shortHash = dataHash.take(SHORT_HASH_LENGTH)
         val footerText = "$shortHash · $page/$totalPages"
-        val measured = textMeasurer.measure(footerText, TextStyle.CAPTION, BODY_WIDTH_MM)
+        val measured = measureText(footerText, TextLanguage.NEUTRAL, TextStyle.CAPTION, BODY_WIDTH_MM)
         require(measured.lines.size == 1 && measured.lineHeightMm <= FOOTER_HEIGHT_MM) {
             "footer text must measure as one line within the 10mm strip"
         }
@@ -453,6 +462,7 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
                 0,
                 BODY_WIDTH_MM,
                 measured.lineHeightMm,
+                measured.metricSnapshot,
             ),
         )
         return PlacedBlock(
@@ -476,11 +486,26 @@ class ReportComposer(private val textMeasurer: TextMeasurer) {
         widthMm: Int,
         startY: Int = 0,
     ): List<TextRun> {
-        val measured = textMeasurer.measure(text, style, widthMm)
+        val measured = measureText(text, language, style, widthMm)
         return measured.lines.mapIndexed { index, line ->
-            TextRun(line, language, style, 0, startY + index * measured.lineHeightMm, widthMm, measured.lineHeightMm)
+            TextRun(
+                line, language, style, 0, startY + index * measured.lineHeightMm,
+                widthMm, measured.lineHeightMm, measured.metricSnapshot,
+            )
         }
     }
+
+    private fun measureText(text: String, language: TextLanguage, style: TextStyle, widthMm: Int): MeasuredText =
+        textMeasurer.measure(text, language, style, widthMm).also { measured ->
+            val profile = typography.profileFor(style)
+            val metric = measured.metricSnapshot
+            require(measured.lineHeightMm == profile.lineHeightMm) { "measured line height disagrees with selected profile" }
+            require(metric.style == style) { "measured snapshot disagrees with request" }
+            require(metric.language == language) { "measured snapshot disagrees with request" }
+            require(metric.fontRole == typography.roleFor(language)) { "measured font role disagrees with selected profile" }
+            require(metric.fontSizePt == profile.fontSizePt) { "measured font size disagrees with selected profile" }
+            metric.requireFitsLineBox(PdfGeometry.mmToPt(measured.lineHeightMm))
+        }
 
     private fun List<TextRun>.endY(): Int = maxOfOrNull { it.yMm + it.heightMm } ?: 0
 

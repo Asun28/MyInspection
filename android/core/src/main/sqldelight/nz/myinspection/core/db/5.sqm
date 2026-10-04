@@ -1,0 +1,87 @@
+-- v5 -> v6: preserve all legacy artifact evidence; every old receipt is PDF.
+ALTER TABLE report_export_receipt RENAME TO report_export_receipt_v5;
+DROP INDEX idx_report_export_receipt_identity;
+
+CREATE TABLE report_export_receipt (
+    id TEXT NOT NULL PRIMARY KEY,
+    inspection_id TEXT NOT NULL,
+    audience TEXT NOT NULL,
+    quality TEXT NOT NULL,
+    rel_path TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    exported_at INTEGER NOT NULL,
+    format TEXT NOT NULL,
+    CHECK (length(id) > 0),
+    CHECK (length(inspection_id) > 0),
+    CHECK (audience IN ('LANDLORD', 'TENANT')),
+    CHECK ((format = 'PDF' AND quality IN ('LOW', 'MEDIUM', 'HIGH', 'EXTRA_HIGH'))
+        OR (format = 'HTML' AND quality = 'NONE')),
+    CHECK (length(rel_path) > 0),
+    CHECK (length(content_hash) > 0),
+    CHECK (byte_size >= 0),
+    CHECK (exported_at > 0)
+);
+
+CREATE UNIQUE INDEX idx_report_export_receipt_identity
+ON report_export_receipt (inspection_id, audience, format, quality);
+
+INSERT INTO report_export_receipt (id,inspection_id,audience,quality,rel_path,content_hash,byte_size,exported_at,format)
+SELECT id,inspection_id,audience,quality,rel_path,content_hash,byte_size,exported_at,'PDF'
+FROM report_export_receipt_v5;
+DROP TABLE report_export_receipt_v5;
+
+-- One provenance receipt per inspection; inspection_id reuses the native UUID identity.
+-- Immutable evidence has imported_at rather than mutable audit/soft-delete fields,
+-- as with archive receipts. COMMIT owns live inspection authorization and lifecycle.
+-- JSON is the PLANNER's canonical, privacy-reviewed receipt: SQL does not validate
+-- its grammar, hash agreement or content. Date checks here enforce storage shape;
+-- the planner/commit boundary owns strict calendar validity.
+CREATE TABLE report_import_receipt (
+    inspection_id TEXT NOT NULL PRIMARY KEY,
+    source_sha256 TEXT NOT NULL,
+    source_byte_size INTEGER NOT NULL,
+    extractor_version TEXT NOT NULL,
+    manifest_sha256 TEXT NOT NULL,
+    source_date TEXT NOT NULL,
+    mapping_receipt_json TEXT NOT NULL,
+    mapping_sha256 TEXT NOT NULL,
+    imported_at INTEGER NOT NULL,
+    CHECK (typeof(inspection_id) = 'text' AND length(inspection_id) > 0),
+    CHECK (typeof(source_sha256) = 'text' AND length(source_sha256) = 64 AND length(CAST(source_sha256 AS BLOB)) = 64 AND source_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK (typeof(source_byte_size) = 'integer' AND source_byte_size > 0),
+    CHECK (typeof(extractor_version) = 'text' AND length(extractor_version) BETWEEN 1 AND 64
+        AND length(CAST(extractor_version AS BLOB)) = length(extractor_version) AND extractor_version NOT GLOB '*[^A-Z0-9_-]*'),
+    CHECK (typeof(manifest_sha256) = 'text' AND length(manifest_sha256) = 64 AND length(CAST(manifest_sha256 AS BLOB)) = 64 AND manifest_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK (typeof(source_date) = 'text' AND length(CAST(source_date AS BLOB)) = 10
+        AND source_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+    CHECK (typeof(mapping_receipt_json) = 'text' AND length(mapping_receipt_json) > 0),
+    CHECK (typeof(mapping_sha256) = 'text' AND length(mapping_sha256) = 64 AND length(CAST(mapping_sha256 AS BLOB)) = 64 AND mapping_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK (typeof(imported_at) = 'integer' AND imported_at > 0)
+);
+
+-- Source lookup/idempotency index. The INSERT guard below enforces uniqueness
+-- even for caller-supplied OR IGNORE / OR REPLACE, independent of recursive_triggers.
+CREATE INDEX idx_report_import_receipt_source ON report_import_receipt (source_sha256);
+
+-- v6 evidence-only guards: abort without side effects; no domain writes in triggers.
+CREATE TRIGGER report_import_receipt_no_duplicate
+BEFORE INSERT ON report_import_receipt
+WHEN new.inspection_id IN (SELECT inspection_id FROM report_import_receipt)
+    OR new.source_sha256 IN (SELECT source_sha256 FROM report_import_receipt)
+BEGIN
+    SELECT RAISE(ABORT, 'Duplicate import provenance');
+END;
+
+CREATE TRIGGER report_import_receipt_no_update
+BEFORE UPDATE ON report_import_receipt
+BEGIN
+    SELECT RAISE(ABORT, 'Immutable import provenance');
+END;
+
+CREATE TRIGGER report_import_receipt_no_delete
+BEFORE DELETE ON report_import_receipt
+BEGIN
+    SELECT RAISE(ABORT, 'Immutable import provenance');
+END;
+

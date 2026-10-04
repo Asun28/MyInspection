@@ -69,6 +69,66 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-10-05 登记交付**：`T0-TRIAGE-EVIDENCE-SPLIT-REGISTER` 经 PR #321 合并（reviewed head `879dea35374528462259ef0f85aae0c3623fe4eb`，CI `37238972191` attempt 1，squash `f8ca11743ab64bcd4ec17177c423f86da2a6d4de`）。登记 INPUTS 前置卡并保留 CASE 的 dual-actual 最终验收；当前主线同步后只更新三项源码摘要绑定。30 个 schema 样例与 14 个原生子检查、verify、范围、许可、防泄露和完整 diff 预算均通过；正式 Sol/high R3 的 spec/standards 均 pass、零 finding。此前 BLOCK 与全部历史证据保留。本次仅完成登记，INPUTS/CASE 行为仍待各自交付，不计新增产品。
+
+- **Round4 evidence contract delivered (2026-10-05, PR #441)**: head 5163db1b2c60483e20476ec1341718288a502460, independent Sol/high R3 round1 spec/standards pass with zero findings, exact CI 37218685621/1, squash b68235dba6f01130711f99b370eea4b6c03495d7. The existing closeout card now carries the fixed original runtime-data entry, complete readable verifier and negative harness. Original eight paths, four document operations, cold hashes and read-only DoD remain unchanged. Original and synthetic verification are distinct; missing historical endpoint arrays remain disclosed. PR440 still requires its own later authorized continuation; no product or strict-closure increment.
+
+- **Round4 metadata closeout contract registered (2026-10-05, PR #438)**: reviewed head d364c40f40cce5309ec87886689dde6c62cfd31b, R3 round 2 spec/standards pass with zero findings, exact CI 37213732874/1, squash 5575294855b188db5c4e317924fdf2c4ffb3feb0. The eight-path future card binds StorageAndroid and MeasurementBinding source-plus-append bytes and whole-document preservation. Registration does not execute the future task or archive product cards; its separate R1-R5 remains required. Fixture and TEXT-METRICS-OPS remain round5, after full round4 closure.
+
+**2026-10-04 定向归档能力交付**：`T0-ARCHIVE-TARGETED-CARDS` 经 [PR #436](https://github.com/Asun28/MyInspection/pull/436) 合并（reviewed head `52c1e0a75eaa54737ec35576acb91e00f10b452a`，CI `37207356196` attempt 1，merge `83b2f87ba5b2997beffb9418d86a9006586e3002`）。`archive.ps1 -CardsOnly -CardIds` 仅归档指名的 merged 卡，整批预检后移动，并由既有生成器重算冷卡索引。正式 R3 第 2 轮 spec/standards 均 pass、零 finding；全量五分片覆盖 17 闸，native 0。首轮两项测试覆盖缺口已修复，原始失败保留，未 Reset。本次没有移动真实产品卡；AndroidStorage、DeviceFixture、MeasurementBinding 的归档与记账由后继单元完成。必要交付拆分，零新增产品。
+
+- **PDF measurement binding delivered (2026-10-04, PR #433)**: exact accepted measurement snapshots now follow all TextRun paths, including caption elision and split/rebased blocks. Head edf27103690ab6d062e95065ba2c4cf6798c6ac5 passed R3 round 2 and CI 37198374361/1; squash 16d708c0931bbe339d27d813a9e3dc717a4c66c8. PdfTextOp forwarding remains TEXT-METRICS-OPS; ADR0007 and targeted card archival remain pending.
+
+**2026-10-04 登记交付**：`T0-ARCHIVE-TARGETED-CARDS-REGISTER`（PR #432，squash `be5c5043`，reviewed `5c3aca0c`）登记定向卡片归档契约与两张卡的看板行。登记 DoD、防泄露检查和 10 项契约正反例通过，独立修复复核通过，正式 Sol/high R3 第 2 轮 pass 零 finding，精确 CI `37195579926` attempt 1 success。首轮三项契约问题已修复，未重置轮次。`T0-ARCHIVE-TARGETED-CARDS` 及其看板仍为 todo；本次未实现归档行为，零新增产品。
+
+**2026-09-26 远端交付**：`T0-CLAUDE-MD-RETIRE-MERGE` 经 [PR #428](https://github.com/Asun28/MyInspection/pull/428) 合并（`e89baad9`；reviewed head `a3ed42a0`，CI `36194273222` success，Codex R3 第 2 轮 pass、零 finding）。按用户 2026-09-26 裁定，「执行边界」的无 R3 合并范围加上 `post-merge.ps1 retire`：它开的退役 PR 只能把指名卡片的 status 改为 merged 并在其后加一行 superseded_by、在卡末追加一节、改该卡的看板行，越界即 `[POST-MERGE-SCOPE]`；「开发工作流」的 R5 行同步写明 retire 同样 CI 通过即合并。R3 第 1 轮指出 DoD 只查词，删掉 `[POST-MERGE-SCOPE]` 或 CI 子句仍会通过；DoD 改为逐字比对这两行（#429）后第 2 轮 pass。
+
+**2026-09-26 远端交付**：`T0-POST-MERGE-CARD-DRIFT` 经 [PR #419](https://github.com/Asun28/MyInspection/pull/419) 合并（`ff5e587e`；reviewed head `59d91899`，CI `36188375073` success，Codex R3 第 3 轮 pass、零 finding）。`post-merge.ps1 audit` 读 origin 钉住的那个提交里 `specs/tasks/` 的每张卡和本仓全部 PR：PR 已合并而卡未 merged 报 `[CARD-DRIFT-R5-MISSING]`，只有已关闭 PR 报 `[CARD-DRIFT-CLOSED]`；退出 0/1/2，git 或 gh 失败为 2、绝不报 NONE；抓取不写 ref 和 FETCH_HEAD，gh 经 GH_REPO 钉在 origin 的仓库。`post-merge.ps1 retire` 走 r5 的路径退役 PR 未合并就关闭的卡：卡不在 specs/tasks、已 merged、已有 superseded_by、有 open PR 或接替卡不存在时，在创建任何东西之前拒绝；白名单只含 status 改为 merged 加一行 superseded_by、追加的一节、本卡看板行。task-loop 增三条：合并后同一回合跑 r5、cleanup 与 R5.5；PR 未合并关闭的卡用 retire 收尾；开新卡前先跑 audit。R3 前两轮都是 #6 测试缺失：第 1 轮要实跑 audit 与 retire 的管道，第 2 轮要覆盖每个子命令分支与退出码并核验全部变异。为此 dispatch 改为 `Invoke-PostMergeCommand`，SelfCheck 以记录型 git/gh/pwsh 桩逐个驱动子命令（127 例），R4 60/60 以清单写进卡片、由 DoD 逐行核对。DoD 两次在 base 上收紧（#420、#422）。每轮修复前的全新上下文预审都抓到真问题：audit 的抓取会写 ref，gh 跟随调用方目录，origin URL 出错时被原样打印，测试工具继承 GIT_DIR。retire 与 r5 一样 CI 通过即合并，白名单在 2026-09-25 裁定的范围之内，但「执行边界」那条只点名 r5，是否扩到 retire 待用户定。
+
+**2026-09-25 远端交付**：`T0-UPSTREAM-LESSON-IDS` 经 [PR #416](https://github.com/Asun28/MyInspection/pull/416) 合并（`35021694`；reviewed head `a95557f3`，CI `36131605345` success；Codex R3 第 1 轮 pass 后 master 前移，续跑的第 2 轮仍 pass、零 finding）。`docs/LESSONS.md` 新增一节：PR #297 从上游 scaffold（`96ebfcec`）采纳的代码里有 461 行含经验 id，它们是上游账本的编号，与本仓账本各自编号，所以同一个 id 在本仓通常是另一条经验（核过 9 个，全部不同；例如 `selftest.ps1` 闸 17ib 引用的 L353）；该节给出判定命令 `git blame -L` 与离线查阅命令 `git show 96ebfcec:docs/lessons/LEDGER.md`。采纳来的文件按用户裁定保持原样；编号冲突已报上游 [claude-devops-scaffold#400](https://github.com/Asun28/claude-devops-scaffold/issues/400)，链接记在 `docs/SCAFFOLD-SYNC.md`。R4 5/5 变异全杀。
+
+**2026-09-25 远端交付**：`T0-CLAUDE-MD-L360-TD190` 经 [PR #411](https://github.com/Asun28/MyInspection/pull/411) 合并（`f1d3273a`；reviewed head `6dc86428`，CI `36130799922` success）。按用户要求：L360（变异运行器先证明自己能用）进本文件「经验铁律」，替下与 L21 并列最不活跃（复发 2）的 L267，其核心已含在 L360 里，L267 移到 `docs/lessons/powershell-and-gh.md`；「命令」节工作流自检一行按 `selftest.ps1` 的 `-TaskId` 参数说明重写，去掉脚本没有的 `-Base` 与已无对应规则的「产品路径仅报不适用」（TD190 paid，L344 复发 +1）。R3 由 Opus 5.5 代 Codex：第 1 轮 block 一条属实（新写法把「无路由行即升级全量」说成对所有 tier 成立，而 Tier 0 恒为底座闸、不升级），修后 pass。合并前 origin/master 带进另一会话的 #409（L353 晋升、L190 降级），合入后必须层仍为 10 个 id，并在新 head 上重跑 DoD、CI 与 R3。
+
+**2026-09-25 记录收口**：`T3-PDF-MEASUREMENT-REQUESTS` 标为 merged：产品 [PR #317](https://github.com/Asun28/MyInspection/pull/317)（`47b78af8`）于 2026-09-18 合并，卡片与看板此前停在 todo；其 DoD 于 2026-09-25 在 origin/master `8146d794` 重跑通过。第 3 轮留存证据发布卡 `T0-REMOTE-ROUND3-REQUESTS-EVIDENCE` 的 PR #323 经用户裁定关闭、未发布：第 2 轮 R3 的 finding 未修且已到轮次上限，证明脚本要求的单路径授权提交又被 2026-09-24 reconcile 提交 `13735e06` 打断，续做需修复加新的根授权。留存证据仍在 `_local/`，不作已发布证据声称。同日另有六张已交付卡补记 merged（PR #402）、两张被取代卡退役（PR #390）。
+
+**2026-09-25 远端交付**：`T0-POST-MERGE-R5-GUARDS` 经 [PR #398](https://github.com/Asun28/MyInspection/pull/398) 合并（`390bb3aa`；reviewed head `bb765b44`，CI `36125330154` success），是三个加固 PR 的最后一个。`post-merge.ps1 r5 -DryRun` 与真跑做同样的落位与检查（白名单判定、check-cards、check-secrets），打印 diff 后在推送前停下，由原有的 finally 删掉自己的 worktree 与本地分支；`prune -DryRun` 在任何 git 或 gh 调用前以 `[POST-MERGE-INPUT]` 拒绝。证据：对 `T0-POST-MERGE-LESSONS` 的一次真实预览（之后 origin 上无分支、无 PR，本地分支与 worktree 已删），以及一次把 git、gh 换成记录桩的拒绝（零调用）。task-loop 的 R5 步骤写明真跑前先预览。三张卡共 5 个 PR（卡片 #391、#392，代码 #393、#396、#398）加 3 个 R5 PR；R3 均由 Opus 5.5 经 `ReviewCommand` 代 Codex，均 pass、零 finding；每张卡 ship 前的全新上下文预审都抓到真问题（看板记录的表名与计数、名字带数字的 r5 入口漏检、SYNOPSIS 未提 `-DryRun`）。审后 origin/master 前进了 5 个无关提交（#394、#399–#402），已合入分支、在新 head 上重跑 CI 与 R3 再合并。后续卡：`T0-POST-MERGE-LESSONS`。
+
+**2026-09-26 远端交付**：`T1-LOCAL-DATA-SECURITY` 经 [PR #394](https://github.com/Asun28/MyInspection/pull/394) 合并（`ef480578`；reviewed head `94f27eeb`，CI `36123375795`，Codex R3 第 3 轮 pass、零 finding），多 PR 交付的最后一张（box #371、store #377、卡片 #358/#361/#369/#374/#382/#387/#388）。`AndroidSecretKeys`：AndroidKeyStore 中 AES-256、GCM 无填充、仅加解密、随机化加密、无用户认证、非 unlocked-device-required；设备已解锁时，无法读取、不是对称密钥或无法加密的条目在 seal 时替换（#374 用户裁定）；入口处普通失败转固定消息无 cause。debug 探针在 SM-A346E（API 33，TEE）与 API 35 模拟器上 23 项自验证；API 33/35 的 KeyInfo 读不到 unlocked-device-required，改由模拟器临时 PIN 锁屏时仍能打开信封来证明（用户裁定）。R4 24/24（只去掉 provider 名的变异在 Android 上等价，改用软件 key 变异）。全新上下文预审补上无法读取条目的重建、入口脱敏测试与 PIN 清除复核；R3 第 1 轮 pass 后 CI 闸遇 base 移动，续跑重评，第 2 轮 standards 一条（adb stderr 把安装 APK 路径写进日志），修复后第 3 轮 pass。本卡解锁 `T1-APP-BOUNDARY-ASSEMBLY`、`T1-PRIVACY-MANIFEST-POLICY-GATE`、`T2-MEDIA-ACCESS-BOUNDARY` 与 `T5-OPERATION-EVENT-STORE`。
+
+**2026-09-25 远端交付**：`T0-POST-MERGE-R5-WIRING` 经 [PR #396](https://github.com/Asun28/MyInspection/pull/396) 合并（`af554598`；reviewed head `ea0db4c0`，CI `36119448202` success），是三个加固 PR 的第 2 个。`post-merge.ps1 -SelfCheck` 在加载 `_guard.ps1` 与 `_ci.ps1` 后核本文件用到的每个 Verb-Noun 命令能解析、每个具名参数存在、每个 `Scaffold*` 变量已定义，一条失败消息列出全部断点；此前这两个库里的函数或参数改名会让 DoD 仍绿、而每次真跑 r5 或 prune 都失败。全新上下文预审发现名字带数字的 r5 入口 `Invoke-PostMergeR5` 原本被过滤掉、改名也不红，已修（名词允许数字，变量按不分大小写、去掉作用域前缀匹配）。SelfCheck 83 例、14/14 变异全杀；Opus R3 pass、零 finding。不覆盖：`git`/`gh`、r5 以 `pwsh -File` 启动的 `check-cards.ps1`/`check-secrets.ps1`、展开或按位置传的参数。后续卡：`T0-POST-MERGE-R5-GUARDS`。
+
+**2026-09-25 远端交付**：`T0-POST-MERGE-R5-BOARD-TABLE` 经 [PR #393](https://github.com/Asun28/MyInspection/pull/393) 合并（`5ea3ea2d`；reviewed head `5cf25719`，CI `36117231819` success）。用户要求把 `T0-POST-MERGE-R5-GUARDS` 的三处加固分成三个 PR 交付（卡片 #391、#392），R3 由 Opus 5.5 经 `ReviewCommand` 代 Codex。本卡：`post-merge.ps1 r5` 改看板时只认主卡片表里本卡的行（表头第二格 `卡 id`、末格 `卡片状态 / 备注`、表头下有分隔行、行的格数等于表头）。今日看板有 4 个卡 id 同时出现在其他表的第二列，旧逻辑下 r5 会停在 `[POST-MERGE-ANCHOR]`，现在取主表那一行。SelfCheck 75 例、9/9 变异全杀；Opus R3 pass、零 finding。遗留：主表里 34 格带装饰的卡 id（★、删除线、链接，含 11 张在飞的 `T0-PREREVIEW-*`）r5 仍匹配不到。后续卡：`T0-POST-MERGE-R5-WIRING`、`T0-POST-MERGE-R5-GUARDS`。
+
+**2026-09-25 远端交付**：`T0-POST-MERGE-DOCS-PR` 经 [PR #367](https://github.com/Asun28/MyInspection/pull/367) 合并（`34241b18`；reviewed head `c1a40522`，CI `36105963558` success）。新增 `scripts/post-merge.ps1`：`r5` 在 origin 新切的 worktree 里落位 R5 文档同步（卡片 status、本卡看板行、本节新增条目），仅 CI 通过即合并，范围按用户 2026-09-25 裁定的白名单，越界即 `[POST-MERGE-SCOPE]`；`prune` 只删唯一 PR 已 MERGED 且远端 tip 仍等于其 head 的分支，带 lease。SelfCheck 68 例、47 枚变异全杀、tier-1 selftest 通过。R3 五轮：Opus 1 轮、Codex 3 轮都落在推送后失败路径，最终按用户裁定改为只报告探到的事实、只给检查型建议，第 5 轮 Codex pass。本条即由 `post-merge.ps1 r5` 自身开 PR 合入。后续卡：`T0-POST-MERGE-R5-GUARDS`、`T0-POST-MERGE-LESSONS`。
+
+**2026-09-25 远端交付**：`T1-LOCAL-SECRET-STORE` 经 [PR #377](https://github.com/Asun28/MyInspection/pull/377) 合并（`412f9fb4`；reviewed head `edeef67f`，CI `36094068454`，Codex R3 第 2 轮 pass、零 finding），是 `T1-LOCAL-DATA-SECURITY` 多 PR 交付中因预算从 `T1-LOCAL-SECRET-BOX` 拆出的信封文件存储：每次调用经 `AppStoragePolicy` 取 no-backup 信封目录，同目录临时文件写入、sync 后 `ATOMIC_MOVE` 覆盖，失败为固定消息、无 cause、无 suppressed 的内部异常，带封闭阶段码与 `cleanupFailed`。7 项测试、R4 23/23。R3 第 1 轮 block 三条（sync 与原子移动无测试、临时文件删除结果被丢弃、失败无阶段码）；为此引入内部文件操作接缝后，全新上下文预审发现接缝把平台实现的变异藏住了，遂对平台对象直接测试。用户裁定预算 300 → 400（#382）。阶段码写入 SafeLog 记为 `T5-BACKUP-IO` 的 follow-up。余下：`T1-LOCAL-DATA-SECURITY`（AndroidKeyStore 适配与双设备探针；已存在但不可用的 key 在 seal 时重建，#374 用户裁定）。
+
+**2026-09-25 远端交付**：`T1-LOCAL-SECRET-BOX` 经 [PR #371](https://github.com/Asun28/MyInspection/pull/371) 合并（`b045a2dc`；reviewed head `83b5ebaa`，CI `36078602806`，Codex R3 第 2 轮 pass、零 finding），是用户裁定的 `T1-LOCAL-DATA-SECURITY` 多 PR 交付之一（卡片 #358、#361、#369）：纯 JVM 的 `LocalSecretBox`，AES-GCM 信封 = 版本 + 提供方 nonce + 密文与 tag，alias 与 AAD 绑定 purpose 和版本，NEEDS_UNLOCK/NEEDS_PASSPHRASE 封闭映射，明文缓冲清零；key、解锁状态与信封文件经端口注入。23 项测试、R4 43/43。全新上下文预审找出 7 处测试缺口（其一是只因 CBC 下 updateAAD 抛错才通过的 nonce 长度测试），补齐后超出 800 行预算，信封存储拆给 `T1-LOCAL-SECRET-STORE`。R3 第 1 轮 block 两条都在 R4 证据上：一枚测不到的清零变异（改为可注入 scratch 缓冲后检出），以及收据的前缀哈希没有给出字节范围（改为 `head -n 437 … | sha256sum`）。check-secrets 把以 `Secret` 开头的文件名判为敏感文件，按用户规则改名 `LocalSecretEnvelopeStore`，不加白名单。余下：`T1-LOCAL-SECRET-STORE`，然后 `T1-LOCAL-DATA-SECURITY`（AndroidKeyStore 适配与双设备探针；开工前须裁定已存在但不可用的 key 如何重新 seal）。
+
+**2026-09-25 远端交付**：`T1-APP-STORAGE-ANDROID` 经 [PR #351](https://github.com/Asun28/MyInspection/pull/351) 合并（`0a89bbbf`；reviewed head `a98840d5`，CI `36007644259` success，合并树=评审树 `95409919`）。`AndroidAppStorageEnvironment` 把 `AppStorageEnvironment` 端口接到 Android：标记与各根取自所包装 context 的 getter，DP→CE 转换用 `createPackageContext(包名, 0)`，普通异常转为固定消息且无 cause、Error 原样传播；原始卷状态仅 `mounted` 映为 MOUNTED、`mounted_ro` 映为只读、其余为 UNMOUNTED；可写要求 `isDirectory && canWrite`；空间直接转交 `usableSpace`。debug-only `AppStorageProbeActivity`（只有持 DUMP 权限的调用方能启动）在 SM-A346E（API 33，user 构建）与 API 35 模拟器上跑 31 项自验证，expected 取自探针直接调用的平台 getter；host 脚本在 `docs/storage-android-probe.md`，按 run id 与 APK 摘要逐行核对回执并打印 `android/` tree id。4 项 JVM 测试，19/19 变异（14 项双设备 + 5 项 JVM）。Codex 配额耗尽期间经用户同意由 Opus 5.5 作 R3：第 1 轮 block 两条（设备证据未绑定 `android/` tree；三处措辞过宽），修后全部设备证据在 tree `ca633498` 上重跑，第 2 轮 pass。`T1-LOCAL-DATA-SECURITY` 的前置由此全部合并。
+
+**2026-09-25 远端交付**：`T0-REVIEW-GOVERNING-DOCS` 经 [PR #347](https://github.com/Asun28/MyInspection/pull/347) 合并（`f970f741`；reviewed head `3b4ebfe8`，CI `35999775552` success）。`ReviewIntensityByTier` 的 tier 0 由 advisory 改为 adversarial：只改 `docs/QUALITY-RUBRIC.md`、`docs/SECURITY.md`、`CLAUDE.md` 等定义闸门、安全规则与代理边界文档的卡算出 tier 0，此前只得一次低 effort 评审；现与代码改动同一评审档，100 行以内的小 diff 仍经 `ReviewEffortBySize` 用 low。selftest 闸 17ib 的现网策略检查改为期待 adversarial，仍是漂移检查。全量 selftest 5 分片通过（1158 s），A4/A6 变异均检出。Codex 配额耗尽期间经用户同意由 Opus 5.5 经 `ReviewCommand` 作 R3：第 1 轮 block 两条记录措辞（声称的重跑多于实际；未写明小 diff 仍为 low），修后第 2 轮 pass。前一张 `T0-REVIEW-LOW-RISK` 已于 2026-09-24 按用户裁定退役为 superseded（PR #340）。
+
+**2026-09-24 origin 交付**：`T0-OPUS55-PROMPT-FIT`（PR #334，squash `ecdeb4b8`；卡片 #331）把提示词面对齐 Opus 5.5：新增 `docs/references/claude-opus-5-5-prompting-llms.txt`（相对 Opus 5 的差异层，九处变化含四项破坏性变更），Opus 5 篇重新对照上游并改作基线层；Opus 席位改为 `claude-opus-5-5`，improve-prompt 读差异层 + 基线；task-loop 新增「回合何时结束」（完成条件、不该停的四种、该停的、后台没跑完不算完、Opus 5.5 评审从 `medium` 起）；plan-forge 让 lens 全报并带 confidence，由脚本按 FATAL→HIGH 排序后截 3 核验、超出的交汇总并记日志，没产出结果的 lens 迫使裁决 `fix-first`（1i 新增 5 个夹具，16/16 变异）；prereview 风险路由改 `claude-opus-5-5` + `PrereviewRiskyEffort=medium`（尚无读取方，TD188）。Codex 配额耗尽期间经用户授权由全新 Opus 5.5（high）作 R3：第 1 轮 block 测试断言面（只种 FATAL，排序看不见）、第 2 轮 block 三处措辞（兜底示例出处、漏 `computer_20251124`、T1 文案不分档）、第 3、4 轮 pass；对账期间应请求暂缓合并，all-clear 后并入 origin/master 重跑 Tier-S 全量与 R3。
+
+**2026-09-24 本地/origin 对账落地**：本地 master 自 `e9f261ce`（2026-09-05）起与 origin 分叉，对账前（#335 的 origin 侧父提交 `f0ce6d9f`）本地多 385 个提交、origin 多 110 个。卡片从分叉的本地 master 切出，远端 ship 的范围与预算闸因此拦下，会话改走 `ship -Local`，分叉随之扩大。四个 merge-commit PR（#335 `43571b44` · #336 `0181eedf` · #337 `70844aae` · #338 `68d38333`，不可 squash）按本地 first-parent 切片合入；#338 合入后本地 master 与 origin/master 同为 `68d38333`，本地冻结点 `593bb838` 与 #329 均为其祖先。冲突规则：两侧都改的脚手架文件取 origin 整文件；DOCX 系取 origin（2026-09-08 用户裁定）；同一张卡既活又归档时只留交付方的一份归档；本地独有交付连同记录保留。ID 重编号：本地 L300→L340、origin L310→L341、本地 TD177→TD183；新登记 TD182（本地任务卡合同改动未上 master）、TD185（`T4-DESIGN-SYMBOL-CHROME-V2` 的 check 07 自 `174c7ce6` 起失败）、TD187（本地未提交 TD176 行中仍开放的两项）。Codex 配额耗尽期间由全新 Opus 5.5 子代理作 R3，四片分别在第 5/3/5/7 轮 pass；超过 `ReviewRoundCap = 2` 的轮次（P1 与 P3 第 3–5 轮、P2 第 3 轮、P4 第 3–7 轮）均经用户授权，每轮 finding 均已修复。P4 第 4–6 轮属同一类：一份记录取了一侧，而同一 PR 带进的另一份记录与之矛盾（CLAUDE.md 称 `T3-PDF-RENDER-DEVICE` 已解锁；`T1-LOCAL-DATA-SECURITY` 缺 ADR-0006 要求的 `T1-APP-STORAGE-ANDROID` 前置；`T1-SHARE-SCREEN-PRIVACY` 看板行仍是拆分前的 origin 行）。#329 随 P4 合入：`task-loop` 默认走 PR，`<base>` 领先 origin 时报 `[BASE-AHEAD-OF-ORIGIN]` 停下，不改用 `-Local`。遗留（均早于对账）：看板行 `T6-HHC`、`T5-LOCAL-MEDIA-RETENTION` 与卡的依赖不符；五张下游卡，以及 `T1-LOCAL-DATA-SECURITY` 与 `T1-APP-STORAGE-POLICY-REMOTE` 的 non_goals 行，仍按拆分前的 `T1-SHARE-SCREEN-PRIVACY` 范围引用它；`specs/android-module-boundaries.md` 的平台归属行早于存储与日志拆分；本节「下一步」段是 2026-08-17 的快照。
+
+**2026-09-24 本地交付**：`T3-PDF-DEVICE-FIXTURE`（master `08ab4d8a`，feature `89285d67`）交付 debug-only real80 清单预检与固定 LANDLORD 报告输入：公开入口 `AndroidFixtureManifestReader.preflight` 对自己读到的清单字节算摘要、非批准字节在 org.json 解析前即拒；取摘要的 preflight 与 `AuthorizedFixture`/`AuthorizedPhoto` 构造均为 internal/private，已验证集合为只读副本。11 项 JVM 测试、63/63 可移植变异；真实 Kotlin builder 在批准 real80 集上复现冻结的 native/semantic 双哈希，改一字节即被 `FIXTURE-FILE-BYTES` 拒绝。825 行超卡片 650/45k 早停，经用户裁定在 1000/60k 闸内继续。Codex 配额耗尽期间按用户裁定：DeepSeek V4 Flash 7 轮预审 + 全新 Opus 5.5 R3 五轮（第 3–5 轮逐轮授权），第 5 轮 pass，合并树与评审树 `f22b89c4` 一致。五轮 finding 全部属实、逐轮变窄（未强制的构造期保证 → 未测的可见性/描述符字段 → 对下游卡的越界声称 → 公开入口摘要拒绝无测试）；第 3 轮后用户给 DEVICE-ACCEPTANCE 加 A7（绘制前按 contentHash 重算）。不宣称设备或四档验收。
+
+**2026-09-24 本地交付**：`T1-APP-STORAGE-POLICY`（master `f68d7006`，feature `834206a6`）在前置交付后以非重写 merge 吸收主线，删除内嵌 `canonicalFile` 判定，改为消费 `StoragePathBoundary`：保存验证过的 CE/no-backup 根，每次 `location` 检查并返回类别目录；两处拒绝固定消息无 cause，普通异常（含 IOException/SecurityException）不外泄，致命 Error 保身份。12 项策略测试（3 项真实 Junction 接线）、45/45 变异、250 项 app 测试。Codex 配额耗尽期间由全新 Opus 5.5 子代理作 R3：前两轮 block 的 4 条均是测试断言面缺口（假环境忽略参数、夹具根过宽使守卫互相遮蔽、只注入一种异常类型），第 3 轮 pass，合并树=评审树 `448da9cd`。实际 Android 适配归 `T1-APP-STORAGE-ANDROID`；TD178 记测试临时目录不清理。
+
+**2026-09-24 R5 补记**：`T1-STORAGE-PATH-BOUNDARY` 已于 2026-09-17 本地合并（master `115138a4`，feature `c201c793`，正式 Sol R3 首轮 pass），当时未做 R5。`StoragePathBoundary` 交付检查时的真实路径归属（Junction/符号链接按真实目标比较，不靠 `canonicalFile`）、保存的根快照与逐次子目录检查；20 项真实文件系统测试、35/35 变异。不含后续 I/O 权限或消除 TOCTOU；`T1-APP-STORAGE-POLICY` 由此解锁。
+
+**2026-09-23 本地交付**：`T3-PDF-IMAGE-BRIDGE`（master `fee6451f`，feature `4993e073`）是图片 bridge 拆分的第三张、也是最后一张：`AndroidPdfImagePort` 把已交付端口绑到 BitmapFactory/Canvas（bounds 用 inJustDecodeBounds、-1 返回 null，inSampleSize 原样转交，两个矩形原样交给 drawBitmap）。设备代码无法在 JVM 执行（L280），两轮 Opus R3 证明「源码扫描」可被字符串里的伪注释、链式 apply 等绕过，用户裁定改为**精确源码钉住**：唯一测试断言适配器文件逐字等于评审文本，22/22 变异。Opus R3 第 3 轮 pass，合并树与评审树 `3a61ec1e` 一致。三卡齐，`T3-PDF-RENDER-DEVICE` 的图片 bridge 前置已满足，但它仍待 `T3-PDF-TEXT-METRICS-OPS` 与 `T3-PDF-ANDROID-TEXT-MEASURER`。遗留 [FOLLOW-UP]：`:app` 测试任务未把源码读取型测试所读文件声明为输入。
+
+**2026-09-23 本地交付**：`T3-PDF-IMAGE-OWNERSHIP`（master `1558594d`，feature `17060f81`）是图片 bridge 拆分的第二张：窄端口上的 bounds → 已交付采样 → decode → FIT 绘制 → recycle，每条打开的流都有 close 尝试、每张解码图都有 recycle 尝试，清理失败挂为 suppressed 不顶替原失败，单次 draw 至多持有一张解码图。20 项测试、23/23 变异。DeepSeek V4 Flash 两轮预审 + 全新 Opus 5.5 R3 首轮 pass，合并树与评审树 `b85231ae` 一致。
+
+**2026-09-23 本地交付**：`T3-PDF-IMAGE-FIT`（master `f367ca86`，feature `daa4f720`）是 `T3-PDF-IMAGE-BRIDGE` 按用户裁定拆成三张小卡（FIT → OWNERSHIP → 窄化后的 BRIDGE 适配器）的第一张：固定 FIT_CENTER 几何，拒非正解码尺寸与非有限/无面积框，Double 计算并把每条边钳进框内。11 项测试、26/26 变异。Codex 配额耗尽期间按用户裁定改用 DeepSeek V4 Flash 多轮预审 + 全新 Opus 5.5 子代理作 R3（第 5 轮 pass，第 3–5 轮逐轮经用户授权）；ship -Local 其余确定性闸全过，其可选 R3 腿因 codex 不在 PATH 而显式跳过，合并树与评审树 `0092e994` 逐字节一致。前两轮 R3 抓到真实浮点缺陷，后两轮是注释措辞超出证据（L309）。
+
+**2026-09-18 第二轮远端收口**：`T3-PDF-PAGINATION-FIXTURES-REMOTE` 经 [PR #309](https://github.com/Asun28/MyInspection/pull/309)，reviewed head `09dfa20cf8e75d095b8535a1473b17acdf581628`，CI `35171143884`，merge `553d53382f3b663dac19ed1c607ffa35ee499d0c`；正式 R3 pass。只迁移两处固定 4mm 行高分页夹具；生产源码字节不变。基线、迁移、恢复、尾注后各 255 项报告测试与 6 项 E2E 通过，两枚具名预算变异被断言检出。完整证据及守卫清理已复核，合同和收据已归档。Boundary 已完成 R5；Pagination 的产品证据已归档，但本 metadata closure 仍待本 PR 通过并合并。该 PR 合并后，五轮十张产品卡进度为 4/10，已完成 2/5 轮。测量绑定、平台字形和设备渲染仍由后继卡验收。
+
+**2026-09-18 第二轮存储路径交付（Pagination metadata closure 前的历史状态）**：`T1-STORAGE-PATH-BOUNDARY-REMOTE` 经 [PR #310](https://github.com/Asun28/MyInspection/pull/310)，reviewed head `bfefc1057a0ecbdfde4f747193c68c0069bdb73c`，CI `35174714509`，merge `74aa9cb7ac6e70bbae30cb5d3a2024d8c95d6a0c`；正式 R3 pass。20 项直接测试、35 枚具名可编译变异及 GREEN、恢复后、尾注后三次各 177 项应用回归通过；Windows 真实 Junction 已执行，POSIX 未执行。逐段解析保存已验证根，逐次检查子目录；只保证检查时路径归属。原始证据与清理错误日志均已保留；2026-09-18T01:16:43Z 补证确认路径、Git 登记及分支当时均不存在，不倒推原删除命令成功。完整合同及收据见归档卡。本卡完成 R5 后，五轮十张产品卡进度 3/10；第 2 轮的分页卡仍待 R5 收尾。第 3 轮 Policy 与 Requests 仅在原窗口准备，尚未完成验收；不新增任务窗口或另选产品卡。
+
 **2026-09-17 第一轮远端交付**：两张产品卡已完成远端 R5 收口，五轮十张产品卡进度 2/10；PR #301/#303 只登记任务与契约，不计产品数。`T1-SAFE-MEDIA-LOGGING-REMOTE` 经 [PR #304](https://github.com/Asun28/MyInspection/pull/304) 合并（reviewed head `6216e9d16f93cac6b4a62a1edb93de09c9746330`；merge `cd7e20160a093817c9a4245cfafe9e393e9a6e49`；CI `35158547855`，正式 R3 pass）。封闭字段 SafeLog 及四处媒体失败日志接线已交付；不包含存储分层、Keystore、调度或删除语义。
 
 `T3-PDF-TYPOGRAPHY-CONTRACT-REMOTE` 经 [PR #305](https://github.com/Asun28/MyInspection/pull/305) 合并（reviewed head `9f06217c8c521e72ce9faca2513bad0d18a46fa2`；merge `3351c06c99ba8d85e3e008b7a89cdac43bb2470d`；CI `35159732680`，正式 R3 pass）。远端纯数据字体配置、角色映射、只承载数据的有符号测量快照与 line-box guard 已交付；报告组合、测量绑定、平台字形、裁剪与设备验收仍属后继工作。两张产品卡的远端验收和原本地历史分别见归档卡。
@@ -106,6 +166,187 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 <!-- 随 R5 文档同步更新。 -->
 **2026-09-08 远端交付**：`T2-ROUTINE-CONTEXT-V2` 经功能 PR #241 合并（`35cb59f3`）；功能 PR #241 的 21 项验收测试、正式 R3 与 GitHub 候选 CI 通过。92 项 Routine v2 保留全部 83 项历史内容，新增 Hallway 八项与普通摘要项；缺少已安装 active v2 时不回退，历史按 ID 读取保持不变。先前本地合并不代表远端 PR 完成；APK 初始化和应用接入仍属后续工作。
+
+
+**2026-09-17 本地交付**：`T0-PREREVIEW-STATE-1A`（master `62ec5f3b`，首轮 R3 pass、零 finding）交付 state v1 校验、原子写入、dispute 追加与 packet/view 输出。复用 RECORDS 重建候选和覆盖记录；输出留在 git common dir，合法 finding 文案保留。86 项自检、25/25 定向变异及 verify/范围/许可/防泄露闸通过；常规完整 selftest 三分片通过，卡片已归档，工作树和分支已按合并凭据清理。执行前已按用户授权修订验收：禁 verdict 字段与 pass/block 状态值；review_status 仍留给 1b。
+
+**2026-09-16 本地交付**：`T0-PREREVIEW-FACTS-LIB`（master `b675d6a6`，首轮 R3 pass、零 finding）交付八个事实函数：worktree/base、临时 index 快照、基线原始字节 policy hash、带 hunk 序号的 units、live_allowed、运行时模型路由及 temp root。31 项自检通过，18/18 定向变异检出，verify/范围/许可/防泄露闸及常规完整 selftest 三分片通过；工作树及分支已按合并凭据清理。TD183 登记后续删除文件 candidate 锚点文案契约，须在 worker/prompt 接线前单独修订。
+
+**2026-09-16 本地合并**：`T0-PREREVIEW-UNIT-ID-REVISION`（master `71895645`，首轮 R3 pass、零 finding）落实用户批准的本地 TD176（从未提交进本地 master 的 tracker 行，只在主检出的未提交改动里；不是 tech-debt-tracker 中的 TD176；仍开放两项见 TD187）前置修订：schema_revision 1，hunk ID 为 `path#bodyHash12-ordinal`（同文件 diff 顺序从 1 起），`path#file` 保留；投影、schema/RECORDS 夹具与协议同步，10/10 定向变异检出。FACTS-LIB A3/A5、快照 Git 对象写入例外及固定快照的 Units 输入已先在 master 登记（`704fbd69` / `1220f108`）。前置卡完整 selftest 三分片 PASS，工作树及分支已按合并凭据清理。
+
+**2026-09-16 本地交付**：`T0-PREREVIEW-RECORDS` 已合并（master `dec30514`，R3 第 **7** 轮 pass 零 finding；三次用户裁定 `-ResetRounds`，
+六轮 block 共 13 条 finding 全部属实、全部当场修）——`scripts/_prereview-records.ps1`（`-AsLibrary` / `-SelfCheck`，67 条断言）+
+`scripts/fixtures/prereview/records/`（4 个 unit、两 worker 11 条盖章记录、7 个 reject 文件 + 5 个内存派生 reject 类）：worker 记录校验、
+unit 归属、C-<n> 单调铸造、精确重复合并（键不含行号，位置靠 unit_ids / evidence_refs 并集保留，本地 TD176 的决定写在卡片 A4）、
+fingerprint / root_group、missing 覆盖合成。58/58 变异全杀。**coverage 与 candidates 的绑定最终形态 = 重铸而非核对**：coverage 从
+结果自带的 `StartId` 重铸一遍，要求整个结果对象（七个属性的规范 JSON）逐字节相等——前四轮每轮都被找到「核对没盖到的一种改写形状」
+（缺字段 / 换 id / 协同改写 / 补条目 / 只改状态），重铸把这一整类关掉。
+> **两条可复用判断**：① **PowerShell 的字符串比较运算符全是 culture 比较**（`-eq`/`-ceq`/`-contains`/`-in`/`Sort-Object`/
+> `Select-Object -Unique`/`Compare-Object`）：软连字符、零宽字符等可忽略码位与 NFC/NFD 变体会被判**相等**，`-ceq` 只是区分大小写、
+> 不是序数；身份比较一律 `[string]::Equals(…, Ordinal)` / 序数 HashSet / `[Array]::Sort(…, Ordinal)`；`@{}` 与 `[ordered]@{}`
+> 不分大小写，`ConvertFrom-Json -AsHashtable` 自 7.3 起分大小写（把 worker 写的 `Expected` 与 `expected` 都留下）；断言 harness
+> 自己也要用序数比较，否则「C-1」与「C-<软连字符>1」在测试里相等。② **修复轮会把 diff 吃到预算顶**：首轮 42K 字符，七轮后 59K
+> （上限 60000），每轮为通过 R3 加的回归用例与 record 都占字符；写卡时就该给修复轮留约 25% 预算，或把 self-check 的证据面设计成
+> 便宜的内存派生用例而非夹具文件（本卡后期把 5 个 reject 类从文件改为内存派生，省下约 4K 字符）。
+> **R3 六轮 block 无一重复争点**：绑定解引用 / int 计数器 / A6 越界 dot-source / 并集未测 / 缺 missing 用例 → 协同改写 / 用尽按原始条数 →
+> culture `Sort-Object` / `#requires` 下限 → 绑定忽略 Ok/Code/Reasons → 坏 NextId 抛错违反 forbid、harness 用 culture 运算符 → A5 未按类
+> 分别验证。每轮之间派一次 fresh-context 探针都各抓到 5–9 条 R3 尚未提出的同类缺口（其中 `-ceq` 本身是 culture 比较这条最贵），
+> 说明对「防御型绑定」这类代码，**探针的价值在于穷举改写形状**，比读 diff 更有效。**遗留**：origin 定时 `scaffold-selftest`
+> 自 `f6fdaf6a` 起在 8.2j（T202 `[ENV-SKIP-DEGRADED]`：隐藏 `git` 后 `-Only 15` 退出 1）连红两晚，属 origin 线脚手架缺陷，
+> 按碰撞规则待 1a 链收口后随 reconcile 开卡处理。
+
+**2026-09-15 本地交付**：`T0-PREREVIEW-CHECKLISTS` 已合并（master `2782b55b`，R3 第 **5** 轮 pass 零 finding；两次用户裁定 `-ResetRounds`（第 2、4 轮后），
+四轮 block 共 6 条 reason / 13 处具体 finding 全部属实、全部当场修）——`docs/PREREVIEW-CHECKLISTS.md`（12238 字节：四个 `## Lens:` 节共 33 条 `- C{n}` 检查行，每行以 schema 的
+`contract_ref` 形态收尾（25 个 lesson id + 10 个 rubric 维度全部在 master 可解析）+ 覆盖规则段；进包 `checklists.md`、进 policy hash）。
+DoD 在 ship 前于 master 收紧为大小写敏感（`6881a970`：`-eq`→`-ceq`，原 `-eq` 放过小写标题、变异 M6 存活）；7/7 DoD 变异全杀。
+> **13 处 finding 里 12 处是同一类错误、且是这份文档的固有形态——检查行写成全称句、比它所引经验的失败条件更宽，于是会系统性产出假候选**：
+> 边界值不分类型一律要 · `default` 分支一律判 fail-open（`default -> throw` 是 fail-closed）· 整份 stdout 断言一律判弱（精确整体相等能测出丢行）·
+> 哨兵按「分支」而非「含义」唯一 · 「每条断言一枚变异」（L225 只管收据声称覆盖的断言）· null/empty 守卫要「可解析但错」的输入 ·
+> DoD 证据须在 diff 内（包里本就带 base 卡）· 一句话既否定子串匹配又推荐哨兵匹配 · 状态映射把契约的 `not_applicable` 写成不可达 ·
+> C7「任何第二份列表」会打到本文档自己的 A4 覆盖段。第 3 轮后按 L309 停手做**实例代入表**（两个模型各扫全部 33 行、每行点名一个会被误伤的仓内真实实例：
+> `SDK_INT` 守卫下的 API 33 调用、`ComplianceConfig` 返回拒绝值的 catch、喂快照哈希的 `ORDER BY`、`NoticeService` 进程内中文等值断言、
+> `#!/bin/sh` pre-push 钩子以正斜杠路径跑 `check-secrets.ps1`、只由 `verify.ps1` 跑的 `e2eTest`），一次吃掉 26 条；第 4 轮仍出 2 条（其一是**实现记录放进了分支 diff**
+> 而卡片 forbid 写死「文档之外任何内容」——记录改落 master 卡片，L18），第 5 轮零 finding。**两个可复用判断**：① 给评审模型写规则时，每个全称词都要先问
+> 「仓里哪个合法实例会被它误伤」，L309 的实例代入表对「规则型文档」比对「叙述型文档」更必要；② 字节上限（12288）在第 4 轮只剩 9 字节余量——
+> 收紧措辞几乎总是加字，预算要在首轮就留出约 5%。**遗留**：路由自检从 worktree 副本跑 mode=all 1489 s，seeded/workflow 绿、core 只红闸 2/16，
+> 根因是 master `CLAUDE.md` 那行悬空经验引用（本次 R5 已改措辞）；`PREREVIEW-PROTOCOL.md` 第 3 节仍写 `Select-PrereviewLensSections` 按类选节，本文档只说「PROMPT 卡的选择器」。
+
+**2026-09-15 本地交付**：`T0-PREREVIEW-PROTOCOL-DOC` 已合并（master `a66af219`，**人裁合并**——八道确定性闸全绿后 R3 四轮共 9 条 finding 全部属实、全部当场修，
+第 4 轮那条要求的改动落在兄弟卡（FACTS-LIB A5 的 `unit_id` 对同文件两个字节相同的 hunk 撞码、RECORDS A4 的重复键不带行号），
+按 rubric 路线 ① 登记 `[FOLLOW-UP]`、用户裁定合并）——`docs/PREREVIEW-PROTOCOL.md`（28969 字节：两 worker 不投票 · 1a 规范顺序 ·
+进包内容与两个 worker 各自可见面 · worker 命令契约（白名单环境、`PRE_*`、`PRE_LIVE` 唯一写者 + 三处登记的自检例外）· 记录/覆盖形状 ·
+C1–C7 · 读包 · `link-r3`/`recall` · 1a 检查点 · 首次真跑清单 · 20 个 `[PRE-…]` 状态码表（`-Anchors` 双向锚定）· 1b 只留指针段）·
+TRUST-MANIFEST 两行（发现者 Anthropic `claude` CLI = 整包含 `tree/` 出站；透镜 DeepSeek = 仅 prompt.txt，`PrereviewDiscoverCommand`/
+`PrereviewLensCommand` 钉在指针格）· CLAUDE.md 索引行（现为第 25 条） + AI 工具句改写 · task-loop 4.6 一句。4/4 锚点变异全杀；路由自检
+（mode=all，从 worktree 自己那份 `selftest.ps1` 跑）PASS 1422 s。
+> **四轮 R3 全是同一类错误——写下的保证超出所引卡片的验收行（L309）**：`PRE_LIVE` 唯一写者的全称句被自己的括号推翻 ·
+> `DEEPSEEK_API_KEY` 既「所有 worker 都没有」又「透镜子进程读取」· 「gitignored 由构造排除」只对**未跟踪**文件成立（`read-tree HEAD`
+> + `add -A` 不会丢掉已跟踪路径，靠 `check-secrets` 保证机密形状路径不被追踪）· 「包对 R3 不可见」只能说成「不在被审树、不在提示词」
+> （沙箱不证明拒读 common dir）· `[PRE-NO-OUTPUT]`/`[PRE-BAD-RECORD]` 两处定义不互斥。本地 fresh-context 预审吃掉 20 条（7 条 block 级），
+> 每轮修复再过一次对抗复核又各抓到 1–2 条**修复自身引入**的新矛盾（L205）。**两个脚手架事实**：① `selftest.ps1 -TaskId` 的 mode=all/core
+> 测的是被调用脚本自己的 `$RepoRoot`（只有 skills 模式指向任务 worktree），从主检出跑等于测主检出；② 主检出根下另一会话的未跟踪
+> `.aidlc/` 让主检出上的任何整套自检在闸 8 变红。**兄弟卡遗留（已记 `[FOLLOW-UP]`）**：SLICES A1 的截断清单放不进封闭的 `$defs/facts` ·
+> STATE-1A A4 的「不含 pass/block 二词」不可证 · FACTPACK A3「只含已跟踪」· FACTS-LIB A3「gitignored 排除」只对未跟踪成立、A5 `unit_id`
+> 撞码 · RECORDS A4 重复键无行号 · CHECKLISTS A3 曾引用一条只在主检出未提交账本里的经验 id（闸 16 会红；`4134c73d` 已去掉该引用）。
+
+**2026-09-15 本地交付**：`T0-PREREVIEW-SCHEMA` 已合并（master `9c3d3bdf`，R3 第 3 轮 pass 零 finding；PR review v2 1a 首卡）——
+`specs/prereview-record.schema.json`（worker_output 信封 + candidate/coverage/facts/units/status_code 等 10 个 `$defs`、
+20 个 `[PRE-…]` 状态码、`schema_revision` 钉 `const 0`）· `scripts/check-prereview-schema.ps1`（默认自演练 / `-Schema -Samples` /
+`-Anchors`，哨兵 `[PREREVIEW-SCHEMA-OK|FAIL]`、`[PREREVIEW-ANCHORS-OK]`）· 夹具 `scripts/fixtures/prereview/schema/`（含 3791 字节的
+`worker-envelope.min.json` 投影）· `_config.ps1` 17 个 `Prereview*` 旋钮（值 only）。37/37 变异全杀。**冻结点**：schema 从本合并起即契约，
+窗口内补丁 bump `schema_revision`、走后续卡；FrozenPaths 登记归 1b LOOP-DOCS。
+> **两轮 block 各一课**：① 首轮 4 条全部属实——夹具里为了让「跨文件 `$ref`」检查可被变异观测而复制了一份 `$defs`，正是卡片 forbid
+> 的「copying $defs」；`$ref` 走查只沿 schema 位置下钻，藏在 `patternProperties` 下的跨文件引用漏掉（改为遍历每个 JSON 节点 + 恰好
+> `#/$defs/<name>` 正则）；`schema_revision` 允许任意整数，与「陈旧夹具显式失败」的描述不符（钉 const）；② **评审读的是 base 上的卡**
+> （`Task-card source: base:<oid>`）：把用户裁定的「撤回拆分规则」修正写进分支副本对评审者不可见，白烧一轮（L145 复发第 2 次）——
+> 中途改卡一律先提交 master。字符预算是比行数更紧的约束：每个夹具文件的 diff 头约 300 字符、JSON 逐行缩进约 30 字符/行，
+> 26 个小文件把 60000 上限吃到 63.9K，靠压缩夹具与散文才回到 59.2K（L266 复发：体量该在 RED 前按 review.ps1 的尺量）。
+> **遗留**：`T0-PREREVIEW-FACTS-LIB` A2 的 `base_mode origin` 已按冻结枚举改为 `remote`（本次 R5 顺手一词）；八条在飞分支改动
+> `_config.ps1`（碰撞规则），本卡只追加一段、保留 BOM，退役由用户裁。
+
+**2026-09-08 本地交付**：`T1-SPIKE-PLATFORM` 已合并（master `e8c2359a`，正式 R3 第 **2** 轮 pass）——V1 三项平台风险
+在**真机**上全部判「成立」、无一降级：设备 = Galaxy A34 5G `SM-A346E`、Android 13 / API 33、fingerprint
+`samsung/…/A346EXXU4AWG8:user/release-keys`（**零售 user 版**，非模拟器的 `userdebug/dev-keys`，API 亦低于模拟器的 35）。
+① **ghost overlay 成立**（门框/把手/开关面板叠加后轮廓成对可见，据此可把机位移回原处）⇒ `T3-HISTORY-COMPARE`
+按实时叠图推进，**不**退到「拍完并排比对」；② **SAF 持久授权成立**（`bytes=60` 写入并逐字节读回，重启后授权仍在、
+不重写不重弹）；③ **PDF 成立**（81 页 / 80 图 / 7272ms / 采样峰值 225620 KiB）。
+> **三条给承接卡的实测参数**：㊀ **EXIF 方向真机与模拟器不同**——本机存 1440×1080 **横向**像素 + EXIF 标记、
+> 靠变换转正，模拟器则直接给 960×1280 竖图；这是「EXIF 旋转必须处理」这条不变量**第一次**在真机上被走通，归
+> `T2-PHOTO-PIPELINE`。㊁ **PDF 体积不可跨机外推**——同样 80 图同样代码，真机 2,366,495 bytes vs 模拟器 550,243，
+> 差 4.3 倍；且平台把一行混排文本拆给 **DroidSansFallback + Roboto 两个**内嵌子集，`T3-PDF-RENDERER` 估字体开销要按两份算。
+> ㊂ **验收期间 adb 不可用**（USB 调试已开，但手机只暴露 MTP class 06 与 CDC-ACM class 02/02/01、无 ADB 的
+> class FF/42/01，且修网络共享/切 USB 模式/重启 adb server 均无效）——改走 **MTP 装机 + 机上截图取证**，全套真机验收照样闭合。
+> **事后更正**：同晚一次为刷新 MTP 缓存而做的拔插后，ADB 接口以 MI_03 出现、adb 立刻看到已授权设备；故那是**可被拔插消除的瞬态**，
+> 不是设备固有限制，原先写下的「该机 adb 不可用」是错的（L320 已按此更正，规则改为「下结论前先拔插再复查一次」）。
+> 三项真机结论仍成立：它们在 MTP 通道下已取得且可复核，不因通道恢复而重做。
+> **R3 那条 block 是真的、且很值**：报告把受测 APK 钉在某个 master OID 上，而评审基线是另一个 OID——实测候选树
+> 当时构建出的是**另一个 APK**（`f366b5a1` / 17,213,270 bytes），因为分支停在 RED 取证基线上、落后 168 个提交而
+> 那个区间**确实**动过 `android/`。修法：吸收 base 后候选树构建即得受测的 `593ff461` / 17,401,647 bytes，并把
+> 「三处基线各构建一次、SHA 与字节全一致」与「`git log <base>..master -- android/ *.gradle …` 为空」两条证据一并写进报告，
+> 另**如实记下那处不等价**。**教训**：真机证据必须钉到**待合并的那棵树**，而不是「分支上任意一次构建」。
+> 另：取 RED 之后又把 master 快进进 worktree，令 RED 收据作废、白烧一整条 ship（**L310 复发第 2 次、L148 第 7 次**）。
+
+**2026-09-08 本地交付**：`T4-DESIGN-NOT-APPLICABLE-COLOR` 已合并（master `d6b369ee`，R3 第 2 轮 pass）——
+承接前卡的 `[FOLLOW-UP]`：`evidence-rail` 声明四个颜色却有五个 `segmentStates`，`NOT_APPLICABLE` 全文
+无取色。**OD-1 由用户裁定取 A**（与 `OPTIONAL` 共用 `outline`），零新 token / role / 绑定 / 配对。
+落地形态取「加 `notApplicableColor` 键」而非把 `optionalColor` 的服务范围写成散文——四个既有键本就是
+`<状态名转小驼峰>Color`，故「每个 `segmentStates` 解析到恰好一个已声明颜色」由**既有命名规则算得出**，
+不必为本卡发明第二套映射语法。五行改动：frontmatter 加键 · 对比度图引言的算术（四 role 服务五段、
+后两者共用）· 组件行声明共用 · rail 散文点名 role 并去掉 `irrelevant`（它不是任何已声明状态名）·
+light 调色板项补上那两个段色的职责。21/21 变异全杀。
+> **DoD 除 11 条 ASCII 锚点（含 4 条 `expected 0` 反向断言）外从 frontmatter 重算**：token 表 56、
+> 绑定集 75 无重复无漂移无欠比值、状态色×内容底 每主题 20 对全登记、13 行印刷比值逐位吻合。
+> 两条断言值得复用：① 散文里点名的 role **由 frontmatter 算出后再比对**，故散文与 frontmatter
+> 写不成两个权威（M19 只改散文即被杀）；② 遍历全部组件断言「按自身状态命名颜色的组件有且仅有
+> `evidence-rail`」，于是 `inspection-item-card` 为何不在本卡（它那四个颜色都是组件级、无一以状态命名）
+> **是算出来的，不是散文声称的**。
+> **R3 第 1 轮 block 一条、属实、当场修——又是 L309**：我为补 light 调色板项照抄 dark 侧名词，写成
+> 「essential card boundaries, **evidence segments**, and focus use `outline`」，那是对**整类** evidence
+> segment 的断言，而同一份 diff 里 complete/missing-required/blocked 分别用 `primary`/`tertiary`/`error`
+> ——**diff 自己就推翻了它**。（dark 原句带「or a semantic container, or the focus token」这个出口、
+> 故不是全称句；我抄名词时把出口丢了。）收窄为「optional and not-applicable evidence segments」，
+> 并把**基线措辞**与**这句被驳回的全称措辞**双双钉成 `expected 0`（M20/M21 各杀一个方向）。
+> **ship 前的全新上下文复核判 PASS 却提了 5 条**，其中这一条它也漏了——它只查了「diff 有没有说假话」，
+> 而这句的假在于**它与同句相邻分句的关系**。**遗留 `[FOLLOW-UP]` 记 TD175**：`outline` on
+> `surface-container` 的 CI 条目标 `evidence-boundary`，而同底另三个段色标 `evidence-segment`；该配对
+> 现服务两种职责，但规范要求每配对恰好一条条目，收口需 metadata schema 决定（多 usage）。
+
+**2026-09-08 本地交付**：`T4-DESIGN-STATUS-CARRIERS` 已合并（master `174c7ce6`，**R3 首轮 pass 零 finding**）——
+收口前卡 `T4-DESIGN-SYMBOL-CHROME-V2` 的三处遗留。**A1**：前卡为「必带状态字形须可感知」立的下限是
+「只渲染在闸已登记的配对上」，本卡补登记后放宽它。实测缺口比建卡段猜的大得多——状态色
+（`primary`/`tertiary`/`error`/`outline`/`privacy`）× 内容底（四个 surface 层）共 40 对里**缺 26 条绑定**
+（`privacy` 作前景在四个底上**一条都没有**），新增具名 `State glyph contrast map` 一节，13 行每行带
+**实测** light/dark 比值（最低 `outline` on `surface-container-high` = 3.51:1 / 4.37:1，仍过 3.00:1 档）；
+沿途复算文档既有 8 处比值声明皆吻合，**未动任何 token 色值**。**A2**：`verification-receipt` 与
+`photo-evidence-tile` 十一个状态逐条对「视觉半 + 播报半」判定（4 fixed / 7 carried / 0 exempt）。
+**A3**：capture Back 定名 `Save and exit`，通用 `Back to {parent}` 为其让位，两个短语全文各只剩一次声明，
+准入条件 3 的「同一短语」遂有唯一指代。27/27 变异全杀。**遗留 FOLLOW-UP**：`NOT_APPLICABLE` 全文无取色
+绑定（`evidence-rail` 声明四个颜色却有五个 `segmentStates`），属调色决定、在本卡「只补登记不调色」
+之外，已开卡 `T4-DESIGN-NOT-APPLICABLE-COLOR` 承接。
+> **本卡的 DoD 不止查锚点**：除 16 条 ASCII 锚点（含 3 条 `expected 0` 反向断言）外，它**从文档自身重算**
+> ——按 DESIGN.md 写明的 WCAG 公式、用 frontmatter 的 token 值复算每条绑定比值并核 `minRatio`、核绑定值
+> 未偏离 token、核无重复配对、核 40 个配对全部登记、核新表 13 行印刷值与重算值逐位相等。于是
+> 「每对带其实测比值」是**机检**的而非散文声称的——这是对 L317（验收表须是已交付证据的陈述）的直接回应。
+> **三处「写下的保证超出证据」都在本地被吃掉，没有花掉 R3 轮次**：① 我的初稿把状态条款写成全称句
+> 「必带状态字形用状态色落在内容底上」，而 `privacy-chip` 的盾牌落 `privacy-container`、相机控件落 scrim
+> ——**自查时抓到**，改为保留封闭要求 + 另陈覆盖事实；② ship 前的全新上下文复核抓到「把 40 对的登记功劳
+> 记在只装 13 对的新表名下」；③ 同一轮抓到「其它底」只列两类而文档实有四类（`camera-shutter` 的底是
+> **一个 `on-` role**）。**教训：全称句的成本在于它对整份文档做断言，而你只对手边那几处验证过**（L309）；
+> 把它降级成「封闭要求 + 单独陈述的覆盖事实」，既不弱化下限，也不再欠一份做不完的全称证明。
+
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLANNER` 已合并（master `d7510b02`，正式 R3 首轮 pass）；完整当前预览、原子批确认、READY 与格式 1 脱敏回执已交付。62 项 plan、实际合并树 1044 项 core（4 项既有 Windows 跳过）、6 项 E2E 通过，24 项源码变异被捕获。回执绑定原生上下文与不含原文的来源决策；数据库提交、媒体写入及 UI 仍由后续卡承接。
+
+**2026-09-08 本地交付**：`T3-REPORT-INTERCHANGE-SCHEMA` 已合并（master `800593b4`，正式 R3 首轮 pass）；schema v6 提供不可变导入来源回执与 PDF/HTML 格式回执，历史 PDF 字段无损迁移，HTML 不获得媒体归档资格。50 项定向测试通过；合并后整体验证覆盖 1034 项 core（4 项既有 Windows 跳过）及 6 项 E2E，均无失败。32 项源码变异均被捕获，最终 LF 源码与提交字节一致。映射回执规范化/隐私由 PLANNER 负责，COMMIT 负责写入前复验；本卡仅交付持久化基础。
+
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-REVIEW-DECISIONS` 已合并（master `8f56d01f`，正式 R3 首轮 pass）；逐项显式状态/隐私、跨类别身份来源排除、caption 组成部分处置与按来源顺序汇总摘要已交付。同一目标的条目备注与显式来源备注确定性合并，未评级目标保留。52 项 plan、1029 项 core（4 项既有 Windows 跳过）、6 项 E2E 通过，15 项源码变异被捕获。预览、批确认与回执仍由原父卡承接，不具备数据库写入权限。
+
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLAN-PROJECTION` 已合并（master `5b86137e`，正式 R3 pass）；穷尽式单一来源归属、保守名称/房间/状态建议与照片默认待审已交付，复用 SNAPSHOT 并保留全部目标未评级。歧义 caption 父片段及重复图片 part 的 placements 保持独立待审。35 项 plan 测试、1012 项 core 测试（4 项既有 Windows 跳过）及 Golden Evidence E2E 通过；19 项源码变异均被行为断言或耗时上限捕获。确认、预览、回执与导入写入仍由后续卡交付。
+
+**2026-09-08 本地交付**：`T4-SCHEDULE-UI-PRESENTATION` 已合并（master `d22f5d33`，**人裁合并**——
+八道确定性闸全绿、R4 27 枚变异全杀后，R3 轮次上限达顶抬起 `[R3-ROUND-CAP]` 未唤起评审者、按其设计
+转人裁，用户裁定合并）。交付排程界面的最小呈现契约：每状态**至多一个** primary 动作且**必须显式声明
+这个数目**（不提供者声明缺席，同 `ScheduleBadge.NONE` 的既有做法）、反馈做成 `ScheduleFeedbackBanner`
+且其 recovery 是 **`ScheduleSecondaryAction` 这个另一个类型**（于是「一屏两个 primary」写不出来）、
+五个状态皆非空且非空白、固定 NZ 月名日期（不跟随 locale 与数字系统，本视图不渲染任何时刻）、
+复数感知计数短语。**11 条未决决策开工前由用户逐条收口**（master `d0ec9e4a`）。
+> **R3 六轮、每轮 finding 全部属实且全部当场修**，其中第 3–6 轮是**同一类错误：写下的保证超出证据**——
+> 过期的 token 归属注释 · `countPhrase(0)` 把数字拼写成 `No` 而内容值只有 `text` 会到达屏幕 ·
+> 注释宣称模型与 Compose 渲染器「不会漂移」而那条等式只钉住两条模型层路径 · `isNotEmpty` 断言下
+> `Message("")` 仍能通过。**最贵的一条**：那条非空断言原本存在，压体量时按「无变异单独杀死它」剪掉，
+> 而没有变异杀死它**正是因为我从未写过置空消息的变异**——缺失的变异恰恰是它看起来冗余的原因。
+> M34 现在只被那条恢复的测试杀死。**结论：mutation-survivor 剪枝的可靠性不超过它所对照的变异集。**
+> **三次范围移交**（均用户裁定）：符号化 chrome 与无障碍声明整半 · token 取值绑定 · R3 第 2 轮后连同
+> REQ-032/033/034 整条移交的 token 词汇声明，全部归 `T4-SCHEDULE-UI-SYMBOL-CHROME`，使两卡都不留
+> 「声明了却由别人应用」的接缝。渲染期约束（间距/对比度/200% 字号/Compose 接线本身）在黑盒面内不可
+> 机检，卡内验收表逐条标注为人工设计评审，不冒充自动验收。解锁 `T4-SCHEDULE-UI-SYMBOL-CHROME`
+> （自估 850–1200 行，**开工前须先拆两张**）。
+
+**2026-09-08 本地交付**：`T4-DESIGN-SYMBOL-CHROME-V2` 已合并（master `53673571`，**人裁合并**——8 轮 R3 / 13 条 finding 全部属实且全部当场修，轮次上限达顶后由用户裁定，八道确定性闸全绿、R3 未被唤起）。`context/DESIGN.md` 新增 `Symbol-only chrome` 具名节：领域值永不由字形单独承载 + 五条准入条件 + 准入不覆盖更严组件合同；四处治符号化控件的条款解析到它，计数与状态条款重写。OD-1 裁定 tooltip 要求按组件 anatomy 绑定，故相机 anatomy 未动；OD-2 裁定 `Settings` 目的地播报可行动的本机健康状态。**沿途关掉十一处基线既有 WCAG 1.4.1 缺口**（非本卡引入）：签名组件 evidence rail 在每项默认态 `UNRATED` 下complete/missing/blocked 仅靠颜色区分，`task-stepper` 的失败阶段无非颜色载体而它是 RESTORE/BACKUP/IMPORT/ERASE 四条流程的必需元素，另有 `summary-stat`/`metadata-row` 状态图标 optional 等。R4 25/25 变异全杀。**最贵的一条**：R3 第 5 轮拦下「把无障碍播报当作可见视觉线索的替代项」——播报服务屏幕阅读器、不解决色觉障碍的明眼用户，六轮本地对抗复核全部漏掉，只有第二模型评审抓到。遗留三项开卡 `T4-DESIGN-STATUS-CARRIERS`；本卡解锁 `T4-SCHEDULE-UI-PRESENTATION`。
+
+**2026-09-08 本地交付**：`T3-REPORT-IMPORT-PLAN-SNAPSHOT` 已合并（master `8fba92e3`，正式 R3 pass，用户批准一次计数重置）；不可变上下文、严格日期、Routine v2 绑定及未抑制目标初始未评级已交付，沿用原生房间标签与抑制规则。6 项本卡测试、983 core + 6 E2E 验证通过，4 项既有 Windows media 测试跳过；30 次有效行为变异覆盖 29 种故障。来源投影、确认与导入写入尚未交付。
+
+**2026-09-07 本地交付**：`T3-DOCX-CUSTOM-PROPERTIES` 已合并（master `b00bcbcd`，R3 pass）；94 项本卡测试、10 项最终源码变异通过。TD174 的固定自定义属性部件有界校验后丢弃已实现，源元数据不进入提取结果；未宣称完整私样导入或真机验收。
+
 需求已收口 + **设计已定稿**（ADR-0001–0004、ADR-0006）+ **用户已签认**（2026-08-15：ADR-0002 / 2 套以上物业部分在租 / 租客联系方式留 12 个月 / 不做双刻度与费用字段，见 `docs/TASK-BOARD.md`「用户已定」）。ADR-0006 的 accepted 依据是需求 §11 的 `[定]` 合同及其在本 ADR 中的收紧，不另宣称一次未入账的签认。技术路线 = **原生 Kotlin + Compose**（ADR-0001）；任务卡 `specs/tasks/` 存未合并活卡、`specs/archive/tasks/` 存已合并历史，模型路由总表 `docs/TASK-BOARD.md`。
 
 **W0 已完成**：`T0-TOOLCHAIN` **merged**（2026-08-15，R3 pass 于 `5fec73c`，9 轮评审）——JDK 17 + Android SDK（用户级 `JAVA_HOME=C:\Android\jdk-17` / `ANDROID_HOME=C:\Android`）+ `android/` 双模块骨架（`:core` 纯 JVM / `:app` Compose 壳）+ 全项目依赖目录 pin（compileSdk 35、Compose BOM 2026.06.01、TestNG 而非 JUnit——JUnit=EPL 禁列）+ CI 收紧至 windows-latest。verify 的 Android 闸已收紧（哨兵「Android :core check 全绿」）。
@@ -320,9 +561,8 @@ SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）�
 > **轮次上限三次经用户裁定 `ResetRounds`**：每轮都是互不相同的真缺陷、都被接受修复、都带来新的击杀变异，
 > 不属该闸要止住的「同一争点拉锯」；计数被清零，评审本身一次没跳过。
 
-**当前已解锁待做**：`T3-PDF-RENDER-DEVICE`（另依 `T1-SPIKE-PLATFORM` 真机 spike）· `T3-REPORT-HTML-RENDERER`
-· `T3-DOCX-PACKAGE-READER` · `T3-REPORT-INTERCHANGE-SCHEMA` · `T2-ROUTINE-CONTEXT-V2` ·
-`T5-BACKUP-IO`（依 backup-format）· `T4-COMPLIANCE-ENGINE`（依 schema；**设计前置=L228 fail-closed 门纪律**）。
+**当前已解锁待做**（按 depends_on 核对，2026-09-26）：前置均已合并的产品卡包括 `T1-APP-BOUNDARY-ASSEMBLY`、`T1-PRIVACY-MANIFEST-POLICY-GATE`、`T2-MEDIA-ACCESS-BOUNDARY` 与 `T5-OPERATION-EVENT-STORE`（最后一个前置 `T1-LOCAL-DATA-SECURITY` 于 2026-09-26 合并），以及 `T2-GHOST-EDGE-OVERLAY` 与 `T3-REPORT-IMPORT-COMMIT`。`T3-PDF-RENDER-DEVICE` 的 `T1-SPIKE-PLATFORM` 真机 spike（master `e8c2359a`）与图片 bridge（master `fee6451f`）前置已满足，但仍待 `T3-PDF-TEXT-METRICS-OPS` 与 `T3-PDF-ANDROID-TEXT-MEASURER`；
+`T5-BACKUP-IO` 仍待 `T1-SHARE-SCREEN-PRIVACY` 与 `T1-APP-BOUNDARY-ASSEMBLY`。
 
 **T0-GATE-HARDENING 的事后 R3 已结清**：其合并 `5ba3319` 未经 `task.ps1 ship`（`-SkipRed` ×2），post-hoc R3
 block ×2 且经复核属实；用户裁定 **fix-forward 不 revert**，承接卡 `T0-GATE-FIXFORWARD` 已 **merged**
@@ -459,16 +699,17 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 14. `docs/EVAL.md` — 能力完成度自评方法论（opt-in stub：确定性 exit-0/1 eval 标准；四维 frontend-behavior/backend-mcp/security/functional；LLM-judge 留上游不当闸；不带 runner/套件，下游自建自接 CI）
 15. `docs/DELIVERY-OPS.md` — **合并之后**交付/运维方法论（opt-in 姊妹篇：集成/e2e 测试层 · 结构化日志/可观测 · 灰度+feature-flag · CD 部署/回滚/staging；全为方法论+标准+占位、工具无关；**脚手架永不自动发布**，CD 下游接线）
 16. `docs/RELEASE-CHECKLIST.md` — **发布前收口清单**（工具无关、可勾选）：整合已有闸（防泄露 `check-secrets -Strict` / `verify`）+ 授权/认证安全自查（越权 IDOR/会话固定/token 存储/CSRF/密码哈希）+ 可观测 + 灰度/回滚。小项目按需取子集
-17. `docs/FRONTEND-FLOW.md` — **前端生成闭环**（T2 档 · 复杂多页前端）：四段串现有件（生成前/中/后/资产回流）+ **流程卡(页面地图)** 与 **意图卡(单页目标)** 两个模板；流程卡→喂 `plan-forge`、意图卡→`grill-design` 拷问敲定；驱动卡 `.claude/skills/frontend-flow`。**不重造引擎**，简单单页前端直接 `frontend-design`+pencil
+17. `docs/FRONTEND-FLOW.md` — **前端生成闭环**（T2 档 · 复杂多页前端）：四段串现有件（生成前/中/后/资产回流）+ **流程卡(页面地图)** 与 **意图卡(单页目标)** 两个模板；流程卡→经 `plan-forge` 审计、`decompose-cards` 投影，意图卡→`grill-design` 拷问敲定；驱动卡 `.claude/skills/frontend-flow`。**不重造引擎**，简单单页前端直接 `frontend-design`+pencil
 18. `docs/SCAFFOLD-SYNC.md` — **fleet 回路 + 决策账**：`check` 展示上游 Downstream 耦合组；`report` 反哺 issue；每版记 applied/partial/skipped。`ScaffoldOriginVersion` 是不可变来源（v0.29.0），`ScaffoldVersion` 是已裁决高水位（v0.47.0）；缺/坏账只回退 origin。`scaffold-stale` 只读本地 ref、绝不 fetch；本次耦合采用与未覆盖项见 `docs/SCAFFOLD-UPSTREAM-ADOPTION-20260910.md`
 19. `docs/DATABASE-DESIGN.md` — 离线主证据库、诊断库、文件存储、写权限、生命周期、读模型与诊断导出的设计权威
 20. `docs/adr/0006-offline-security-backup-hardening.md` — ADR-0002 的离线安全、密钥、provider 失败隔离与恢复验证加固；保留整包/按物业备份范围
 21. `docs/UI-UX-ELEMENTS.md` — UI 页面、Overlay 与状态的 Elements 覆盖索引；规范细节唯一服从 `context/DESIGN.md`
-
 22. `specs/android-module-boundaries.md` — 审校补全的产品模块所有权、窄接口与复用约束（后续卡实现，非已编译 API）；版本与卡依赖见 TASK-BOARD 的 2026-09-06 补卡计划
+
 23. `docs/adr/0008-compliance-update-trust.md` — 规则离线签名与信任根、版本/日期/恢复矩阵及用户决策证据；导入实现按 A1–A8 后续交付
 
 24. `docs/plans/PREREVIEW-REMOTE-ADOPTION.md` — prereview 最终契约、策略和 FACTS-LIB 的远端采纳边界与验证。
+25. `docs/PREREVIEW-PROTOCOL.md` — PR review v2 阶段 1a **建议性发现包**的人读协议：规范顺序、进包内容与两个 worker 各自可见面、worker 命令契约、记录/覆盖形状（契约本体 = `specs/prereview-record.schema.json`）、发现分类 C1–C7、20 个 `[PRE-…]` 状态码表（与 schema 枚举双向锚定）、首次真跑清单、link-r3/recall 与 1a 检查点；1b 只留状态码行 + 指针段。codex R3 仍是唯一合并闸、包不进其提示词
 
 ## 开发工作流（每张任务卡，详见 docs/DEVOPS-WORKFLOW.md）
 单卡闭环：`scripts\task.ps1 -TaskId <ID> -Phase start|ship|cleanup`
@@ -482,7 +723,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
   **push 侧是事后检测、不是 push 前强制**——提交落地后才跑；free+private 无可强制规则集时，它保证直推提交**败即显式变红**（防泄露闸尤需事后可见：发现了才能轮换密钥）。
   push 前的真强制只有两层：`gh-bootstrap.ps1` 装的本地 pre-push 钩子（仅覆盖装了钩子的克隆）、服务端规则集（需 Pro/public）
 - **R4 测试卫生**：mutation-survivor 法剪枝冗余测试（每卡 `hygiene` 字段）
-- **R5 文档同步**：合并后立刻更新 CLAUDE.md/README/卡片 status（每卡 `doc_sync` 字段）
+- **R5 文档同步**：合并后立刻更新 CLAUDE.md/README/卡片 status（每卡 `doc_sync` 字段）；机械部分用 `scripts\post-merge.ps1 r5`（三段 prose 由调用方写成文件，脚本在 origin 新切的 worktree 里落位、开 PR、CI 通过即合并），PR 未合并就关闭的卡用 `post-merge.ps1 retire` 退役（同样 CI 通过即合并），卡分支用 `post-merge.ps1 prune` 清理
 - 一次性建仓：`scripts\gh-bootstrap.ps1`（建仓 + main 规则集加固；**仅 `_config.ps1` 配置的个人账号**；推送前转调防泄露闸）
 - 变 public 前防泄露：`pwsh scripts\check-secrets.ps1 -Strict` 须全绿——核心数据库/密钥/凭据须既被 gitignore、又**未被 git 追踪**（已追踪 → `git rm --cached`，gitignore 救不了已追踪文件）。模式集单一真相源，`gh-bootstrap` 复用之；见 `docs/SECURITY.md`
 
@@ -503,12 +744,12 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - **`.claude/skills/triage`**=脚手架心跳（loop-engineering）：`scripts/triage.ps1 scan` 只读 cadence 扫描各子系统 → `_local/triage-inbox.md`，
   **只发现不行动**，act 走既有交付链；说「triage / 扫一遍待办 / 心跳」或 `/loop` 即触发。理解债自检
   （别盲信 loop 产出）标准/动机见 `docs/LOOP-ENGINEERING.md`。
-- **`.claude/skills/frontend-flow`**=前端生成闭环**串联驱动卡**（T2 档 · 复杂多页前端才用）：把现有件串成「生成前→生成中→生成后→资产回流」四段——PRD 复用 `shape-idea`/`PROJECT-BRIEF`(+前端补充节)、生成规则复用 `frontend/README` 5 闸+design tokens 真相源；生成中产出**流程卡(页面地图)→喂 `plan-forge`** 投影任务卡、**意图卡(单页)→`grill-design`** 拷问敲定；生成后路由 **pencil MCP**/Claude Design/v0(L26 不绑死单一)+`frontend-design`/`taste-skill` 局部改；验证过的区块回流 `context/frontend-assets/`。**不重造拷问/审计/编辑器引擎**（边界见 `docs/FRONTEND-FLOW.md`）；T0/T1 简单前端别上、直接 `frontend-design`+pencil。说「前端生成 / 做前端页面 / 页面地图 / 意图卡 / 前端闭环」即触发。
+- **`.claude/skills/frontend-flow`**=前端生成闭环**串联驱动卡**（T2 档 · 复杂多页前端才用）：把现有件串成「生成前→生成中→生成后→资产回流」四段——PRD 复用 `shape-idea`/`PROJECT-BRIEF`(+前端补充节)、生成规则复用 `frontend/README` 5 闸+design tokens 真相源；生成中产出**流程卡(页面地图)→经 `plan-forge` 审计、`decompose-cards` 投影任务卡**、**意图卡(单页)→`grill-design`** 拷问敲定；生成后路由 **pencil MCP**/Claude Design/v0(L26 不绑死单一)+`frontend-design`/`taste-skill` 局部改；验证过的区块回流 `context/frontend-assets/`。**不重造拷问/审计/编辑器引擎**（边界见 `docs/FRONTEND-FLOW.md`）；T0/T1 简单前端别上、直接 `frontend-design`+pencil。说「前端生成 / 做前端页面 / 页面地图 / 意图卡 / 前端闭环」即触发。
 - **`.claude/skills/{frontend-design,taste-skill}`**=前端/UI 视觉设计层（配 `frontend/` 骨架）：`taste-skill`（vendored MIT）是反 slop 前端技能（brief inference / 三档配置 / "AI tells" 黑名单 / redesign 协议 / 起飞前检查）；`frontend-design` 是**原创路由卡**（非 vendored），把 UI 活路由到 taste-skill、Claude Code 内置 frontend-design、以及**可按需安装的 MIT 插件 `ui-ux-pro-max`**（161 调色板/67 风格/按栈组件的可搜索 DB，约 10MB 故不 vendor、用 `/plugin install ui-ux-pro-max` 按需装）（**均就地引用、不拷专有正文**，保模板纯宽松），并带通用设计纪律。说「做个页面 / UI 太模板 / 重设计 / 让它好看点」即触发。
 - **`.claude/skills/{webapp-testing,mcp-builder,skill-creator}`**=Claude Code 内置 skill 的**原创 pointer 卡**（就地引用内置、**不拷专有正文**，保模板纯宽松，并编码本仓特定约定）：`webapp-testing`=UI 真跑验收（Playwright 驱浏览器 + 截图，**上游探索首选 Playwright MCP `@playwright/mcp` 按需接入**，补 TDD/verify 之外的真浏览器路径；模型在回路=非确定，只探索不当闸；产物落 `_local/`）；`mcp-builder`=建 MCP server/工具（守许可闸 + 命名规约 + 契约冻结）；`skill-creator`=在本仓加/改 skill（vendor vs pointer 判许可、同步三处索引、跑 selftest）。说「验证前端 / 截图」「做个 MCP」「加个 skill」即触发。
 - **`.claude/skills/database-design`**=关系型 schema 设计纪律（原创卡，配 `backend/` 骨架）：建模在前 / DDL 在后；主键策略、审计+软删（唯一索引含 `deleted`）、状态机、逻辑外键默认、业务逻辑不进触发器/存储过程、索引来自查询场景、反过度（别过早分片）。配 plan-forge `data-model` lens（设计期审）+ rubric#13（评审期）+ `docs/lessons/database.md`（陷阱真相源）。说「设计数据库 / 表结构 / schema / 数据模型 / ER 图」即触发。
 - **`.claude/skills/pr-recap`**=diff→可视化高空摘要（原创卡，辅助非闸）：把 `git diff`(branch/commit/PR) 投影成 变更鸟瞰 + mermaid 架构delta/文件触达图 + 评审注意点，贴进 GitHub PR(原生渲染 mermaid)或落 `_local/`；纯 markdown + git/gh、零运行时依赖、自包含。补 codex R3(文字裁决)之外给**人**看的高空视图；**模型在回路 = 非确定，只辅助不当闸**(L25)。要 annotated-diff UI / 可分享链接按需接 Builder `visual-recap`(opt-in，L26 不绑死)。说「recap / PR 摘要 / 变更鸟瞰 / 把 diff 变可读」即触发。
-- **`.claude/skills/improve-prompt`**=按模型改写提示词（原创卡，辅助非闸）：贴一段 prompt（可选给目标模型/用途）→ 推断或确认目标模型（规划/评审→Opus 5 · 规格清晰实现→Sonnet 5 · 长自主/多卡→Fable 5）→ 指名 Read `docs/references/claude-<model>-prompting-llms.txt` + 跨模型最佳实践 → **两面都过**：既补该补的，也**删该删的**（为旧模型缺陷写的补偿性脚手架在新模型上常反过来伤你；每条删除须能在 reference 指出依据，指不出就不删只提问）→ 输出可复制改进版 + 逐条溯源解释、删除项单独标出；三模型之外走跨模型通用篇。另有 `opus-4-8` = 拒答回退兜底档（配回退链时才路由）。真相源 = reference 文件（本卡只编排、不复制提示技巧正文）。说「优化提示词 / 改进 prompt / improve this prompt」即触发。
+- **`.claude/skills/improve-prompt`**=按模型改写提示词（原创卡，辅助非闸）：贴一段 prompt（可选给目标模型/用途）→ 推断或确认目标模型（规划/评审→Opus 5.5 · 规格清晰实现→Sonnet 5 · 长自主/多卡→Fable 5）→ 指名 Read `docs/references/claude-<model>-prompting-llms.txt`（Opus 5.5 连同基线 `opus-5` 篇）+ 跨模型最佳实践 → **两面都过**：既补该补的，也**删该删的**（为旧模型缺陷写的补偿性脚手架在新模型上常反过来伤你；每条删除须能在 reference 指出依据，指不出就不删只提问）→ 输出可复制改进版 + 逐条溯源解释、删除项单独标出；三模型之外走跨模型通用篇。另有 `opus-4-8` = 拒答回退兜底档（配回退链时才路由）。真相源 = reference 文件（本卡只编排、不复制提示技巧正文）。说「优化提示词 / 改进 prompt / improve this prompt」即触发。
 - **`.claude/skills/ponytail{,-review}`**=on-demand 的 YAGNI **设计层**透镜（vendored，MIT）：写测试前审「要不要建/需不需要这层抽象或依赖」（`ponytail-review` 含 diff / 全仓两模式）。
   与代码层的 `/simplify` 分两个高度互补（task-loop 步骤 1.5 vs 3.5）；说「ponytail / 精简 / 是不是过度设计」或 `/ponytail` 即触发。不装其常驻钩子。
 - **双评审流水线**（docs/DEVOPS-WORKFLOW.md §8，正交不重复）：`/security-review-local`（安全·commit 前）→ commit → codex PR（契约/工程）。
@@ -518,7 +759,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - Android 工程（T0-TOOLCHAIN 落地后）：全部测试/静检 `cmd /c android\gradlew.bat -p android --offline --no-daemon :core:check`；装机包 `:app:assembleDebug`；装环境步骤见 `specs/archive/tasks/T0-TOOLCHAIN.md`
 - **验收总闸门**：`scripts\verify.ps1`（确定性、无网络跑通最小闭环）
 - **工作流自检**：`pwsh -File scripts\selftest.ps1`；本地跑完整 17 闸，`-Parallel` 按矩阵分片并行；CI canary 用 2 OS × 5 片。任务卡可选定向检查作 DoD，但不能替代 Tier-S 完整验收。
-  显式 `-TaskId <id> -Base origin/master` 从已钉定本地基线读取卡/冻结配置，定位该任务的注册工作树：普通 `android/`、`configs/compliance/` 产品改动仅报不适用（仍须 product verify），普通文档跑 core，混合/关键/冻结/未知改动跑 all；省略 TaskId 保持完整默认覆盖。
+  `-TaskId <id>` 按卡分级验收：卡从脚本自己探测的基线提交读取（`[SELFTEST-TASKID-BASE]`；脚本没有 `-Base` 参数），按卡的 tier 与 `[GATE-MAP]` 选闸：Tier S 跑全量；Tier 1 跑底座闸加改动路径命中的路由行（有 `.ps1` 改动再加闸 7），有改动路径没有路由行、或一条改动路径也取不到时升级为全量；Tier 0 恒为底座闸、不升级。Tier 0/1 的结论是 `[SELFTEST-TIER-PASS|FAIL]`，与 `-Only`/`-Parallel` 互斥。它测的是被调用那份脚本所在的检出，卡的证据须从卡 worktree 里那份跑（L344）。省略 TaskId 保持完整默认覆盖。
 - **范围检查**（核「改动 ∈ 卡 allow_paths」；与 ship 范围闸共用判定核 `scripts/_scope.ps1`，越界/不可判即非零退出，**不自动 fetch**）：**诊断式**（不承担绑定）`pwsh -NoProfile -File scripts\check-scope.ps1 -TaskId T1-FOO -Base master`（`-Local` 判本地那棵）；已推送状态的手工恢复可按 `docs/DEVOPS-WORKFLOW.md` 完整式做诊断和修复后自查，但最终交付不得裸跑 review/checks/merge，必须执行 `-NoAutoMerge` 打印的 `[SHIP-MANUAL-RESUME]` 命令，重新进入同一 `task.ps1 -Phase ship`，由 fresh R3、精确 CI workflow/run-attempt/PR/jobs 身份、终局 base/head/OID 快照和受保护合并腿共同裁决。
 - 依赖许可扫描（加/升级依赖后必跑）：`pwsh -File scripts\check-licenses.ps1`
 
@@ -558,16 +799,17 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 > 自净化经验系统的**必须层**：踩过且会复发的硬坑，每轮都在上下文里，**同样问题不再重导**。
 > 全量见 `docs/lessons/LEDGER.md`；按需细则 `docs/lessons/<topic>.md`；流程见 `docs/LESSONS.md`。
 > `scripts/lessons.ps1` 完整命令集：`add|archive|bump|check|list|promote|search`；本节超上限须淘汰最不活跃项回按需层。
-> **封顶的计量单位是驻留的经验 id、不是本节的条目数**：一条写着 `[L190][L193]` 的 Markdown bullet 包含 2 个驻留 id、
+> **封顶的计量单位是驻留的经验 id、不是本节的条目数**：一条写着 `[L21][L205]` 的 Markdown bullet 包含 2 个驻留 id、
 > 占 2 个封顶单位；封顶要管的是驻留 id。判定核 `scripts/_lessons.ps1`，`lessons.ps1 check` 与心跳探针 5 共用。
-- **[L1] 并行工具批次**：只读诊断与写操作**分批**；首个命令非零退出会**连带取消整批**、丢失已写文件。
+- **[L309] 全称声称先逐例代入、再送评审**：往文档、注释、测试名或验收里写全称保证（every / never / 一律 / 不会越界 / 精确）时，先把受它管辖的既有实例和输入域边界值逐个代入核一遍，冲突的当场消解或显式豁免；数值类保证优先靠构造（守卫 + 钳位）并对编译产物实测。同一条声称连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞。
 - **[L165] 断言面必须恰好等于被测契约，并用「只删那一句」的变异证明它在测**：宽于契约的断言（整份 stdout ⊃ 判定行 · 本地化文案 ⊃ ASCII 哨兵 · 关键词出现次数 ⊃ 可执行命令行 · 任一非零 ⊃ 该守卫拦下）在契约还在时照样绿，契约被摘掉后又常因别的原因满足 ⇒ 静默失效。故：只比判定行 · 机检认 ASCII 哨兵（本地化文案只给人读，编码链一变即假红/假绿）· 文档契约锚到可执行命令行形态 · 「不符」用例要让被测那句**真被执行到**。**每道守卫配一枚单句删除变异，它红了才算数**。
 - **[L17] `.ps1` 一律用 PowerShell 工具，不用 Bash；经 Bash 传给任何解释器的字符串也别含字面反斜杠**：Bash 工具吞的是**任何**字符串里的反斜杠层级（引号 heredoc 也不例外——`scripts\review.ps1` 到达 Python 时 `\r` 已成回车，锚点静默失配），且控制台编码与 pwsh 不同源——后者会让 `selftest.ps1` 等中文断言脚本产出**假 FAIL**，连事后核验也会被误导；异常失败先用 PowerShell 工具重跑再下结论。
 - **[L97] 横切纪律行为化前先 grep 出全部权威面、一次性纳入 allow_paths**：改的是「所有面都在教的那条规则」时，教它的面（CLAUDE.md · README/操作手册 · skill · 脚本头注 · 架构图 · 各校验清单枚举）**一次扫齐再开卡**，并连同**改动文件自身的注释与卡 front-matter** 一起对齐——评审每轮只报当轮最刺眼的一处，漏一处就多打一轮。**扫描清单显式含本次 diff 改到的每个文件自身**（注释 + 失败/日志文案 + 总结行）；**失败文案不写死具体病因**（那是必然过时的正面陈述），能从现场数据动态报就动态报。这类卡 allow_paths 天然大，是横切的固有形态、非 scoping 失误；check-cards「>5 告警」对它是误报但不放宽阈值，在卡标题声明式扩尺寸即可。
 - **[L196] 后台长批硬杀不执行 finally，会话续接第一步先核被测文件 SHA**：变异批/长批被会话拆除或进程树 kill 杀在「植入后、还原前」时，还原挂在 finally 上不会跑，被测文件跨会话停在变异态，git 只显示 M、肉眼难辨。故：批启动核基线 SHA、不符即中止；**每次会话续接第一步**核被测文件 SHA==上批基线，不符先从 `.bak` 还原再谈 diff/证据（判干净只认 SHA256）；批须落 per-mutation 日志，续跑只补缺失枚、不整批重来。**变异批进行中勿并行跑独立交叉复核**——复核者读到瞬态变异文件会产出自信的假阳性。
-- **[L190][L193] 验证必须用被测代码那套机制，且不可见码位只写转义形态**：验证一个断言时必须用**被测代码实际使用的那套机制**去验，不能用「语义上等价」的另一个 API（正则覆盖面就用 `-match` 实测、别查类目 API；编码/落盘行为就真写一遍文件再读回）；断言对象若是一个**类目/属性**，取样证不了它——须由标量级权威 oracle（`Rune.GetUnicodeCategory`）枚举全集，再逐个走**生产那套机制**验证。写文件的工具层会把「反斜杠u四位十六进制」字面静默解码成真字符——组合符/控制符落盘后肉眼与显示层都看不见，故转义形态要**用代码拼出**（`chr(92)+'u'`、`0xD800.toChar()`、`appendCodePoint`），写完立刻字节级验证，并在用它之前断言靶串真能在被测文件里找到。**判别工具与被测实现矛盾时先停手修工具**——此时产出的任何「变异 OK / 覆盖完整」都是无效证据，比没有更坏；靶串找不到=本枚作废、中止，而非「测不出」。
+- **[L353] 名字撞上 check-secrets 的形状就改名，永不加白名单**：check-secrets 按形状判、不按含义判。被追踪路径里以 `secret` 开头的段算敏感文件；`secret`、`password`、`api-key` 这类词后面紧跟冒号或等号、再接一串像值的字符，就算赋值，代码、卡片散文、类型标注一视同仁。所以命名时就避开这两种形状（文件加前缀，如 `LocalSecretEnvelopeStore`；参数叫 `plaintext` 或 `value`），新文件与卡片文字推送前先跑 `pwsh scripts/check-secrets.ps1`。命中的不是机密时改名或改写，不加 allowlist（用户规则，2026-09-25）。
 - **[L21][L205] R3 轮次先判证据真伪，修复轮也要本地对抗自检**：无裁决时先按 `review.ps1` 状态码与已保全原文分类：`[R3-NO-VERDICT-JSON]` 仍可能含真实负面 finding，须读原文并按反馈处理；`[R3-NO-OUTPUT]` 只证明没有可解析输出，不能直接推定配额故障。再在同一 worktree 独立 probe reviewer（不经 `review.ps1`、不碰 `.rounds`）并保全完整 stderr；**只有 probe/stderr 证实配额或其它外部失败，才判为评审者未真正运行、非真实评审分歧**。禁止靠反复 `ship` 烧轮次，更不得绕过 R3；若外部失败已误耗尽 cap，只能在确诊后 `ResetRounds`，随后仍须正常过 R3。一轮修 ≥3 条 finding 的修复 diff 常大于首轮实现，且「按条修不看整体」使新代码不再被任何人当新代码审——ship 前先派 fresh-context/换模型子代理只对**本轮修复 diff** 按 rubric 复核（新错误处理是否 fail-open？点名目标是否全覆盖？改动文件自身注释/文案还成立吗）。W2 五卡有四张的 R3 轮次通胀皆此模式（修复自己引入下一轮的缺陷）。
 - **[L266] 体量在写 RED 之前就量，别等 ship 才发现顶破预算**：验收契约那一步就用闸门自己的尺估一次——产线 + 测试 + R4 收据合计对着 R3 的 **1000 changed-lines / 60000 字符**硬上限报预算（`review.ps1` fail-closed、只许收紧），**超过约 800 行就在动手前提出拆卡**。量晚了就只剩坏选项：ship 压力下先删注释、再打包字面量、最后开始动测试用例与变异收据。**且收据钉的是生产文件的确切 SHA-256，批后任何生产改动（哪怕纯注释）都作废整批证据**（L270）——所以「为压预算而修剪」必须发生在变异批之前。L246 管「用哪把尺量」，本条管「什么时候量」。
+- **[L360] 变异运行器先证明自己能用，再拿它的结果当证据**：批前用同一写入路径把未变异文件重写一遍，要求字节不变且自检通过；实际执行的变异数必须等于声明数；只认「解析通过且点名的用例失败」为击杀，跑出解析错误（Kotlin 即编译失败）的一律作废。用脚本往自检里插过代码，先跑一枚必死的变异：若每枚都以退出码 0 存活，坏的是工具而不是代码（插入块少一个结尾换行，会把自检的汇总行吞成上一条用例的参数，自检于是永远 PASS）。
 
 ## 执行边界（AI 自主运行硬约束 · 每轮必载）
 > 长自主运行里边界必须显式常驻（出处：docs/references/claude-fable-5-prompting-llms.txt「划定边界」）。经验铁律管「工具坑」，本节管「行为红线」，不重复。
@@ -575,10 +817,11 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
   用 `--no-verify`/停用钩子绕过任何闸门；把 `.env`/密钥/登录态等机密内容读出、回显、或写进提交/PR/交接文件；
   **改/删/跳过测试或弱化断言让它变绿**（那本身就是失败，永远不是修复）；**虚构机密/端点/API/约定**——真源查不到就停下问，绝不编一个填上。
 - **完成与词义（防自评漂移）**：「完成」**只有一个定义 = 机检闸通过**（DoD / verify / selftest），自评「看起来好了」不算数；「清理/重构」= 行为不变且闸门前后皆绿；执行中偏离计划 → 取保守选项、记录缘由后继续；maker 与 checker（如 R3 评审）同一争点**两轮互不认可即停**、排队人裁，别无限迭代讨好评审。
-- **先停下确认（难逆或范围变更）**：删远端分支/仓库、改仓库可见性（private→public）、改 GitHub 规则集、
+- **先停下确认（难逆或范围变更）**：删远端分支/仓库（例外：`post-merge.ps1 prune` 删唯一 PR 已 MERGED 且远端 tip 仍等于该 PR head 的分支，带 lease；用户 2026-09-25 裁定）、改仓库可见性（private→public）、改 GitHub 规则集、
   卡片 `allow_paths` 之外的批量删除、动 `FrozenPaths` 冻结物（走版本评审）；**新增运行时依赖**（先提案用途/许可/更简替代，过许可闸再落 lock）；**单次提交超大 diff**（约 >200 行）而任务未明示该规模。
 - **反模式抑制（未经请求不做）**：不做防御性备份（`*.bak`/backup 分支/副本文件）；不重开用户已定的决策；
   任务外重构/清理见通用编码纪律 3/4。可逆且属原任务的动作直接做，别停下要许可。
+- **无 R3 直接合并的范围（用户 2026-09-25 裁定）**：post-merge.ps1 r5 开的 R5 文档同步 PR 只能改本卡卡片、本卡的 docs/TASK-BOARD.md 行、CLAUDE.md「当前阶段」节内的新增行；post-merge.ps1 retire 开的退役 PR（用户 2026-09-26 裁定）只能把指名卡片的 status 改为 merged 并在其后加一行 superseded_by、在该卡末尾追加一节、改该卡的 docs/TASK-BOARD.md 行；越界即 [POST-MERGE-SCOPE]，不推送。
 
 ## 约定
 - 路径用 `pathlib` 绝对路径；subprocess 用参数列表 + 显式 UTF-8、禁拼 shell；错误分 retryable/non-retryable。
@@ -588,19 +831,19 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - 遇到反复出现/曾卡死的问题，先 `pwsh scripts\lessons.ps1 search <关键词>` 查经验；解决后 `add` 回总账。
 - **提交不加任何 `Co-Authored-By` / AI 署名**；commit message 只写改动本身（含敏感字样或多行走 `git commit -F`，见 L2）。
 - 不在仓库根/各处留生成物或临时文件：`.venv/`/`.pytest_cache/` 等已 gitignore；临时核验文件放 `.secrets/`（gitignored）用完即清。
-- 本项目唯一 AI 工具是 Claude Code（+ codex 评审）；`/init` 与 CLAUDE.md 审查时**跳过** Cursor/Copilot 规则检查（见 L12）。
+- 本项目的 AI 工具：Claude Code（开发助手）+ codex（R3 评审席，唯一合并闸）+ 自 PR review v2 阶段 1a 起两个**建议性发现包 worker**——Anthropic `claude` CLI 发现者（订阅 OAuth，读整个包含快照树）与 DeepSeek 透镜（`DEEPSEEK_API_KEY` 调用时读取，只收 prompt）；协议见 `docs/PREREVIEW-PROTOCOL.md`，出站信任面见 `docs/TRUST-MANIFEST.md`；`/init` 与 CLAUDE.md 审查时**跳过** Cursor/Copilot 规则检查（见 L12）。
 
 ## 模型分工与交接（Opus 想 / Sonnet 做）
 > 两个模型共用下面「工作准则 / 约定 / 经验铁律」，只是侧重不同——LLM 反复犯同样的错，靠这些规则拦住。
-- **Opus**（`claude-opus-5`）= 想 / 架构 / 评审：规划 · 难逆决策 · 硬调试 · pre-merge 判断。陷阱 = 过度构建 → 重「工作准则」的极简 / 可追溯两关。（**`claude-opus-4-8` 未退休 = 兜底席位**：Fable 5 与 Opus 5 都带安全分类器，被拒后官方默认回退**按类目**改道，官方示例选中的就是它——但映射按类目而定且会变，**读响应里的 `fallback` 块判断接手者、别写死**。别把 4.8 当废档删。）
+- **Opus**（`claude-opus-5-5`）= 想 / 架构 / 评审：规划 · 难逆决策 · 硬调试 · pre-merge 判断。陷阱 = 过度构建 → 重「工作准则」的极简 / 可追溯两关。（**`claude-opus-4-8` 未退休 = 兜底席位**：Fable 5.1、Fable 5、Opus 5.5 与 Opus 5 都带安全分类器，被拒后官方默认回退**按类目**改道（无推荐兜底的类目拒答维持），四者共用的官方 refusals-and-fallback 页示例选中的就是它——映射按类目而定且会变，**读响应里的 `fallback` 块判断接手者、别写死**。别把 4.8 当废档删，也别把 Opus 5 篇当废档：它是 Opus 5.5 差异页的基线层。）
 - **Sonnet**（`claude-sonnet-5`）= 实现 / 验证：规格清晰的活 · 批量编辑 · 测试 · 机械重构 · 对真源核 API。陷阱 = 没读就写 → 重「先想后写」「目标驱动执行」。
 - **Fable 5**（`claude-fable-5`）= 长自主/多卡运行：独立子任务派并行子代理、主线继续干；ship 前 fresh-context 证据审计（见 task-loop 4.7）；经验一律落 lessons 链。**只在**多卡弧 / 耗时超单会话 / 需自主拆解的模糊 scoping 才上 Fable，规格清晰的例行活留 Sonnet（贵档，别拿它烧 Sonnet 稳做的活）；何时派/长命子代理复用见 docs/references/claude-fable-5-prompting-llms.txt。
 - **大体量只读消化不进主上下文**（标准=上下文隔离，工具无关）：超长日志/构建输出/PDF/截图先在隔离上下文消化、只回传摘要/结论（**如**派子代理或第二便宜模型），别直接灌主上下文。
-- **effort 杠杆**：例行模型在环步骤跑低 effort（Fable 低 effort 常超旧模型 xhigh），最吃能力的活才 xhigh；**循环/重试体内封顶 high**——xhigh 只给一次性评审/最难单点，别放进 loop 反复烧。
+- **effort 杠杆**：例行模型在环步骤跑低 effort（Fable 低 effort 常超旧模型 xhigh），最吃能力的活才 xhigh；**循环/重试体内封顶 high**——xhigh 只给一次性评审/最难单点，别放进 loop 反复烧。**Opus 5.5 做代码评审从 `medium` 起**（官方测试中它的 `medium` 在编码与知识工作 eval 上已追平或超过 Opus 5 的 `high`，早期测试者另报告其评审更强、误报更少；且同档想得更多）：Tier-S 或安全面改动可上 `high`，`xhigh`/`max` 只给测到收益的活（见 task-loop「回合何时结束」）；Codex R3 的档位另由 `_config.ps1` 的 `ReviewEffort*` 管。
 - **交接**：Sonnet→Opus 遇真歧义 / 重大决策 / 两次没修好的 bug；Opus→Sonnet 计划已清、活变机械；Fable→Opus 撞真难逆架构判断、Fable→Sonnet 把规格清晰子任务派子代理，活长成多卡弧则 Opus/Sonnet→Fable 上交。solo 时先按 Opus 想、再按 Sonnet 做，活超单会话/多卡就升 Fable 自驱。
 - **独立评审闸仍是 codex R3**（第二独立模型，非 Opus 自评 · L26；实现见 `review.ps1`）。**子代理模型路由按任务性质选档，别一档到底**：`gpt-5.6-sol` = 商用级实现 · 架构决策 · 安全评审 · 终审（**R3 合并闸即钉此档**，安全面不降档）；`gpt-5.6-terra` = 仓库探索 · 文档通读 · 大体量只读消化（配合上条「只回传结论、不灌主上下文」）。**不设小模型快档**：小模型核验深度不适配闸门/安全面，小而明确的活留 Sonnet 低 effort，或仍走 `gpt-5.6-sol`。派工形态（含 Windows 上 `.ps1` shim 坑）见 `docs/DELIVERY-CHAINS.md`「Codex 子代理派工」。
 - **本项目执行舰队（性价比路由；每卡首选/备选/effort 的真相源 = `docs/TASK-BOARD.md`）**：DeepSeek V4 Pro = 默认工作马（规格清晰/机械卡，最高性价比）；Opus 5 = 设计重/新颖单点（相机、PDF composer、加密格式）；Sonnet 5（max effort）= 标准 Compose 界面/中档逻辑；GPT-5.6 Terra = 中档替补 + 大体量只读消化；GPT-5.6 Luna Max = 轻档内容/交叉复核；**GPT-5.6 Sol = R3 评审席（`_config.ps1` 已钉），原则上不作同卡作者，保评审独立**。执行时把卡内「上下文包」整段喂给执行模型。
-- **模型专属提示词细则（按需 Read，非每轮常驻）**：给某个具体 Claude 模型调提示 / 写它面向的 skill·hook·rubric 时，**指名 Read** `docs/references/claude-<model>-prompting-llms.txt`（`opus-5` / `sonnet-5` / `fable-5`；`opus-4-8` = 回退兜底档，配回退链或排查换模型作答时读）+ 跨模型 `claude-prompting-best-practices-llms.txt`；Console 侧模板/改进器见 `claude-prompting-tools-llms.txt`。这是「动态按对应模型加载对应提示词」的落地——静态 vendored、按需取，随模型出新版刷新（索引见 `docs/references/README.md`）。会话式改 prompt 入口见 `.claude/skills/improve-prompt`（贴 prompt 即改）。
+- **模型专属提示词细则（按需 Read，非每轮常驻）**：给某个具体 Claude 模型调提示 / 写它面向的 skill·hook·rubric 时，**指名 Read** `docs/references/claude-<model>-prompting-llms.txt`（`opus-5-5`，连同其基线 `opus-5` 一起读 / `sonnet-5` / `fable-5`；`opus-4-8` = 回退兜底档，配回退链或排查换模型作答时读）+ 跨模型 `claude-prompting-best-practices-llms.txt`；Console 侧模板/改进器见 `claude-prompting-tools-llms.txt`。这是「动态按对应模型加载对应提示词」的落地——静态 vendored、按需取，随模型出新版刷新（索引见 `docs/references/README.md`）。会话式改 prompt 入口见 `.claude/skills/improve-prompt`（贴 prompt 即改）。
 
 ## 工作准则
 *（非琐碎改动一律稳健优先于求快；一行错别字之类按判断处理。）*

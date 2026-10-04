@@ -49,6 +49,25 @@ cannot satisfy on the scaffold-selftest runner. Repaired locally with a post-ini
 and a bare-copy degraded-path fixture; reported upstream with `scripts/scaffold-sync.ps1 report`
 (issue links are recorded in the decision ledger row once filed).
 
+Delivery-efficiency feedback (2026-09-10) is tracked upstream in
+[#393](https://github.com/Asun28/claude-devops-scaffold/issues/393), linked to downstream
+[#298](https://github.com/Asun28/MyInspection/issues/298). It includes timed validation/review
+evidence and requests bounded Task Loop simplification: upstream owns reusable scaffold fixes;
+this downstream applies only necessary patches and prioritizes application delivery.
+
+The plan-forge prompt wording written for older models (emphasis markers, internal ticket ids in a lens, and a
+discovery-stage cap in lens rule 4) is tracked upstream as
+[#399](https://github.com/Asun28/claude-devops-scaffold/issues/399), filed 2026-09-25 after downstream PR #334
+(`T0-OPUS55-PROMPT-FIT`) and PR #360 (`T0-PLAN-FORGE-PROMPT-TRIM`) fixed it here. `decompose-cards.mjs` carries
+the same class and is carded downstream as `T0-PLAN-FORGE-FOLLOWUP`.
+
+Upstream lesson ids in adopted code are tracked upstream as
+[#400](https://github.com/Asun28/claude-devops-scaffold/issues/400), filed 2026-09-25 by `T0-UPSTREAM-LESSON-IDS`.
+Code taken from the scaffold in PR #297 (upstream `96ebfcec`) cites lesson ids from the upstream ledger on 461
+lines. The two ledgers number independently, so a cited id usually names a different lesson in
+`docs/lessons/LEDGER.md` (nine checked, all different). The adopted files stay unchanged; `docs/LESSONS.md` says
+how to tell the two apart and where to read the upstream entry.
+
 ## Direction 2 — deciding whether to take an upstream release
 
 ```powershell
@@ -81,6 +100,13 @@ scaffold is not a reason to stop shipping this app.
 
 v0.30 made R3 advisory and v0.31 removed mandatory-gate hardening. This project deliberately keeps
 R3 blocking—with round cap, diff budget, and head binding—so advisory-only follow-ons are declined.
+
+v0.47.0 adopted tier-keyed review intensity (#387, PR #297) with tier 0 as `advisory`. This project
+sets tier 0 to `adversarial` instead (`T0-REVIEW-GOVERNING-DOCS`, 2026-09-24), because its tier-0
+paths include the docs that define the gates, the security and license rules and the agents'
+boundaries. The effect: a doc-only diff of more than 100 changed lines now draws effort `high` and no
+longer gets the one-pass guidance; a diff of 100 changed lines or fewer is still read at `low` through
+`ReviewEffortBySize`.
 
 ## Decision ledger
 

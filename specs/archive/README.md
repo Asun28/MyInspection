@@ -13,6 +13,28 @@
 | `lessons-archive.md` | 已归档/合并的 `docs/lessons/LEDGER.md` **lesson 条目整块**（正文只由搬运器维护） | `lessons.ps1 search` 统一召回并标 `[archived]`；也可裸 grep |
 
 ## 维护（勿手工编辑索引/归档正文——由脚本投影生成）
+
+### 只归档指定任务卡
+
+```powershell
+pwsh -NoProfile -File scripts/archive.ps1 -CardsOnly -CardIds T1-ONE,T1-TWO -DryRun
+pwsh -NoProfile -File scripts/archive.ps1 -CardsOnly -CardIds T1-ONE,T1-TWO
+```
+
+`CardIds` 可传 PowerShell 字符串数组，每项均支持逗号分隔；只去掉首尾空白，不接受空项、重复、通配符或路径。
+两个参数必须同用；不得同时传 `Check`、`CheckCardsIndex`、`LessonsOnly`、`LessonIds` 或 `RestoreLessonIds`，即使值为 false。`Quiet` 可用。
+
+整批先验证：每张卡的 id 须匹配、状态须恰为 `merged`；声明的 worktree 目录仍存在、卡片路径不是文件、未知 id 或热冷副本字节不同都会非零拒绝，整批不写。
+相对 worktree 路径以仓库根解析；`DryRun` 做相同验证且不创建目录。冷库已有的合法卡可重跑；相同热冷副本只删除多余热副本。
+
+成功只移动选中卡的原始字节，并从全部冷库卡重算 `cards-index.md`；保留其 LF/CRLF，缺少换行时使用 LF，以无 BOM UTF-8 写入，内容相同不重写。
+不扫描未选中的热卡，不读写技术债或 lessons，不执行 Git、网络、任务阶段或工作区清理；原有无定向参数的行为不变。
+
+运行时 I/O 失败与验证拒绝不同：退出非零，但已完成的移动保留，不做跨文件回滚；完整源或目的副本保留，重跑可补齐索引。
+不会覆盖不同的既有冷副本。本命令假定单写入者，不提供事务或并发写入保证。
+
+### 原有归档维护
+
 - 生成/更新：`pwsh -File scripts\archive.ps1`（**幂等**；`-DryRun` 先预览会搬什么、写零文件——含 lessons：
   无效/拒绝的 id 在 `-DryRun` 下同样非零退出，预览模式也 fail-closed，不会把问题伪装成绿）；
   lessons 搬运另加 `-LessonIds L<n>[,L<n>...]`（如 `-LessonIds L32,L34`，逗号形式外部调用也可用；id 须规范形式

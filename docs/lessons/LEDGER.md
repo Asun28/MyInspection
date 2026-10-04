@@ -34,7 +34,7 @@
 ---
 
 ## L1
-- date: 2026-06-01 ｜ tags: powershell, tooling, parallel, claude-code ｜ tier: must ｜ severity: blocking ｜ recurrence: 3
+- date: 2026-06-01 ｜ tags: powershell, tooling, parallel, claude-code ｜ tier: ledger ｜ severity: blocking ｜ recurrence: 3
 - symptom: 一批并行工具调用里，若**首个**命令非零退出，整批后续调用被**连带取消**，已写的文件丢失。
 - root_cause: 并行批次共享失败传播；非零退出触发整批 abort。
 - rule: **只读诊断与写操作分批**；写操作（Write/Edit/提交）单独成批或串行；预期可能非零的探测命令单独跑。
@@ -150,14 +150,14 @@
 - refs:
 
 ## L17
-- date: 2026-06-03 ｜ tags: powershell,bash-tool,ps1,tooling,encoding ｜ tier: must ｜ severity: minor ｜ recurrence: 6
+- date: 2026-06-03 ｜ tags: powershell,bash-tool,ps1,tooling,encoding ｜ tier: must ｜ severity: minor ｜ recurrence: 8
 - symptom: 用 Bash 工具调 `.ps1` 有两种坏法——①反斜杠路径被吞成 `scriptstask.ps1`，exit 64，脚本根本没执行；②即便改用正斜杠路径让脚本真跑起来，Bash(Git Bash) 终端的控制台编码与 PowerShell 不一致，`selftest.ps1` 等含中文断言/输出的脚本会显示乱码、且**真的返回 FAIL**（非仅显示问题）——靠 Bash 跑出的「验证」结果不可信，须用 PowerShell 工具重跑核实。
 - root_cause: Bash 把 Windows 路径反斜杠当转义消除；且 Bash(Git Bash) 子进程的控制台代码页与 pwsh 原生 `[Console]::OutputEncoding` 不同源，跨这层边界的中文断言/比较会失真。
 - rule: `.ps1` 一律用 PowerShell 工具调用（task-loop 已规定一律 pwsh 非 bash），**不仅因路径分隔符会被吞，也因编码链不同会产出假结果**；连事后核验/巡检也不例外——别为图快用 Bash 抄近路查 pwsh 脚本结果。必须用 Bash 时路径改正斜杠 `scripts/task.ps1`，且任何看起来异常的失败先用 PowerShell 工具重跑一次再下结论。
 - refs:
 
 ## L18
-- date: 2026-06-03 ｜ tags: codex,review,allow_paths,ship,card-meta,rebase ｜ tier: ondemand ｜ severity: major ｜ recurrence: 2
+- date: 2026-06-03 ｜ tags: codex,review,allow_paths,ship,card-meta,rebase ｜ tier: ondemand ｜ severity: major ｜ recurrence: 4
 - symptom: codex review.ps1 对必要的跨 allow_paths 改动误判 block；又：把任务卡自身 specs/tasks/<ID>.md 的 allow_paths/status 改动放进功能分支 → codex block「该路径不在本卡 allow_paths」。
 - root_cause: review.ps1 若不读卡片 allow_paths/边界例外，会按通用硬边界误判；卡 allow_paths 过窄未含必要附带改动。
 - rule: review.ps1 改卡片感知（读 specs/tasks/<branch>.md，honor 卡声明的 allow_paths/边界例外）；卡外必要改动单独提交 main 再 rebase 分支，使卡 diff 纯 allow_paths；卡自身的 allow_paths/status 改动属规划，走 main 的 docs 提交、勿入功能分支 PR。
@@ -239,7 +239,7 @@
 - refs: docs/LOOP-ENGINEERING.md
 
 ## L29
-- date: 2026-06-22 ｜ tags: docs,cross-reference,lessons,drift,skill ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- date: 2026-06-22 ｜ tags: docs,cross-reference,lessons,drift,skill ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
 - symptom: 在 skill/doc 散文里用 L<n> 指针引用经验时写错或写旧 id（例：把 L20 的 worktree 安全闸内容标成 L21），把读者导向错误经验；而 selftest 闸⑪ 只校验文件路径交叉链接、不校验 L-id 引用，无机检兜底。
 - root_cause: L-id 跨引散落在 prose、纯手写；现有交叉链接机检只覆盖 docs/specs/scripts/.claude/.github 的文件路径，不覆盖 LEDGER 的 L<n> 引用，故此类 drift 无闸可拦。
 - rule: 写 L<n> 指针前先 pwsh -File scripts\lessons.ps1 search <关键词> 核对 id 与内容一致；改/重排 LEDGER 时顺手 grep 全仓 L<n> 引用处同步。存在性已机械化（selftest 闸⑯）；内容是否对得上（指针真指那条经验）仍靠人工。
@@ -415,7 +415,7 @@
 - refs: session 2026-07 TD12；PR #21
 
 ## L59
-- date: 2026-07-04 ｜ tags: git,worktree,stash,parallel-agents ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-07-04 ｜ tags: git,worktree,stash,parallel-agents ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 并行多 worktree 时一个 agent git stash push/pop 弹出了另一 worktree 的 stash——两侧未提交改动互换/丢失
 - root_cause: git stash 栈是 repo 级共享（所有 worktree 共用 refs/stash），并发 push/pop 竞态弹错条目
 - rule: 并行 agent 环境禁用 git stash 做基线对比——用 git show HEAD:路径 或 git diff HEAD 替代；已弹错时用 git fsck 找 dangling commit 恢复
@@ -543,7 +543,7 @@
 - refs: TD44 · TD-107 · selftest 15i
 
 ## L79
-- date: 2026-07-07 ｜ tags: powershell,strictmode,testing,tdd,lessons ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: TD24 假 paid 一轮 + 本次重诊断
+- date: 2026-07-07 ｜ tags: powershell,strictmode,testing,tdd,lessons ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: TD24 假 paid 一轮 + 本次重诊断
 - symptom: 空集合/空账本场景的回归种子或自检用【显式构造入参】通过，但生产的【裸调用·默认参数绑定】路径仍崩——假绿。实证 TD24：lessons.ps1 自检调 Next-Id -Lessons @()（显式绑定，空数组保真→Count 0→过），但 add 走裸 Next-Id（默认绑定 =(Get-Lessons)），空 LEDGER 时 Get-Lessons 返回 @() 经 [array] 默认参数绑定 unroll 成 null，@(null).Count==1 绕过 Count-eq-0 守卫，取 .id 抛 PropertyNotFoundStrict。TD24 因此被标 paid 一整轮实为未修、下游首条 add 即崩。
 - root_cause: 自检/种子走了与生产不同的代码路径：显式参数绑定会保真空数组，默认参数绑定 =(func) 在 StrictMode 下把 @() unroll 成 null（@(null) 仍 Count 1，@() 包裹单独不解决）。「函数返回空数组经 [array] 默认值绑定」这一步是隐形的路径分叉——探针没覆盖它就假绿。
 - rule: 回归种子/enforcer 自检必须【真跑生产入口】（如 selftest 真调 lessons.ps1 add / check 子进程），不得用手搓的显式绑定捷径替代——路径不同即假绿。附 PowerShell 修坑：别用 return ,$out 修「函数返回空数组 unroll」——逗号包裹会让整个数组当【单个】管道项，破坏 func | Where-Object 直管调用（消费端取不到成员属性、召回崩）；改在【消费端】写 @($x | Where-Object { $null -ne $_ }) 先滤 null 再判 Count。
@@ -607,7 +607,7 @@
 - refs: 
 
 ## L87
-- date: 2026-07-08 ｜ tags: powershell,encoding ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- date: 2026-07-08 ｜ tags: powershell,encoding ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
 - symptom: git show <rev>:<path> | Out-File -FilePath $f -NoNewline（或 Set-Content -NoNewline）写多行内容时，整个文件被压成一行——不止省略末尾换行，管道输入的每个对象之间的换行也被一并吞掉。
 - root_cause: PowerShell 的 -NoNewline 语义是「写多个管道对象时对象之间也不插换行」，不是仅「文件末尾不加换行」；git show 的多行 stdout 经管道会被当成一串独立字符串对象逐个写入，故内部换行全部消失。
 - rule: 先用 Out-String 把多行输出收成单个字符串（换行保真），再用 Set-Content -NoNewline 写它（此时只有一个对象、-NoNewline 只影响末尾）；不要把外部命令的多行管道输出直接接 -NoNewline。
@@ -647,7 +647,7 @@
 - refs: PR #94 (b2546d5 -> b3ecf70) 与 PR #95 (1703e23 -> febe0be) 现场；docs/HARNESS-REVIEW.md「评审者须在自改回路之外」；关联 L50（合并前独立评审）、L91（共享检出并发）
 
 ## L93
-- date: 2026-07-10 ｜ tags: powershell,exit-code,verification,false-green,truncation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: 一次误判，当场识破，未污染任何已声明结论
+- date: 2026-07-10 ｜ tags: powershell,exit-code,verification,false-green,truncation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4 ｜ cost: 一次误判，当场识破，未污染任何已声明结论
 - symptom: 在 pwsh 里把原生命令的输出管进 Select-Object -First N，之后再读 $LASTEXITCODE，读到的是上一条命令的退出码（陈旧值）：失败的命令被读成 exit 0，产生假绿。本会话现场——git apply --check 明明打印 patch does not apply，紧随其后的 $LASTEXITCODE 却是 0，那个 0 其实来自上一条 git worktree add。
 - root_cause: Select-Object -First N 取够 N 条就停掉上游管道（PipelineStopped），原生命令被提前终止，它的退出码从未写进 $LASTEXITCODE，于是变量仍保留上一条命令的旧值。-Last N 与 Select-String 会读完整个流，故退出码保真。实测：git nosuchsubcommand 2>&1 管进 Select-Object -First 1 时 $LASTEXITCODE=0，换成 -Last 1 或 Select-String 时为 1。
 - rule: 作判据用的退出码，绝不读在 Select-Object -First N 之后。三选一：① 先把命令跑完（必要时管到 Out-Null），立刻把 $LASTEXITCODE 存进变量，再去筛输出；② 需要截断输出就用 -Last N 或 Select-String，二者读完整流、退出码保真；③ 完全不接管道，直接取退出码。凡是以 exit 0/1 为判据的场景（verify.ps1 / selftest.ps1 / review.ps1 / 卡片 dod_command / CI 步骤）尤其致命——它产生的是假绿，不是假红。一行自检：git nosuchsubcommand 2>&1 管进 Select-Object -First 1 再管进 Out-Null，随后 $LASTEXITCODE 应为 1；若得 0 即中招。已核本仓 .ps1 脚本无此形态，坑主要出在 agent 临时敲的校验命令里。另：同一 cmdlet 还有第二个与退出码无关的坑——用 -First N 截断的诊断输出，不足以支撑「已穷尽」的结论。凡要据某段输出判断覆盖面（某工具改了哪些文件、装了哪些 agent、命中哪些路径），必须不截断地取全量：重定向到文件后整份读、Out-String 全量、或改用结构化查询。注意 -Last N 同样只发 N 条，它保真的是退出码、不是覆盖面——本条前半管退出码、后半管覆盖面，两者别互相借用（-Last 可解退出码，不可解「已穷尽」）。
@@ -663,7 +663,7 @@
 - refs: 本会话清理 codebase-memory-mcp 注入 ~/.codex/config.toml 的现场（11 行块只删掉 10 行，# <<< 哨兵残留为末行）；rule① 初稿误把「-notmatch 哨兵过滤」当通用解，被 R3（codex）在 PR #101 当场证伪并实测复现（哨兵没了、块体三行全活）——该缺陷此前逃过了 fresh-context 子代理复核，因其只在「块内每行都匹中」的偏置样例上验过；关联 L93（同为 PowerShell 静默假绿：命令自称成功、结果已错）、L25（确定性闸 exit 0/1）
 
 ## L95
-- date: 2026-07-11 ｜ tags: task-loop,dod,tdd,powershell,red ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 2
+- date: 2026-07-11 ｜ tags: task-loop,dod,tdd,powershell,red ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 3
 - symptom: `-Phase red` 打印「RED 已确认（dod 退出 1）」并写下 .review/<id>.red 证据，但那个 1 其实来自 ParserError「Missing expression after unary operator '-not'」——DoD 命令根本没跑起来，一条断言都没执行；该 dod_command 的 GREEN 永远不可达。
 - root_cause: task.ps1 用 `& pwsh -NoProfile -Command <卡片 dod_command 原文>` 执行 DoD，而卡片惯用写法自身又是 `pwsh -NoProfile -Command "..."`。双层包裹下，内层双引号串里的 `$ok` 被子 shell 先行内插成空串，孙 shell 只收到 ` = (...); if (-not ) {...}`。`-Phase red` 只看退出码非零，遂把「语法坏了」当「测试红了」收下 = vacuous RED。
 - rule: dod_command 里一律不写 `$变量`——用 T9-DOCS-DRIFT 的无变量写法 `pwsh -NoProfile -Command "if (-not ((Select-String ...) -and (...))) { exit 1 }"`。跑完 -Phase red 必须读一眼 DoD 的实际输出，确认非零退出来自断言失败而非 ParserError/CommandNotFound；「RED 已确认」这行字不是证据。已合并的 T10-R3-PIN-MODEL 卡即误用 `$ok` 形态，其 DoD 至今无法执行断言（TD69）。
@@ -671,7 +671,7 @@
 - refs: 
 
 ## L97
-- date: 2026-07-11 ｜ tags: review,r3,doc-sync,task-loop,scoping ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 8
+- date: 2026-07-11 ｜ tags: review,r3,doc-sync,task-loop,scoping ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 9
 - symptom: 把一条散布在多处文档的横切纪律（如 L86「相位命令只在主检出跑」）从「文档提醒」升级为 in-code fail-closed 守卫时，R3 会逐轮外溢：每修好一处教该纪律的权威面，它就揪出下一处仍教旧工作流的面（rubric #7 文档同步）。T13 连续 5 轮 block，第 3/4/5 轮全是「还有 N 处文档没同步」，allow_paths 从 5 涨到 11、check-cards 一路告警卡过大。**内向半**同样成立：改了行为后，**同一文件内**用现在时描述旧行为的注释、以及卡片 front-matter（title/diagnosis）会与新码自相矛盾——T12 R3 第 2 轮点了 review.ps1 一条 stale 注释、我只修了它点名的那行漏了同类的另一行；合并后 fresh-context verifier 复审才揪出（review.ps1:163 旧「倾向 block」注释 + T13 卡 title/root_cause 仍称「base==TaskId 是真因」）。**第 8 次（T56 r15，2026-08-05）**：r14 把 t36set 取样换成全码位双向时扫了卡与 rubric，却漏了被改文件 `selftest.ps1` **自身**的载荷注释、t36 失败文案与 17t 总结行——「内向半」写进 rule 了照样漏，因为 grep 关键词只圈「教分工的文档面」、没把被改文件本身列进扫描清单；且失败文案把**历史病因**写死在文本里（任何族点幸存都报「CGJ 幸存 + 只剥 Cc/Cf」），报错措辞同属「现在时正面陈述」。
 - root_cause: 行为一变，凡教「怎么用这条工作流」的面（CLAUDE.md/template/LEDGER/task-loop skill/DEVOPS-WORKFLOW/TEMPLATE-README/脚本头注）就全部自相矛盾。R3 每轮只判本次 diff 且只报它当轮看到的最刺眼一处，故须逐轮外溢而非一次点全。
 - rule: 把横切纪律行为化前，先 grep 出教该纪律的全部权威面（rg 关键词 + 看 CLAUDE.md/template/相关 skill/操作手册/README/脚本头注），一次性同步 + 配一道机检子闸断言这 N 处一致（如 selftest 遍历文档列表断言都含新哨兵），别等 R3 逐轮挤牙膏。这类卡的 allow_paths 天然大（含那 N 处 + 机检），是「横切不变量行为化」的固有形态、非 scoping 失误——刻意保持单卡以免行为改与文档同步分处不同 PR 出现自相矛盾窗口（登记 sizing 例外，见 TD70）。check-cards「>5 告警」对这类卡是误报但不放宽阈值。**内向半**：同一 grep 也要扫**改动文件自身的注释**与**卡片 front-matter**（title/diagnosis），揪出用现在时描述旧行为的句子；R3 点名一条 stale 注释时当**一类**处理、自己 grep 全文补齐，别只修它点名那行。ship 后对重大改动派 fresh-context verifier 复审 master（task-loop 4.7），专找「prose 与 shipped 码矛盾」。**扫到之后还要判对——判据写死，别凭感觉**（T56 r11/r12 连栽两次，且第二次不是漏 grep、是 grep 完误判）：**凡「用现在时正面陈述当前行为」的句子一律要改**；**只有把旧实现明确标为「被否决 / 历史 / 反例」的才留**。带对照的句子最容易误判——`剥的是 A 而不是 B` 里，`不是 B` 那半正当，`剥的是 A` 那半仍是正面陈述，A 过时就得改；别因为句子里有「不是 B」就整句放行。**扫描清单必须显式含「本次 diff 改到的每个文件自身」**（注释 + 失败/日志文案 + 总结行），不是只扫「教这条规则的文档」；**失败文案里别写死具体病因**——那是一条必然过时的正面陈述，能从现场数据动态报就动态报（报「幸存的是哪个点」而不是「一定是 CGJ」）。
@@ -775,7 +775,7 @@
 - refs: 本会话 T11→T12/T14/T15/T16/T18 谱系（PR #102 及其拆卡，TD83/T14 是本条判据的原始证据）；关联 L97（R3 逐轮单点外溢）、L101（不同点：L101 讲首轮评审前必须先有卡，本条讲评审**过程中**新发现该修/该回退还是该拆）
 
 ## L114
-- date: 2026-07-12 ｜ tags: git,ship,concurrency,scope-gate,red-evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 5
+- date: 2026-07-12 ｜ tags: git,ship,concurrency,scope-gate,red-evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
 - symptom: ship 范围闸把大量本卡未改的文件（其他已合并卡的产物/文档）报成越界：origin/master 在本卡 worktree 分支好之后被其他并发会话的真实 PR 合并推进了多次，ship 的范围/评审基线解析到 origin/master，diff 的 merge-base 落在旧共同祖先上，中间所有'本地曾经领先但从未推送'的提交（含另一会话半途合并又撤销的卡）全部混入本卡 diff。
 - root_cause: 多会话共享同一主检出时，本地 master 与 origin/master 会各自独立前移又不同步（他人 gh pr merge --squash 只更新 origin、不回写本地；本地又有会话直接在共享 master 上 commit/revert，即 L112 场景）——本卡的 worktree 分支是从这条已经该会话专属又混乱的本地 master 分出的，其真实 fork point 相对 origin 早已过期。
 - rule: **预防（首选，成本最低）**：多会话共享主检出、本地 master 又脏（他会话未提交改动）又与 origin/master 发散（本地有未推送提交、且缺 origin 新提交）时，`-Phase start` 直接把 worktree 基在 origin 最新 tip——`pwsh -File scripts\task.ps1 -TaskId <id> -Phase start -Base origin/master`（ship 亦传 `-Base origin/master`）——分支从 origin/master 分出，PR diff 天然只含本卡改动、不含本地未推送的中间提交，范围闸/评审基线自始干净；R5 的 doc_sync/lesson 提交同理，在**从 origin/master 新开的干净临时 worktree**（`git worktree add --detach <path> origin/master`）里编辑→只 add 目标文件→push HEAD:master→删该 worktree，全程不 `git add -A`、不 stash、不 rebase 脏主检出（守 L112）。T29-LICENSE-FRONTEND-DIR 实测：主检出 62 个他会话脏文件 + 本地 master 1 ahead/1 behind 时，`-Base origin/master` 全程零污染、PR #113 diff 恰为 3 个 allow_paths 文件、doc_sync 提交只动 2 文件。**补救（已中招时）**：ship 报出大片无关越界文件时，先 git fetch origin 比对 origin/master 与本地 master/本卡分支的 ahead/behind；若已真发散，不要在混乱的中间历史上做多提交 rebase（会牵连他人已合并又走开的分支，冲突面不可控）——改用 git checkout -B <branch> origin/master 把分支基点重置到 origin 最新 tip，再把本卡的最终文件内容重新落到这个干净分支上（内容已知时直接重写比逐条 cherry-pick/rebase 更快更可靠）；RED 证据的 sha 会随之失效，须 git stash 退回改动前状态、在新 HEAD 上重新跑 -Phase red、再 git stash pop 续接 GREEN，否则 ship 会因 RED sha 不等于 HEAD 而拒收。 **（复发 2026-08-23，T0-LESSONS-BUMP-PLANE / PR #129，两处各中一次）** ㊀ 本条讲的「基线要干净」还有一个**此前没写的后果**：R3 评审读的是 `branch-vs-origin/master`，所以分支只要落后 master 一个提交，评审就会把「master 领先的那个提交」读成「**本分支在撤销它**」，报出一串「删除了某某卡 / 回退了 TASK-BOARD」式的越界 finding——全是假象，却照样占掉一轮（本次 3 条 finding、白烧第 1 轮，合上 origin/master 后三条同时消失）。故**每次 ship 之前**都先 `git fetch origin master` 并把它合上来，不只是开卡时基一次：并行会话多时 master 每十几分钟就动一次。㊁ 本条明写的「不 `git add -A`」当天又被我违反一次：R5 doc_sync 在干净临时 worktree 里用了 `git add -A`，把刚写的 `.msg.tmp` 一并提交（未推送，`git rm --cached` + `--amend` 修掉）。规矩不变：**只 add 目标文件**，临时文件写到 worktree 之外或立刻删。
@@ -895,7 +895,7 @@
 - refs: 
 
 ## L131
-- date: 2026-07-17 ｜ tags: review,report-layer,recovery,scope ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-07-17 ｜ tags: review,report-layer,recovery,scope ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: T26 saga 报告层（本意只是失败时刻打印进度+恢复提示）被 codex R3 连续 6 轮 block：每轮都在恢复命令文案里找到真缺陷（错误重跑建议→选项丢失→PR 状态误断→待办清单吞项→文案嗅探误分类→闸门旁路），diff 从 66 行滚到 300+ 行。
 - root_cause: 报告输出的「恢复命令」会被对抗评审当**可执行契约**逐失败状态审查——给命令=写代码，状态矩阵（commit 前/后 × 推送前/后 × PR 各态 × 合并各态 × -SkipRed/-Local）必须完整正确，远超「打印一行提示」的直觉工作量；且恢复语义会牵出系统级缺口（TD85/TD89），评审器会顺藤要求重设计系统契约（超卡范围）。
 - rule: 设计「给恢复/操作命令」的输出层时：① 先画完整失败状态矩阵再写文案，每条命令按该状态可执行正确性自审；② 能引权威锚点就不复制命令正文（免双源+免逐态审查面）；③ 评审发现流从「文案错」转向「要求重设计系统契约」即触发人裁+登记 TD 划界（本例 TD89），别无限迭代；④ 状态判定用机器状态（HEAD 前移/MERGE_HEAD/已解析 PR 号）不嗅探异常文案；⑤ 划界的可操作检测信号：R3 逐轮要求改另一张卡的文件/建新独立机制（如可执行独立范围闸入口）/上 gh-mock e2e，即已到边界——此时把 checker 遗留下沉到计划已分配的卡（更新其 charter），人裁划定范围线，对卡契约合规的核心做人裁 override 合并；核心机制达 selftest 全绿即视为该卡「完成」，长文/e2e 归属其它已分卡负责（第二次现场：T35 撞 13 轮同一模式）。
@@ -983,7 +983,7 @@
 - refs: L57+L60+L62 合并簇, 明细见 specs/archive/lessons-archive.md
 
 ## L145
-- date: 2026-07-22 ｜ tags: r3,review,cards,worktree,scope ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: T41 一轮伪 block 往返
+- date: 2026-07-22 ｜ tags: r3,review,cards,worktree,scope ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: T41 一轮伪 block 往返
 - symptom: 中途扩卡 allow_paths（改 master 上的卡文件）后重 ship，确定性范围闸过了，R3 却按旧范围 block「越界改动」——评审读到的是分支上的旧卡副本
 - root_cause: 同一张卡双读者双来源：task.ps1 范围闸从主检出（$RepoRoot）读卡=拿到 master 最新修订；review.ps1 把卡注入 R3 prompt 时读被审分支里的副本=分支 fork 后未再同步——中途卡修订产生 split-brain
 - rule: 中途修卡（扩 allow_paths/改产出节）一律：改 master 上的卡 → commit+push → 立刻 git merge master 进任务分支再重 ship，令 R3 读到的分支副本与主检出一致；卡体散文与 front-matter 同步改（评审也读卡体，只改 front-matter 会留自相矛盾句被点名）。**与 RED 证据闸的冲突见 L148**：本条的 merge 会制造 post-RED 提交、令 ship 判证据陈旧——若尚未跑 -Phase red 就先 merge 再 red；已经 red 过了就按 L148 的软恢复（reset --soft origin/master + stash + 重铸 red + stash pop）
@@ -1007,7 +1007,7 @@
 - refs: 
 
 ## L148
-- date: 2026-07-22 ｜ tags: tdd,red-evidence,ship,worktree,recovery ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
+- date: 2026-07-22 ｜ tags: tdd,red-evidence,ship,worktree,recovery ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 7
 - symptom: -Phase ship 在「RED 证据闸」失败：证据 sha 与当前 HEAD 不符（陈旧/伪造证据），saga 报告只完成「卡校验」腿。实现明明是对的、DoD 也绿。
 - root_cause: RED 证据把 -Phase red 当时的 HEAD 钉死；ship 要求证据 sha == 此刻 HEAD。而正常流程里实现应当**留在工作区不提交**，由 ship 自己的「提交」腿落盘——任何 post-RED 提交（含 git commit 实现、含按 L145 把 master merge 进分支）都会让 HEAD 前移、证据变陈旧。**L145 与本闸直接冲突**：L145 教你中途改卡就 merge master 进任务分支，照做即制造 post-RED 提交。
 - rule: 顺序反过来：**先** merge master / 改卡 / 对齐基线，**再**跑 -Phase red，然后实现但**不提交**，直接 -Phase ship。已经撞上了就按未推/已推分流恢复——未推分支（gh pr list 与 rev-parse origin/分支 均空）用**软**恢复、别用 reset --hard：git -C 该worktree reset --soft origin/master（HEAD 归位、改动全留在暂存区，此时 diff 恰好只剩本卡文件，merge 进来的 master 提交自动从 diff 里消失）→ git stash push → -Phase red 重铸证据（此刻 DoD 必须真红，故须先 stash 掉实现）→ git stash pop → -Phase ship。已推分支改走 TD85-RESUME 的 merge-safe 分流，勿 reset。**（复发 2，T48-TD88-W10 补）常见简化形态**：若实现一直**未提交**（正常流程本就如此），分支便没有自己的提交，`git merge origin/master` 是一次**快进**——此刻 HEAD 已等于 origin/master，`reset --soft origin/master` 是 no-op，恢复缩成 **stash → -Phase red → stash pop → ship** 三步。先 `git rev-parse HEAD` 与 `git rev-parse origin/master` 比一下再决定要不要 reset：相等就别 reset（省一步、也不会误伤）；不等才说明分支有自己的提交，照上面的软恢复走。**另注**：撞上这闸时别急着怀疑证据被伪造——最常见的成因就是照 L145 补了一次 master 合并，属流程顺序问题，不是证据问题。
@@ -1095,7 +1095,7 @@
 - refs: T52-TD111-CARD-TOKEN-GATE 改钉 10e->10g（commit dd83dfb）；T53-TD93-SCOPE-CHECKER 按此法取 15s；同族 L19/L83
 
 ## L159
-- date: 2026-07-25 ｜ tags: powershell,regex,validator ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: R3 一轮 block
+- date: 2026-07-25 ｜ tags: powershell,regex,validator ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3 ｜ cost: R3 一轮 block
 - symptom: 新校验断言声明「只拒大写蛇形形态」，实现写 -match 加字符类 A-Z，实际把小写与混合形态一并拒掉（过度拒绝），R3 首轮抓出。
 - root_cause: PowerShell 的 -match/-notmatch/-replace/-split 默认**大小写不敏感**，故字符类 A-Z 同样匹配小写——与多数语言的正则默认相反，只读代码看不出来。
 - rule: 契约里含大小写语义的匹配一律用 -cmatch/-cnotmatch/-creplace（或 [regex] 显式选项）；并**必配负夹具**（小写/混合形态须放行）证明没有过度拒绝——只写正夹具的断言对大小写敏感性完全盲。同理：核 selftest 结果 grep WARNING 时要加 -CaseSensitive。
@@ -1119,7 +1119,7 @@
 - refs: T52-TD111 R3 r3 #6（按真交付 HEAD 重跑 clean+变异并更新）；T50 的 15q 两条子断言各做一次变异；同族 L157
 
 ## L162
-- date: 2026-07-25 ｜ tags: python,windows,encoding,tooling ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- date: 2026-07-25 ｜ tags: python,windows,encoding,tooling ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 2
 - symptom: 在 Windows 上跑第三方/插件 Python 工具读本仓含中文的 JSON/MD 时崩 UnicodeDecodeError: charmap codec cant decode byte 0x81；设 PYTHONIOENCODING 不解决。同批还撞到：把启动 server 的 Python 脚本接管道（| head）后启动横幅/URL 永不出现，看起来像静默失败
 - root_cause: Windows 上 Python 的 open() 默认用 locale 编码 cp1252 解码文件；PYTHONIOENCODING 只管 stdout/stderr 不管文件读取，故与 L31 不同源、套 L31 的解法会白试。管道场景下 stdout 从行缓冲变块缓冲，进程不退出就什么都不吐
 - rule: 调第三方/插件 Python 工具读本仓文件一律前置 PYTHONUTF8=1（UTF-8 模式，改的正是 open() 默认编码）；自己写的脚本 open()/write_text 显式 encoding=utf-8。要即时看到长驻进程的启动横幅就用 python -u 且别接管道
@@ -1143,7 +1143,7 @@
 - refs: 
 
 ## L165
-- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 6
+- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 12
 - symptom: 同一张卡里「断言看起来在测 X、实际没测 X」连出四次：①断言写在**整份 stdout** 上，而被测命令在判定前先打印改动清单，那条路径无论判定如何都在输出里 ②断言匹配**中文结论行**，父进程 stdout 被重定向时解码成乱码，六个 case 在别人机器上齐红而我连跑六次全绿 ③断言只数文档里**关键词出现次数**，而周围散文本就含那些词，把真正的可执行守卫整段删掉照样绿 ④不符用例传**全零 OID**，于是停在「解析不出提交」那一支，根本走不到它声称要测的身份比对那句。**第 2 次（T56 r17 批，2026-08-05）：变异分类器自己犯②**——gate 锚带一个「闸」字、红面正则锚「闸17t(」，批改派 schtasks 后 OEM 码页把中文打成 '?'，六枚真红被误判 NOT-OK；改纯 ASCII 锚时又差点掉进③（裸 '17t(tXX)' 会把 t16 半覆盖信息行误计红面），红面行判别改锚 'WARNING: ' 前缀（L149）才闭合。
 - root_cause: 断言落在了**比被测契约更宽的表面**上：整份输出 ⊃ 判定行、中文文案 ⊃ 稳定标识、关键词出现 ⊃ 可执行命令、任一非零 ⊃ 该守卫拦下。宽表面在被测契约还成立时当然绿，于是看不出问题；一旦契约被摘掉，宽表面仍可能因别的原因满足，断言就静默失效。人写断言时脑子里想的是契约，手上写的却是「输出里有没有这个字符串」。
 - rule: 断言面必须**恰好等于**被测契约，且用一枚只删该契约那一句的变异来证明：①只比对**判定行**（先按稳定标识切出那一行再匹配），不比对整份输出 ②机检一律认 **ASCII 哨兵**，本地化文案只给人读（编码链一变中文断言就假红/假绿）③文档契约锚到**可执行命令行形态**（行首 + 真实命令），不数关键词出现次数 ④「不符/失败」用例必须让被测那一句**真的被执行到**（如身份比对要传可解析但不同的 OID，全零 OID 只测到解析失败那支），并断言输出里有该句独有的证据（如 judged=/expect= 两个值）。**每道守卫配一枚单句删除变异**——它红了才算这条断言真的在测它。⑤**判据提取器（变异分类器/红面正则/日志 grep）也是机检，锚同样纯 ASCII**——连锚里带一个中文字都会在换执行环境（schtasks OEM 码页）时整批失配；行判别锚 'WARNING: ' 前缀（L149），别锚中文前缀，也别裸锚标签（信息行会误计）。
@@ -1167,12 +1167,12 @@
 - refs: 
 
 ## L168
-- date: 2026-07-27 ｜ tags: tracker,id-allocation,concurrency,handoff ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-07-27 ｜ tags: tracker,id-allocation,concurrency,handoff ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 并发会话各自登记新 TD 号：一方在在飞卡 worktree 的未提交 tracker 里占了 TD114/TD115，另一方在主检出按「已提交面最大号+1」也取 TD114 并已推 master——同号两义（improve-prompt eval 覆盖 vs 运行期 verdict schema），且 T56 卡已在 master 引用后者，交叉引用开始发散
 - root_cause: TD/L 这类 append-only 序号的分配只看自己检出的已提交状态；登记面实际分布在多个检出（master 工作树、在飞 worktree 未提交 diff、未合并分支），max+1 在并发下不唯一，先来后到无仲裁
-- rule: 登记新 TD/L 号前先扫全部在飞面取真实最大号：git worktree list 逐棵 grep 其未提交 tracker/LEDGER，未合并分支用 git show 分支:文件 看新增行；撞号裁定按「已被 master 引用者保号、未提交面改号」，改号必须在原行留改号记录（id 变、内容与发现日不变），并在 handoff 里点名通知占号方
+- rule: 登记新 TD/L 号前先扫全部在飞面取真实最大号：git worktree list 逐棵 grep 其未提交 tracker/LEDGER，未合并分支用 git show 分支:文件 看新增行；撞号裁定按「已被 master 引用者保号、未提交面改号」，改号必须在原行留改号记录（id 变、内容与发现日不变），并在 handoff 里点名通知占号方。**分叉历史合并时同理（2026-09 reconcile）**：新号取两侧与所有未提交账本都没用过的号（最简单是高于它们全部的最大号；只看两侧已提交的最大号会撞上主检出未提交的 L333–L339）。默认已发布的一侧（origin）保号、未发布的一侧改号（本地 L300→L340、本地 TD177→TD183、未提交的 L327–L330→L342–L345）。例外只有一种：某一侧的号出现在一个仍由在役检查（活卡的 DoD、selftest 闸）按字节核对、且在合并点仍然成立的钉住里，改号会让该检查变红——这时它保号、另一侧改号（origin L310→L341：本地 L310 出现在活卡 T0-PREREVIEW-POLICY-SOURCE 的 DoD 所钉的 prereview policy-source 原始夹具里）。归档卡里的 SHA 收据、已经失效的钉住（T0-RECEIPT-ARCHIVE-LESSON 的账本前缀钉在对账前的 origin（f0ce6d9f）上已不成立；本地 TD176 所在的 _prereview-records.ps1 的收据已被闸 1h 的改动打破）都不算，归档卡等可编辑记录随改号一起更新引用。一侧的号只存在于未提交的行（本地 TD176）时，已提交的一侧保号，另一侧的引用应逐处标明是哪一个号，仍开放的事项移到新号（TD187）；本次只在 CLAUDE.md 与 tracker 段标明，_prereview-records.ps1 与四张归档 PREREVIEW 卡里的 5 处引用尚未标明。每条映射写进合并 PR 与被改号的条目。
 - enforced_by: 
-- refs: 
+- refs: #335（L300→L340）；#337 与 fe98aff6（L310→L341）；8d68782a（TD177→TD183）；13735e06、d8b4cd3c（TD176 消歧与 TD187）；#339（L327–L330→L342–L345）
 
 ## L169
 - date: 2026-07-27 ｜ tags: tracker,archive,status-enum,markdown ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
@@ -1207,7 +1207,7 @@
 - refs: T55 变异 runner 恢复序列；L17/L165 同族
 
 ## L173
-- date: 2026-07-30 ｜ tags: git,stash,crlf,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: 一次证据恢复排查（约 1h）
+- date: 2026-07-30 ｜ tags: git,stash,crlf,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2 ｜ cost: 一次证据恢复排查（约 1h）
 - symptom: 为 merge master 而 stash/pop 被测文件，内容一字未改、git status 只见 modified，SHA256 却全变——29 枚变异证据的字节戳当场作废。
 - root_cause: stash/checkout/apply 走 git 内容规范化层（CRLF 到 LF），字节级证据绑定的是磁盘字节而非 git 语义内容；任何经过规范化层的往返都等于字节变更。
 - rule: 证据字节戳在场时不用 stash 搬运被测文件——用文件级备份/恢复（先按忽略行尾比对确认内容一致再覆盖，不重测）；凡「哈希/字节戳」类证据，把 stash/checkout/apply 一律当字节变更处理。
@@ -1239,7 +1239,7 @@
 - refs: T60-JNPROBE-ITEMVERIFY（PR #147）；根因实测 = ubuntu run 30511675074 红 + WSL 复现脚本；L165 同族（面=产物）
 
 ## L177
-- date: 2026-07-31 ｜ tags: powershell,mutation,evidence ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 2
+- date: 2026-07-31 ｜ tags: powershell,mutation,evidence ｜ tier: ondemand ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 3
 - symptom: 变异 campaign 报告「跑完」且每枚都 OK，实际只跑了 1 枚；同一脚本把 16 枚的表打印成「3 mutations」。
 - root_cause: PowerShell 变量名**大小写不敏感**：foreach ($m in $M) 里的循环变量 $m 就是集合 $M 本身，第一轮迭代即把 $M 覆盖成末元素（一个哈希表）。此后 $M.Count 返回哈希表键数（3），下一个 foreach ($m in $M) 只迭代那一枚。
 - rule: 循环变量绝不能与集合变量同名（含仅大小写不同）：集合用 $MUTS/$items 之类复数名，循环用 $mut/$item。凡「批量证据」脚本，跑完必须核对**记录条数 == 计划条数**，别只看「每条都 OK」。
@@ -1343,7 +1343,7 @@
 - refs: 
 
 ## L190
-- date: 2026-08-03 ｜ tags: verification,regex,unicode,oracle ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- date: 2026-08-03 ｜ tags: verification,regex,unicode,oracle ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
 - symptom: r7 我用 `[CharUnicodeInfo]::GetUnicodeCategory()` 验出 U+1BCA0/U+E0001 属 `Cf`，据此断定「正则的 `\p{Cf}` 已覆盖增补平面」并写进权威注释与 rubric；r8 实测 `$s -match '\p{Cf}'` 对这四个增补标量**全 False**，整段增补面其实一个都没被剥，伪造码照样拼得出来
 - root_cause: **验证用的 oracle 与被测实现不是同一套判据**：`GetUnicodeCategory` 按 **Unicode 标量**判类目，而 .NET 正则按 **UTF-16 码元**匹配——增补标量在正则眼里是一对 `Cs` 代理，永远进不了 `\p{Cf}`/`\p{Mn}` 之类的类目类。用前者去证后者，等于拿另一台机器的读数当本机结论。这比不验证更坏：它产生**有据可依的错误自信**，还会被写进文档变成下一轮的假前提
 - rule: 验证一个断言时，**必须用被测代码实际使用的那套机制去验**，不能用「语义上等价」的另一个 API：正则覆盖面就用 `-match` 实测、别查类目 API；编码/落盘行为就真写一遍文件再读回、别推理；渲染层行为就看渲染器实际输出。判断法：问「我的验证脚本和生产代码，是不是同一个引擎在做同一个判断？」不是就换写法。**且断言的对象若是一个「类目/属性」（`Cf`、default-ignorable 之类），取样证不了它——必须把全集从权威表枚举出来逐个比对**（2026-08-03 r13 更正：本条原写「逐点实测代表码位（BMP 与增补各取样）」，那正是又栽一次的原因——r8 照它取样补完仍漏 18 个增补面 `Cf`，r13 才由全码位枚举挖出）。落地形态：用**标量级** API（`Rune.GetUnicodeCategory`）枚举出「应该命中的全集」，再用**生产代码那套机制**（正则）逐个验它是否真命中；两套 oracle 各司其职、谁也不替谁。好处是 Unicode 升版新增码位时断言会自己红，而不必等下一个评审者发现
@@ -1367,7 +1367,7 @@
 - refs: 
 
 ## L193
-- date: 2026-08-03 ｜ tags: verification,harness,stop-rule,evidence ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- date: 2026-08-03 ｜ tags: verification,harness,stop-rule,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: 给「区间收窄」做变异判别时，离线脚本报「FE00–FE0F 收窄成 FE00 测不出」，但独立复核显示 U+FE0F 属 `Mn`、不被 `\p{Cf}`/`\p{Cc}` 命中、也不落任何代理对分支——**两个结论直接矛盾**。连查三次没定位到脚本哪一层出错（疑似字符类字面量/转义层）
 - root_cause: **（2026-08-03 重建判别器后更正——原先记的「疑似字符类字面量/转义层」是当场的猜测，实测证伪）**真因是判别器**只模拟了链条的前一半**：它跑完「实现侧剥不可见字符」就去查**字面** `[R3-`，而载荷本就写成 `[R`+不可见字符+`3-`，字面比对**在任何实现下都扫不到** ⇒ 它对每一种收窄都回答「测不出」。断言侧真正的判据是**再剥一次后的渲染等价形态**，那一段被漏掉了。故这与「U+FE0F 属 `Mn`」的复核结论根本不在同一层，两者从未真的矛盾。**这就是 L185 的同型坑长在判别器上**：一条永远不可能成立的比对
 - rule: **判别工具与被测实现互相矛盾时，先停下修工具，别继续产证据**——此时产出的任何「变异 OK / 覆盖完整」都是无效证据，比没有更坏（会被写进卡当作已验）。具体防线：① 判别脚本一律从**被测文件里读出真实模式**再操作，不在测试侧另抄一份；② 一切不可见码位只写转义形态、源码里绝不嵌真字符——**但光这么说不够**：实测**写文件的工具本身**会把源码里 反斜杠-u-四位十六进制 的字面形态**自动换成真字符**，故转义形态要**用代码拼**（如 `[char]92 + 'u'`）让该字面形态根本不出现在源码里，并在用它之前**断言靶串真能在被测文件里找到**（找不到就是本枚作废，不是「测不出」）；③ 判别脚本自己要有 sanity case（已知必命中/必不命中各一），它先绿了才信它的结论；④ **判别器必须模拟到断言点那一层**，不能只模拟被测实现就下结论——少模拟一段，得到的必然是「哪儿都测不出」这种假阴性
@@ -1391,7 +1391,7 @@
 - refs: 
 
 ## L196
-- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 11
+- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 14
 - symptom: 后台变异批被会话结束硬杀在「植入后、还原前」，finally 不执行，review.ps1 跨会话停在 D28 收窄变异态；git 只显示 M、注释仍宣称全区间覆盖，与真修复混在同一 diff 里肉眼难辨（r11 强杀后已发生过一次，本次复发；第三次 2026-08-05：r14 批被前会话超上下文拆除杀在 D23 植入后 1 秒，任务报 exit 4，本条 rule 的「续接第一步核 SHA」当场抓到并从 .bak 还原——per-mut 日志让续跑只补缺失 10 枚，不必全批重来；第四/五次同日晚：r17 批两连遭会话侧外杀（D14/D17 植入后），每次同一套「核 SHA → .bak 还原 → -Only 续跑」恢复、单次损失一枚——机制已把事故成本从「整批作废」压到「一枚」。两连杀后加固：**长批改派 OS 计划任务（schtasks）脱离会话进程树跑，会话侧只留可弃 watcher 轮询完成标记**——会话怎么死都杀不到批）
 - root_cause: 硬杀（会话终止/进程树 kill）不执行 finally/trap；变异批把还原动作只挂在 finally 上，批死在植入与还原之间就留下变异态文件
 - rule: 还原动作不得只依赖 finally：批启动先核基线 SHA、不符即中止（既有守卫）；**每次会话续接第一步核被测文件 SHA==上批基线**，不符先从 .bak 还原再谈 diff/证据；判干净以 SHA256 为准（L178），别信 git status 或文件注释。**扩展（T5-BACKUP-FORMAT 两次实证）：变异批进行中勿并行跑独立交叉复核/评审**——复核者读到瞬态变异文件会产出自信的假阳性；交叉复核排在批完成+SHA 还原核验之后
@@ -1567,12 +1567,12 @@
 - refs: 
 
 ## L218
-- date: 2026-08-16 ｜ tags: worktree,concurrency,multi-session,coordination ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-08-16 ｜ tags: worktree,concurrency,multi-session,coordination ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 两个会话同时在同一张卡的 worktree 里改码：A 会话按新 R3 verdict 开始修复，B 会话（早前驱动该卡、仍存活）正在跑变异批——A 读到的文件内容其实是 B 植入变异的中间态，A 的编辑随后又被 B 的变异还原（git checkout）静默抹掉；四个文件的 mtime 在同一分钟内交错
 - root_cause: 「每卡一棵 worktree」隔离的是卡与卡，隔不开同一张卡的两个会话；卡的所有权没有显式声明，谁都能续接。verdict/counter 等状态落在 worktree 里，两个会话都会对同一个 block 各自启动修复
 - rule: 动手改任何 worktree 前先核「是否已有活跃写者」：看目标文件 mtime 是否新于自己最后一次操作、git status 里是否有非本会话产生的 M；有迹象即停，问用户哪个会话持有这张卡。接手已有分支/worktree 的卡时，此检查是续接第一步（与 L196 的 SHA 核对同拍做）。被判出局的一方：残留编辑核实清零后完全撤手，不做任何「顺手帮忙」的写操作
 - enforced_by: 
-- refs: 
+- refs: 2026-09-25 recurrence: a session moved the branch of C:/wt/T0-POST-MERGE-R5-GUARDS and ran git reset there while another session held uncommitted work in it (reflog 22:17:57-58 NZST); fix card specs/tasks/T0-LIVE-WORK-GUARD.md
 
 ## L219
 - date: 2026-08-16 ｜ tags: review,r3,scope,adjudication ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
@@ -1623,7 +1623,7 @@
 - refs: 
 
 ## L225
-- date: 2026-08-16 ｜ tags: tests,mutation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-08-16 ｜ tags: tests,mutation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 给判据新增一条断言并配了变异，评审仍判「该断言无变异可达」——变异确实变红了，但红在更靠前的另一条断言上
 - root_cause: 同一判据里多条断言是短路顺序执行的，靠前的断言会掩护靠后的：删掉底层函数本体时，靠前的断言先失败并退出，靠后那条永远走不到，于是它并未被证明在测
 - rule: 每条断言都要一枚只打中它的变异：靶点选「只会让这条断言失败、不影响更靠前断言」的那一行（如只删遍历循环、保留比较本体）。并且每枚变异必须声明它的期望失败码，判据按码锚定匹配——[regex]::Escape 只转义元字符不锚定，裸子串会让 ABSENT-CANON 被 ABSENT-CANONICAL 白拿分
@@ -1639,7 +1639,7 @@
 - refs: 
 
 ## L227
-- date: 2026-08-17 ｜ tags: review,pr,evidence,codex ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-08-17 ｜ tags: review,pr,evidence,codex ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 卡片要求把独立第二模型复核记录/证据附进 PR（如 T2-PHRASELIB 的 deepseek-rescue 复核记录），写进 PR body 后 R3 仍以「未见证据」block——两轮均如此
 - root_cause: scripts/review.ps1 只把 git diff 喂给 codex 评审者（見 gh pr comment 用于回贴结果，全脚本无 gh pr view/--json body 读 PR 描述的调用），PR body/描述从未进入评审者的上下文；凡卡片要求「记录进 PR」的证据，只写 PR body 对 R3 不可见，等同没写
 - rule: 凡卡片/rubric 要求评审者能看到的证据（如独立复核记录），必须落进 diff 本身能读到的位置：改动文件的 KDoc/注释、或 commit message 正文（review.ps1 喂给评审者的是 diff，commit message 是否随 diff 一并喂入需按 review.ps1 实际实现核实，不确定时优先落文件内注释，最可靠）；PR body/描述只对人类可见，别指望它进 R3 评审上下文
@@ -1927,7 +1927,7 @@
 - refs: 
 
 ## L266
-- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 7
+- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 8
 - symptom: 卡片实现完再 ship 才发现 diff 顶破 R3 的 1000 行硬上限（review.ps1 fail-closed、只许收紧），于是在 ship 压力下反复压缩：先删注释、再打包表字面量、最后开始考虑删测试用例与把变异收据挪出 diff。
 - root_cause: 预算是在交付链末端才被度量的，而它约束的是交付链开头就定死的东西——卡片契约的体量。等到 R2 结束，产线代码与测试都已按完整契约写好，唯一的调节旋钮就只剩「删覆盖」。
 - rule: 在验收契约那一步（写 RED 之前）就用闸门自己的尺估一次体量：产线 + 测试 + R4 收据合计对着 1000 行报预算，超过约 800 行就在动手前提出拆卡。L246 管「用哪把尺量」，本条管「什么时候量」——量晚了，能改的就只剩覆盖率。
@@ -1935,7 +1935,7 @@
 - refs: 
 
 ## L267
-- date: 2026-09-01 ｜ tags: mutation,powershell,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-01 ｜ tags: mutation,powershell,evidence ｜ tier: ondemand ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: 变异批报 KILLED，实际是植入的代码把源文件写坏、编译失败——不是被测试杀死。两个 PowerShell 坑各制造一次：辅助函数取名 Del 撞上 Remove-Item 别名；数组字面量里 f a b, g c 的逗号绑到 f 的参数上而不是分隔数组元素，于是第二个操作的函数名被当字符串写进源码。
 - root_cause: 变异的判据是「退出码非零」，而编译失败同样非零。只要植入环节自己可能出错，退出码就无法区分「守卫被证明有效」与「我把文件弄坏了」，且方向恰好是把假证据报成好消息。
 - rule: 变异批必须把编译失败与测试失败分开记账：捕获失败的测试名，任何拿不到测试名或命中 compileDebug*Kotlin 的一律标为可疑、不计入击杀。数组字面量里每个函数调用单独加括号 @((f a b), (g c))，辅助函数名加前缀避开 PowerShell 别名（Get-Alias 一查便知）。真正的语义变异应当让测试变红，不是让编译器变红。
@@ -1959,7 +1959,7 @@
 - refs: 
 
 ## L270
-- date: 2026-09-01 ｜ tags: mutation,evidence,budget,sequencing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- date: 2026-09-01 ｜ tags: mutation,evidence,budget,sequencing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
 - symptom: 变异收据把生产文件的 SHA-256 钉死，随后为压 diff 预算去修剪生产文件的注释散文，整批 18 枚变异证据当场作废，被迫重跑约 18 分钟。
 - root_cause: 把「压预算」和「跑变异批」当成两件独立的事，按「先写完→跑批→再收尾」的直觉排序；但收据是对某个确切字节状态的声明，任何生产文件改动（哪怕纯注释）都让它失效。
 - rule: 跑变异批之前，生产文件必须已经【终稿】——含为 diff 预算做的注释/散文修剪，跑一次 changed-lines 确认在闸内再开批。批之后唯一允许落地的改动是收据注释本身（它只能在批后写，且只钉生产文件的 SHA、不钉测试文件）。推论：R3 若要求改生产代码，重跑整批是该轮的固有成本，写进该轮预算，别当意外。
@@ -2055,7 +2055,7 @@
 - refs: 
 
 ## L282
-- date: 2026-09-02 ｜ tags: mutation,testing,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-02 ｜ tags: mutation,testing,gradle ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
 - symptom: 变异批只按退出码判生死，于是「测试变红」与「根本没编译过」共用同一个 exit=1；批跑完宣称「N/N 全杀、零编译型假击杀」时，手上其实没有任何证据支持后半句。
 - root_cause: 构建工具对编译失败与测试失败返回同一个非零码（Gradle 恒为 1），而变异脚本为了跑得快通常把输出丢弃（`*> $null`），连事后翻日志分辨都做不到。一枚编译不过的变异对「测试是否在测」零信息量——它只证明了编译器还在。
 - rule: 变异批之外再跑一遍**只编译**的探针（同一批锚点、同一份单点替换，命令换成 `:core:compileTestKotlin` 之类不跑测试的目标），逐枚要求 exit 0；收据里把两条结论分开写：「19 枚全部编译通过」+「19 枚全部被测试杀死」。两条都有机检输出才允许写「零编译型假击杀」。探针可复用变异定义文件，成本约为主批的三分之一。
@@ -2119,7 +2119,7 @@
 - refs: 
 
 ## L290
-- date: 2026-09-03 ｜ tags: mutation,r4,review,process ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-03 ｜ tags: mutation,r4,review,process ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
 - symptom: A mutation batch is run, the receipt is written, then R3 blocks on stale or over-claiming comments. Fixing any of them edits production, which voids the whole receipt because it pins production SHA-256, so the entire batch reruns. It can happen twice in a row when the second batch is started before every claim has been audited.
 - root_cause: Comment and KDoc drift is the single most likely R3 finding after a refactor or a card split, and it is the one class of finding whose fix necessarily touches production. Running the batch before auditing the prose means the batch is scheduled against text that is not final yet, even though the code is.
 - rule: Treat the mutation batch as the LAST step, and immediately before starting it read every comment, KDoc and failure message in every touched file and check each claim against the code as it now stands, in one sweep rather than one finding at a time. Ask of each claim: was this written before the most recent refactor or split, and does it still describe what the code does. Only then start the batch. If a claim defect is found while a batch is running, killing it early is cheaper than letting it finish, but the kill skips the restore, so verify the SHA against the recorded baseline and restore before touching anything (L196).
@@ -2127,7 +2127,7 @@
 - refs: 
 
 ## L291
-- date: 2026-09-04 ｜ tags: powershell,dotnet,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-09-04 ｜ tags: powershell,dotnet,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
 - symptom: A script writes a file with [System.IO.File]::WriteAllText using a relative path after Set-Location, then runs it with pwsh -File using the same relative name. The run silently uses a stale earlier copy, and an unexpected file appears in the repo root. Here a dry-run reported 12 mutation targets when the table held 15, and dryrun.ps1 turned up as an untracked file at the repository root.
 - root_cause: Set-Location changes the PowerShell provider location, not the .NET process current directory. Any System.IO API given a relative path resolves against the process CWD, which is wherever pwsh was started. PowerShell cmdlets and the -File argument resolve against the provider location instead, so a write and a read using the identical relative string can land on two different files.
 - rule: Never hand a relative path to a System.IO API. Build an absolute path first, for example with Join-Path on an explicit root or $PSScriptRoot, and pass that. If a generated-then-executed script behaves as though the edit did not happen, do not re-reason about the content: print the absolute path actually written and the absolute path actually executed and compare them. Same rule for Get-Content versus File::ReadAllText.
@@ -2204,15 +2204,15 @@
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的**既有实例全部列出**（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。**同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞**（同 L189 的识别信号）。
 - enforced_by: 
-- refs: 
+- refs: same lesson as L309 (recorded separately on origin and on local master before the 2026-09 reconcile)
 
-## L310
+## L341
 - date: 2026-09-08 ｜ tags: task-loop,delivery,git ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
 - symptom: Routine v2 was reported complete after ship -Local although no GitHub feature PR existed.
 - root_cause: A local-only delivery mode was carried forward without checking the remote deliverable; successful local gates were mistaken for completion of the requested PR workflow.
 - rule: When the requested delivery includes a PR, use normal remote ship and verify the PR URL, exact reviewed head, successful candidate CI and remote merge before reporting completion. Report local-only completion explicitly; restore isolated card diffs from the current remote base when local master diverges, never push unrelated local history.
 - enforced_by: none（delivery-mode selection and completion wording still require operator verification; existing remote ship enforces R3 and candidate CI once selected）
-- refs: PR #238; PR #241; .claude/skills/task-loop/SKILL.md; docs/DEVOPS-WORKFLOW.md
+- refs: PR #238; PR #241; .claude/skills/task-loop/SKILL.md; docs/DEVOPS-WORKFLOW.md; renumbered from origin L310 by the 2026-09 local/origin reconcile (local L310 is cited by the prereview checklists and CLAUDE.md)
 
 ## L327
 - date: 2026-09-09 ｜ tags: task-loop,evidence,receipts ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
@@ -2245,3 +2245,517 @@
 - rule: For hidden-tool PATH tests, check sibling executables removed with the target tool; provide fixture-local dependencies and assert unrelated controls still execute on both operating systems.
 - enforced_by: scripts/selftest.ps1 gates 8.2j, 15f and 15x
 - refs: PR #300; T0-SELFTEST-HIDDEN-GIT
+
+## L340
+- date: 2026-09-06 ｜ tags: xml,security,tests ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: DOCX 读取器已禁用外部实体，但仍接收 XInclude；仅靠 XML 字节上限也未实现独立节点预算。
+- root_cause: 将不执行的惰性数据与合同要求的显式拒绝混为一谈，并把间接上界当成独立上界。
+- rule: 写 XML 边界测试前逐项对照安全合同：按命名空间构造 XInclude 真实失败夹具；元素预算在全包累计，并测试多个 XML part 各自未超但合计超限。禁扩展不等于已拒绝。
+- enforced_by:
+- refs: specs/archive/tasks/T3-DOCX-PACKAGE-READER.md; android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/package/DocxPackageReaderTest.kt; renumbered from local L300 by the 2026-09 local/origin reconcile (origin already used L300)
+
+## L301
+- date: 2026-09-06 ｜ tags: parser,evidence,image,validation ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: DOCX 提取器两轮 R3 暴露图片头部被当作安全排除资格，完整 IHDR 或 SOF 后缺少负载仍被丢弃。
+- root_cause: 候选尺寸与完整负载验证未分层，头部测试通过被误当作可丢弃源证据的证明。
+- rule: 当解析结论会丢弃源证据时，将候选元信息与完整负载验证资格分开。仅对明确支持且完整验证的子集授权排除；未知、截断或损坏输入保留待审。用完整图头无负载、重算 CRC 后的坏压缩流、伪造尾标记等真实输入证明边界，并检查失败样例确实到达目标守卫。
+- enforced_by: android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/image/DocxImageQualifierTest.kt
+- refs: specs/archive/tasks/T3-DOCX-IMAGE-QUALIFICATION.md; android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/image/DocxImageQualifierTest.kt; under the 2026-09-08 retention ruling no disposition authorizes exclusion; the qualifier test still enforces the header/payload separation this rule is about
+
+## L302
+- date: 2026-09-06 ｜ tags: android,regex,determinism ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: DOCX evidence normalization used the default whitespace regex; the same interior nonbreaking space is retained by the JDK default but folded by Android Unicode character classes, affecting the digest.
+- root_cause: A JVM test shape was treated as proof of Android regex defaults. Existing vectors used only ASCII whitespace.
+- rule: For Android core logic, check platform regex defaults as well as API availability. When preserving an existing ASCII contract, name its exact characters and verify that set using the actual matcher over all Unicode scalars; add interior non-ASCII counterexamples. Label SDK-source inference separately from ART execution.
+- enforced_by: 
+- refs: specs/archive/tasks/T3-DOCX-EXTRACTION-MANIFEST.md; L190; L217; evidence as delivered locally: aef84a54:specs/archive/tasks/T3-DOCX-EXTRACTION-MANIFEST.md (the archived card is origin's version since the 2026-09 reconcile)
+
+## L303
+- date: 2026-09-06 ｜ tags: gradle,classpath,mutation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A standalone DOCX mutation runner initially selected TestNG 7.5.1 from a cached POM while the worktree Gradle test runtime actually resolved TestNG 7.0.0.
+- root_cause: The runner selected a cached artifact without checking the resolved Gradle module variant and test worker classpath.
+- rule: Build independent mutation runtimes from the same worktree actual Gradle test worker classpath, pin every dependency jar hash, and compile the complete current source/test inputs. A POM or cache presence does not prove the resolved runtime. Keep mismatched-runtime evidence separate and rerun before claiming final results.
+- enforced_by: 
+- refs: specs/archive/tasks/T3-DOCX-EXTRACTION-MANIFEST.md; L190; evidence as delivered locally: aef84a54:specs/archive/tasks/T3-DOCX-EXTRACTION-MANIFEST.md (the archived card is origin's version since the 2026-09 reconcile)
+
+## L304
+- date: 2026-09-06 ｜ tags: powershell,selftest,scope ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 回放夹具替换 Fail 后，后续真实检查被父作用域的替身截获；嵌套同名函数还会破坏递归 AST 的唯一性检查。
+- root_cause: 未限定作用域的 Function provider 写入会修改最近的同名父函数，而不一定创建局部函数。
+- rule: 隔离回放使用 Function:local: 绑定，并验证父处理器身份和真实失败账本效果；保留生产 AST 唯一性断言。
+- enforced_by: none（2026-09 local/origin reconcile：本地守卫所在的 T0-SELFTEST-META-EXPANSION 实现（`04b355d4`）已被 origin v0.47 的实现取代（T0-SCAFFOLD-UPSTREAM-ADOPTION），master 上没有等价守卫）
+- refs: T0-SELFTEST-META-EXPANSION; guard as merged locally: 04b355d4:scripts/selftest.ps1
+
+## L305
+- date: 2026-09-06 ｜ tags: selftest,meta,routing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 延后协议夹具时，普通自检同时失去了实际生产调用和终端跳过账本的检查。
+- root_cause: 按代码块的夹具名称分类，没有追踪其中辅助函数实际读取的生产源码。
+- rule: 元测试延后前逐层追踪调用；轻量生产检查留在普通路径，并用真实普通入口证明删除生产调用仍然失败。
+- enforced_by: none（2026-09 local/origin reconcile：本地守卫所在的 T0-SELFTEST-META-EXPANSION 实现（`04b355d4`）已被 origin v0.47 的实现取代（T0-SCAFFOLD-UPSTREAM-ADOPTION），master 上没有等价守卫）
+- refs: T0-SELFTEST-META-EXPANSION; guard as merged locally: 04b355d4:scripts/selftest.ps1
+
+## L306
+- date: 2026-09-06 ｜ tags: powershell,routing,validation ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 将内部路由值写回带 ValidateSet 的脚本参数时，运行到分流处抛 ValidationMetadataException。
+- root_cause: PowerShell 参数的验证特性仍约束后续赋值；它不是只在命令行绑定时执行。
+- rule: 私有路由状态用独立变量承载，不写入受 ValidateSet 约束的公开参数；真实入口测试须保留原参数验证以捕获运行期赋值错误。
+- enforced_by: none（2026-09 local/origin reconcile：本地守卫所在的 T0-SELFTEST-SKILL-ROUTING 实现（`5f0000cf`）已被 origin v0.47 的实现取代（T0-SCAFFOLD-UPSTREAM-ADOPTION），master 上没有等价守卫）
+- refs: specs/archive/tasks/T0-SELFTEST-SKILL-ROUTING.md; guard as merged locally: 5f0000cf:scripts/_validation.ps1 (Invoke-ValidationTaskEntrypointFixture); card text as delivered locally: aef84a54:specs/archive/tasks/T0-SELFTEST-SKILL-ROUTING.md
+
+## L307
+- date: 2026-09-07 ｜ tags: docx,extraction,completeness,tdd ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: DOCX 提取只处理 w:t 与常见 run 子元素，特殊字符和其他节点的直接字符数据会静默消失，正常段落测试仍全绿。
+- root_cause: 把预期节点名当作全部文本来源，没有对解析树的非空白字符值、命名空间及所在段落逐一界定保留、排除或拒绝。
+- rule: 声明正文完整性前，明确字符值和 run 子元素的处理边界：支持的字符保留原始 Unicode，非正文分页带警告排除，未知非空白字符数据明确拒绝；文本和指令必须匹配受支持的命名空间与上下文，纯格式空白允许。用公开读取入口覆盖字段前后、段落内外及外来命名空间，并以单点故障确认每种分流受断言约束。
+- enforced_by: android/core/src/test/kotlin/nz/myinspection/core/report/importing/docx/extract/DocxReportExtractorTest.kt
+- refs: specs/archive/tasks/T3-DOCX-REPORT-EXTRACTOR.md; runTokensPreserveHyphensAndExcludeLegacyPages; unsupportedRunContentRejectsClosed; orphanWordTextCannotDisappearFromASuccessfulManifest
+
+## L308
+- date: 2026-09-07 ｜ tags: requirements,cards,integration,review ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: 需求审校卡的独立检查可全绿，但实际物业导出接线没有归属，权威需求仍保留过时单探针说明；两张收尾卡各在首轮R3被拦。
+- root_cause: 只核对模块卡与新增段落，没有沿用户入口到最终产物验证整条生产路径的负责卡，也未逐段对照权威文档的旧说明。
+- rule: 审校任务卡时逐条写出入口、跨模块接线、最终产物和重开验证的负责卡与验收；检查全部权威段落的时间、版本和验证范围，不能以模块单测或新段落覆盖代替完整路径。
+- enforced_by: none（跨卡语义与权威叙述一致性由审校判断，非机械守卫）
+- refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
+
+## L309
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 16
+- symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
+- root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
+- rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
+- enforced_by: 
+- refs: specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md; specs/tasks/T4-DESIGN-SYMBOL-CHROME.md; L189; L311; L312; same lesson as L300 (recorded separately on origin and on local master before the 2026-09 reconcile)
+- addendum(2026-09-08, V2 交付后): 实例代入表按本条做了，仍连吃 8 轮 R3 / 13 条 finding，补三处覆盖缺口——① 只代入**中心规则**会漏掉**被改写的周边条款**，它们各自也带全称词、也在对整份文档做断言；② 表比对的是「新句 vs 旧实例」，**管不了「新句 vs 新句」自相矛盾**（本卡最重的一条即两条新句打架），新写的句子之间须交叉核对；③ 规则若有**两半**（如视觉线索 + 播报），**必须两半同时代入**——只判一半时，为满足另一半而新增的载体会系统性在另一半开新口子，本卡第 5 轮每加一个必带字形就在播报半漏一处，第 6 轮原样被拦。④ 改写任何一行前，先把**该行自己声明的 variants / states 清单**逐个代入新措辞（`state-badge` 的 SOURCE 变体即因此漏掉）。
+
+## L310
+- date: 2026-09-08 ｜ tags: tdd,worktree,ship,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- symptom: 卡片本身不在 allow_paths 内、须落 master，于是 ship 前把 master 快进进卡片 worktree——RED 收据当场作废：ship 的 RED 闸比对「证据里的 sha」与「worktree 当前 HEAD」，HEAD 一动即判陈旧/伪造并整条 ship 失败。
+- root_cause: RED 收据钉的是取证那一刻的 worktree HEAD，而不是被测文件内容。卡片元数据按 L18 走 master，两者的更新节奏天然不同步，我却把「同步 master」当成无害操作。
+- rule: 取 RED 之后不要再把 base 并进卡片 worktree。卡片元数据（dod_command / 记账）落 master 即可，ship 从主检出读卡、只在 worktree 跑 DoD，worktree 无须包含那些提交。若确实必须同步（如 DoD 依赖 base 的新脚本），同步后重取 RED：把实现改动 git stash push 掉、跑 -Phase red（此时基线真的红）、再 stash pop，并核对两侧文件 SHA 未变——这样重取的 RED 是真证据，不是为过闸而伪造。
+- enforced_by: 
+- refs: scripts/task.ps1 RED 闸; specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md; L18; L86
+
+## L311
+- date: 2026-09-08 ｜ tags: process,review,cards ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: R3 轮次到顶后按「拆卡」出路把下游工作拆给承接卡，撤回补齐、只在原卡留下规则声明——下一轮 R3 当场证伪：留下的声明「rail never carries state by color alone」与被撤回补齐后的组件规格直接矛盾，拆卡反而制造了新缺陷。
+- root_cause: 我按「主题」拆（规则归这卡、补齐归那卡），而不是按「声称与证据的依赖」拆。规则的真值由那些实例提供，把实例撤走、声称留下，声称立刻变成假话；而卡片的 forbid 又禁止把声称改弱。
+- rule: 拆卡前先问：留下的每一句声称，其为真所依赖的证据是否也留在同一张卡里？切口只能落在「声称与其证据不产生断裂」的地方。若一条规则的真值依赖若干实例的当前状态，规则与这些实例必须同卡交付；可以拆走的是**不影响该规则真值**的部分（如为放宽约束而新增的登记、边界读法、命名歧义）。拆完立刻自检：把拆走的部分想象成永不落地，留下的文本还全部成立吗？不成立就是切错了地方。
+- enforced_by: 
+- refs: specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md; specs/archive/tasks/T4-DESIGN-STATUS-CARRIERS.md
+
+## L312
+- date: 2026-09-08 ｜ tags: accessibility,design,review ｜ tier: ledger ｜ kind: judgment ｜ severity: major ｜ recurrence: 1
+- symptom: 把「owner 播报该值」写成与可见文字并列的充分载体，等于允许状态只靠颜色被明眼用户感知——弱化了 WCAG 1.4.1 下限。六轮本地对抗复核逐行扫过全部合同都没抓到，只有第二模型评审拦下。
+- root_cause: 把两项不同义务合并成了一项：WCAG 1.4.1 管的是**明眼可见**的非颜色通道，无障碍播报管的是**屏幕阅读器可达**。二者服务不同人群、不能互相替代，而我用「或」把它们并列了。一致性检查抓不到这类错——规则在整份文档里是一致地、均匀地太弱。
+- rule: 写任何「状态/信息由什么承载」的规则时，视觉通道与播报通道分两句写，并明写播报只补充、永不替代。凡出现「以文字**或**播报」这种并列，先问：色觉障碍的明眼用户在这条分支下看得见吗？另：一致性/代入类自检只能证明规则与实例不矛盾，证明不了规则本身是否达到外部标准的下限——涉及外部标准（WCAG/法规）时须另找一次对着**标准本身**的检查，别指望内部一致性扫描替你把关。
+- enforced_by: 
+- refs: context/DESIGN.md#colors; specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md
+
+## L313
+- date: 2026-09-08 ｜ tags: process,scripts,r5 ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: R5 先跑 archive.ps1 再跑 task.ps1 -Phase cleanup，cleanup 立刻以「任务卡不存在」失败——它按 specs/tasks/<id>.md 定位，而卡已被归档搬走。
+- root_cause: 两个脚本对同一文件有相反的前置：cleanup 要求卡在活目录，archive 的作用正是把它搬出活目录。doc_sync 清单把二者并列，没写死先后。
+- rule: R5 顺序固定为：文档同步 → task.ps1 -Phase cleanup → archive.ps1。若已经先归档，别把卡挪回去，直接 git worktree remove <path> 拆除（先确认 worktree 无未提交改动、分支已并入 base），分支按本仓惯例保留。
+- enforced_by: 
+- refs: scripts/archive.ps1; scripts/task.ps1 cleanup
+
+## L314
+- date: 2026-09-08 ｜ tags: import,privacy,source-alias,identity ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 身份来源已在 narrative 路径排除，却可借同源 caption、summary 或 item comment 再写入原生备注。
+- root_cause: 守卫只覆盖一个输出分支，未按位置和原文建立跨类别证据归属。
+- rule: 需要排除的来源证据应先建立跨全部可写类别的统一索引，在公共决策入口校验；回归同时覆盖各类别的同源别名，并保留同文字不同位置的合法对照。
+- enforced_by: 
+- refs: 
+
+## L315
+- date: 2026-09-08 ｜ tags: sqlite,schema,validation,tdd ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 导入回执哈希 CHECK 仅用 64 字节长度与 GLOB 字符集时，绑定的 63 个十六进制字符加 NUL 仍能入库；仅保留文本长度时，合法 64 字符前缀加 NUL 后缀又会漏过。
+- root_cause: SQLite 的文本长度和模式匹配遇嵌入 NUL 有截断语义；文本亲和性也不保证实际存储值是 TEXT，单靠字符数与 GLOB 无法证明完整字节串合法。
+- rule: 固定 ASCII 摘要同时约束 typeof=TEXT、文本长度、CAST AS BLOB 字节长度和完整允许字符集；使用真实绑定参数验证 NUL 补位、合法前缀加 NUL 后缀和同形 BLOB，并同时覆盖新建数据库与迁移后数据库。
+- enforced_by: android/core/src/test/kotlin/nz/myinspection/core/report/interchange/ReportInterchangeSchemaTest.kt
+- refs: specs/archive/tasks/T3-REPORT-INTERCHANGE-SCHEMA.md; ReportInterchangeSchemaTest.kt
+
+## L316
+- date: 2026-09-08 ｜ tags: planning,scope,estimation,l266 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 开工前收口 11 条未决决策，其中两条各砍掉字形（11→6），据此判定「低于止损点、不必拆卡」；真正动手时体量反而回升到 990 行、越闸。
+- root_cause: 只算了决策**移除**的东西，没算它**加回**的东西：收口把两个此前漏列的动作槽显性化（CLEAR_FILTER 需自己的字形、空状态 NEXT 需一枚方向性字形，后者还是某条 RTL 需求唯一的非空实例）。决策收口既是减法也是加法。
+- rule: 每收口一批未决决策，就**重算一次体量**，并把「本次收口新增了什么」单列一栏，不要只记删减。L266 管「写 RED 之前量」，本条管「需求一变就得重量」——沿用建卡时的数字等于用过期需求估算。
+- enforced_by: 
+- refs: 
+
+## L317
+- date: 2026-09-08 ｜ tags: cards,acceptance,evidence,r3 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 卡片验收表把某条需求标为 automated，R3 指出 diff 里既无 typed 值、也无断言、也无变异收据——验收表本身在说假话。
+- root_cause: 验收表被当成计划意图来写、而非当成对已交付证据的陈述：写表时那条确实打算自动化，实现时改了做法，表没跟着改，而没有任何闸会拿表去对账 diff。
+- rule: ship 前把验收表当作一份**需要证据的声明**逐行复核：每个标 automated 的格子必须能点名到一个测试函数与一枚变异；点不出来就当场改标 manual 或补证据。同理适用于 dod_assert 与卡内任何「已覆盖/已验证」的措辞——**表格也是散文，散文会过期**。
+- enforced_by: 
+- refs: 
+
+## L318
+- date: 2026-09-08 ｜ tags: mutation,testing,r4,pruning ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 1
+- symptom: R4 剪枝按「无变异单独杀死它」删掉一条非空断言测试，R3 随后拦下：isNotEmpty 之下 Message("") 仍能通过，而删掉的正是唯一能拦住它的那条。
+- root_cause: 判据循环：没有变异杀死它，是因为变异集里从未有过「把消息置空」这一枚；缺失的那枚变异恰恰是这条测试看起来冗余的原因。用不完备的变异集去度量测试的必要性，度量出来的只是变异集自己的盲区。
+- rule: mutation-survivor 剪枝的可靠性不超过它所对照的变异集。删任何一条测试前先反问：什么样的变异会让它红？答得出来就检查该变异在不在集里——不在就补变异、留测试；答不出来才是真冗余。尤其危险的是「存在性断言 vs 合法性断言」这一对（isNotEmpty/isNotBlank、非 null/值正确）：它们几乎总要成对存在，而弱的那条常常没有专属变异，于是在剪枝时最先被误杀。
+- enforced_by: none（无机械守卫：剪枝是人的判断，闸门只能验变异全杀、验不出「本该存在却没写的变异」。靠本条 + 卡内 hygiene 字段在 R4 时自查）
+- refs: 
+
+## L319
+- date: 2026-09-08 ｜ tags: mutation,evidence,powershell ｜ tier: ledger ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 2
+- symptom: 变异批报告「27/27 全杀」，但其中若干枚植入的根本不是条目所写的那个改动：三枚把整行替换成了一个裸换行（看起来仍像「删掉该行」故不易察觉），一枚退化成 no-op、只因 runner 里有一句「植入后文本必须与基线不同」才当场抛错暴露。
+- root_cause: PowerShell 的逗号列表里，未加括号的字符串拼接会被折进列表本身：@(a, b, c, x + y + z) 解析成 6 个元素而非 4 个，于是 $m[3] 取到的是拼接的第一个操作数、不是拼接结果。批只校验了「选择器命中一次」与「DoD 变红」，两者在错误的变异下同样成立——变红的原因对不上条目声称造坏的东西。
+- rule: 变异批必须证明每个 mutant 就是条目所写的那一个，而不只是证明它让闸变红：① 条目表在 runner 里做元数自检（元素个数/字段齐全），② 植入后立刻断言 mutant != baseline，③ 数组字面量里每个 + 拼接与每个函数调用各自加括号（同 L267 的括号规矩，扩到 + 表达式）。判据：DoD 变红只证明「有东西坏了」，不证明「坏的是这条」——L318 说剪枝的可靠性不超过变异集的完整性，本条说批的可靠性不超过每个 mutant 与其描述的一致性。
+- enforced_by: none（变异 runner 是逐卡的 scratchpad 工具、从不入库，仓内没有它可以挂的闸；本条是 R4 编批时的写法纪律，其守卫必须写进那一份 runner——每条条目断言元素数 == 4，植入后断言 mutant != baseline，两处均 throw）
+- refs: 2026-09-25 recurrence (T0-UPSTREAM-LESSON-IDS, PR #416): an R4 mutant described as dropping the DoD anchor d991cc92 replaced one of its two occurrences, so the DoD stayed green; the mutant did not match its description and was re-aimed at every occurrence.
+
+## L320
+- date: 2026-09-08 ｜ tags: android,device,adb,mtp,spike ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: Physical Android phone with USB debugging switched ON does not appear in adb devices, while Windows plainly sees the phone. On a Galaxy A34 5G (SM-A346E, Android 13/API 33) the composite device exposed only MTP (USB class 06) plus a CDC-ACM serial port (class 02/02/01), with no ADB interface (class FF, subclass 42, protocol 01) present at all. It stayed that way across a tethering-mode fix, a USB-mode switch, an Auto Blocker hunt, a confirmed-ON debugging toggle and an adb server restart, so the whole device acceptance was carried out over MTP instead. CORRECTION, same night: after an unrelated cable replug done only to refresh a stale MTP index, the ADB interface appeared as MI_03 and adb saw the device authorised immediately. The absence was therefore transient, not a property of the phone.
+- root_cause: Proven: a phone left in USB tethering mode enumerates as RNDIS (Samsung PID 6863) and hides every other function; and Android withholds USB data until the on-device Allow access to phone data prompt is accepted, which presents as an MTP device reporting zero storage volumes. NOT proven, and I must not pretend otherwise: why the ADB interface was missing afterwards, nor exactly what the replug changed. The plausible reading is that Windows was serving a cached composite-device interface layout and re-enumeration fixed it, which is precisely what pnputil /remove-device plus /scan-devices would have forced had it not needed admin rights. The real process error was mine: I concluded 'this phone never offers ADB' from a handful of failed checks, wrote that conclusion into a merged report, a board row and CLAUDE.md, and then requested a replug for an unrelated reason without ever re-checking adb afterwards.
+- rule: Read the USB interface classes before touching drivers or settings: ADB is class FF/42/01, MTP is class 06, and an RNDIS interface means the phone sits in tethering mode. That single check separates 'the phone is not offering ADB' from 'the PC cannot bind ADB'. Then, before concluding adb is unavailable, UNPLUG AND REPLUG THE CABLE and re-check both the interface list and adb devices: a stale Windows enumeration of a composite device survives adb kill-server and every on-phone toggle, and the replug is the one cheap action that clears it without admin rights. Re-run that check after any replug you performed for some other reason. Never write 'this device cannot do X' into a merged document on the strength of failed attempts alone: state the observation and the window it held for, because absence of a capability is far weaker evidence than its presence. When adb genuinely stays down, do not block the card and do not demand a Wi-Fi change: MTP alone is a complete evidence path. Copy the APK into Download through the Shell.Application COM namespace and verify System.Size byte for byte, install it by tapping on the phone, let the probe UI carry its results on screen, and pull the on-device screenshots back over MTP. Note MTP caches directory listings, so app-written files may be invisible until a replug.
+- enforced_by: 
+- refs: 
+
+## L321
+- date: 2026-09-08 ｜ tags: docs,claims,design,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 拦下一条：为把 light 调色板项与 dark 对应项对齐，我把它改成「essential card boundaries, evidence segments, and focus use outline」，而同一份 diff 里 evidence-rail 五个段态中的 complete/missing-required/blocked 分别用 primary/tertiary/error——diff 自己就推翻了这句。ship 前的全新上下文对抗复核判 PASS 也没抓到。
+- root_cause: 镜像 dark 侧那句时我只抄了名词（evidence segments），丢掉了它的限定尾巴「use dark.outline, a semantic container, or the focus token」——正是那条尾巴让 dark 句是有范围的；同样的名词没有它就成了全称句。两轮自查都漏，是因为两者都在问「这句相对整份文档是否为真」，而这句的假存在于它与**同一句里相邻分句**的关系。
+- rule: ① 镜像平行章节的句子时，限定语与名词一同旅行：要么整条谓语照抄，要么把范围显式重述；只抄名词等于把有范围的陈述改写成全称句。② 往一个枚举句里加/改一个分句时，要拿它与**同句的兄弟分句**对照，不只与文档其余部分对照——逐句真值检查看不见分句之间的矛盾。③ 便宜的机检：把**改动前的措辞**与**这句被驳回的过宽措辞**双双钉成 expected 0 反向断言，两个方向都回不去。
+- enforced_by: none（逐卡 DoD；本卡把两种措辞钉成 expected 0 锚点、由 M20/M21 各杀一个方向，仓内无通用闸可挂）
+- refs: 
+
+## L322
+- date: 2026-09-08 ｜ tags: git,concurrency,worktree,archive ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 为了让提交里只含我新增的那一行技术债，我对 specs/tech-debt-tracker.md 跑了 git checkout -- <file> 取干净基线——这条命令静默删掉了另一个并发会话在同一文件里未提交的 TD144 状态改动；只因几秒前刚复制过一份快照才救回来。同一轮里 scripts/archive.ps1 读的是**工作树**，于是把那条尚未提交的 paid 行当成已闭合项搬进了归档。
+- root_cause: 我把「把文件还原到 HEAD」当成塑造索引的手段，但它是**工作树**操作，而这棵工作树不只属于我。仓级维护脚本同理：它们作用于磁盘上的内容，不是已提交的内容。
+- rule: ① 当一个文件里有**不是你改的**未提交内容时，绝不用 git checkout -- <path>（或整文件覆写）来塑造提交。改用不碰工作树的暂存方式：把目标内容写进临时文件，再 git hash-object -w --path <path> <tmp> 取 sha、git update-index --cacheinfo 100644,<sha>,<path> 入索引。② 跑任何读工作树的仓级维护脚本（archive.ps1 之流）之前先 git status --porcelain，确认每一条脏路径都是你的；不是就先提交/寄存对方的改动，否则它的产物必然携带对方的在飞状态。③ 无论如何，动别人的脏文件之前先复制一份快照——本次能救回来靠的正是这个。
+- enforced_by: none（git 使用纪律；机械等价物是动手前的 git status --porcelain 与 hash-object/update-index 这条不碰工作树的暂存路径）
+- refs: 
+
+## L323
+- date: 2026-09-09 ｜ tags: testing,mutation,fixture,coverage ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A suite of hand-computed golden vectors was fully green and looked rigorous, yet an entire family of production constants was unpinned: the 77/151/28 luminance weights in GhostEdgeLayer. A single-point mutant on any one of them would have survived silently, because every fixture in the suite was greyscale and those weights sum to exactly 256, so on grey they cancel and change nothing observable.
+- root_cause: The fixture family was uniform along the very dimension the constants control, so no assertion could see them. This is not the classic vacuous pass of L19: the fixtures did carry real inputs and did assert real outputs. The sharper trap came next. The first corrective fixture put pure green directly against pure blue, which looks like it exercises the weights and does not: the black-to-green step dominates the ranking whatever the weights are, so the surviving edge set is identical under the mutant and the new test still could not kill it. A fixture that merely uses the relevant dimension is not the same as a fixture whose outcome that dimension can flip.
+- rule: For every production constant, ask what property a fixture must have for that constant to be observable at all, and then prove the fixture discriminates by computing the mutants outcome by hand before running the batch: if the expected vector is unchanged under the mutation, the fixture is decoration. The shape that works is two competing measurements against one shared reference, so a change in the constant flips their ranking rather than merely shifting both. Suspect any constant family that sums to an identity, normalises, or otherwise cancels on your default fixture, since that is exactly when a green suite proves nothing about it. Design the killing fixture during batch orchestration, not after a survivor appears, and record the failed attempt beside the working one so the next reader does not rebuild the version that cannot discriminate.
+- enforced_by: 
+- refs: 
+
+## L324
+- date: 2026-09-09 ｜ tags: mutation,guards,constants,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A mutation batch came back 12 of 12 killed, every kill behavioural, and I reported it as strong evidence of quality. R3 then found that the code carried an arbitrary constant, MIN_MAGNITUDE=40, which discarded every edge fainter than that and would return a completely empty overlay for a dim room. That directly contradicted the rationale written on the card, which said the threshold is picked from the histogram precisely so a fixed cutoff cannot blank a dim scene. The mutant that deleted the floor had died cleanly and I had counted that as proof the floor was well tested.
+- root_cause: A mutation kill only demonstrates that some assertion depends on that line. It says nothing about whether the line should be there at all, so a wrong constant that is firmly wired in kills its mutant just as convincingly as a right one. The blind spot compounds: a guard added to handle a degenerate case attracts fixtures for the degenerate case and for the obvious extreme, and the untested middle of the range is exactly where the guard does its damage. Here the suite held a flat image and a high-contrast step and nothing faint, so the whole band the floor destroyed had no fixture and no mutant could reach it.
+- rule: Do not read a kill as a verdict on correctness; it is only a verdict on load-bearingness. For every guard or numeric constant, ask what it EXCLUDES and write a fixture just inside the excluded region, then add a mutant that WIDENS or reintroduces the bound rather than only one that deletes it. A constant whose only mutant is deletion has been tested for presence, never for the correctness of its value. The loudest tell is cheap to check and was available the whole time: read the guard against the design rationale written on the card, and when the card says adaptive and the code says fixed cutoff, believe the card and go looking for the range the constant silently eats.
+- enforced_by: 
+- refs: 
+
+## L325
+- date: 2026-09-09 ｜ tags: gates,diagnosis,worktree,secrets ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: check-secrets -Strict 在卡片 worktree 里报致命「git 历史含敏感文件：…5.db」。我据此断言「这道闸没有白名单机制、会一直误报」，还向用户提议开卡去修它。实际上白名单机制早就存在、项目也早就正确用着（configs/secrets/tracked-sensitive-allowlist.json 五条齐全、各带 purpose），同一条命令在主检出里跑是 PASS。
+- root_cause: 闸的历史扫描是 git log --all（跨**全部 ref**，含本地 master），而白名单是从**当前检出的那棵树**读的配置文件。我在基于 origin/master 的 worktree 里跑它，那棵树的白名单只有 1-4.db，第 5 条在本地 master 上尚未推送。于是「作用域全局的扫描 + 作用域局部的配置」给出了一个**对那棵树完全正确**的致命报告，而我把它读成了工具缺陷——下结论前没问「这次运行读的是哪一份配置」。
+- rule: 闸报红时先确定**它这次读的是哪棵树的配置与输入**，再谈它对不对。判据是换一棵树重跑：同一条闸命令在主检出与被审 worktree 各跑一次并比对退出码，两处结论不同即说明红的是**作用域**而非缺陷。扫描作用域（git log --all 跨 ref）与配置作用域（当前检出树）不一致时，在落后的基线树上跑必然产出「对该树正确、对仓库整体错误」的结论。做完这一步之前，不得据一次红去断言工具有缺陷，更不得据此开卡——把误诊写进卡片比不开卡贵得多。
+- enforced_by: none（判定纪律；机械等价物 = 同一条闸命令在主检出与被审 worktree 各跑一遍、比对退出码，不同即先查作用域）
+- refs: L282
+
+## L326
+- date: 2026-09-09 ｜ tags: mutation,resume,harness,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A mutation batch kept being killed by host memory pressure, so I capped the JVM heaps, added per-mutant logging and made it resumable in chunks. It then reported 15 of 15 killed. Only afterwards, when an unrelated PowerShell invocation mangled the same -D flags and failed with a task-resolution error, did I realise I could not actually show that the capped command had ever worked: the validity guard that runs the unmutated suite first was written to execute only on a fresh batch, and every chunk after the first was a resume, so the guard had been skipped for fourteen of the fifteen mutants. Had the cap been too tight, every one of them would have exited non-zero and been banked as a kill.
+- root_cause: Two mistakes compounded. Making a long batch survivable meant changing how it runs, and each change introduced a fresh way to exit non-zero for a reason that is not a test failure: a heap cap can exhaust memory, a chunked resume can start from an unverified state. My classifier only separated compilation errors from assertion failures, so those new modes would have been scored as kills. Worse, I put the validity guard behind a fresh-start condition to save two minutes per resume, which removed it from precisely the runs that execute under degraded conditions. A guard skipped on the resume path is not a guard, because the resume path is the risky one.
+- rule: When you modify how a long evidence-producing batch runs in order to survive interruption, treat every modification as a new failure mode and extend the classifier to name it before trusting a single result: an infrastructure failure must be its own verdict that is not recorded and is retried, never folded into the kill count. Never put the validity guard behind a fresh-start condition; resumed runs need it more than the first run did, because they begin from a state nobody re-established. If the guard is genuinely too expensive to repeat, run it once at the END against the same invocation path and record that timing and exit code in the receipt, so the evidence says which runs it actually covered rather than implying all of them.
+- enforced_by: 
+- refs: 
+
+## L342
+- date: 2026-09-15 ｜ tags: r3,diff-budget,fixtures ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: T0-PREREVIEW-SCHEMA：changed lines 只到上限的 80%（~800/1000），diff 字符却冲到 63.9K/60000；26 个小夹具文件每个 diff 头约 300 字符、JSON 逐行缩进每行约 30 字符，压缩散文几乎无效
+- root_cause: review.ps1 的两条预算里字符数对「多小文件」的卡先到顶：diff 头（---/+++/@@/index 四行）按文件计，pretty-print 的换行与缩进按行计，散文只按字符计；按行数估体量看不到这两项
+- rule: 多夹具卡在 RED 前用 review.ps1 -SizeOnly 的同一口径（diff 头 + unified=3 上下文）量字符数：夹具 JSON 一律紧凑单行、能合并的负例合并进一个 valid 样本、负例文件只放最小违规体；字符数超 55K 就先拆文件数、再谈删散文
+- enforced_by: 
+- refs: renumbered from the uncommitted L327 by the 2026-09 reconcile (#339)
+
+## L343
+- date: 2026-09-15 ｜ tags: powershell,here-string,cards ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: 用 @"…"@ 双引号 here-string 拼卡片正文（为了内插 SHA），正文里的 $defs / $ref / $schema 被内插成空串，卡片读作「keep the root and the `` reachable」——fresh-context 预审才抓到
+- root_cause: 双引号 here-string 对 $name 做变量展开，未定义变量静默变空；JSON schema 词汇（$defs/$ref/$schema/$comment）恰好都是 $ 开头
+- rule: 含 $ 词汇的散文一律用单引号 here-string @'…'@ 写，需要内插的值用 __PLACEHOLDER__ 再 .Replace()；写完 grep 一次「``$」确认 $ 词还在
+- enforced_by: 
+- refs: renumbered from the uncommitted L328 by the 2026-09 reconcile (#339)
+
+## L344
+- date: 2026-09-15 ｜ tags: selftest,worktree,routing,task-card ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
+- symptom: Ran scripts\selftest.ps1 -TaskId <id> -Base master from the main checkout as the card DoD asked; the run resolved mode=all and tested the main checkout (its untracked .aidlc/ root entry turned gate 8 red, and gate 11 counted the main checkout links), so the card worktree was never the tree under test.
+- root_cause: For mode all and core the -TaskId route only selects shards; every shard runs on $RepoRoot, which selftest.ps1 derives from its own location. Only the skills mode targets the task worktree (Invoke-SelftestAll -SourceRoot WorktreePath). Invoking the main checkout copy therefore tests the main checkout.
+- rule: Routed selftest evidence for a card must come from the worktree copy: pwsh -File <WorktreeRoot>\<id>\scripts\selftest.ps1 -TaskId <id> (since the 2026-09 reconcile selftest.ps1 has no -Base parameter; passing it fails before any gate runs). Also check that the invoked root has no stray top-level entries before a full run (gate 8.1 whitelist), and that every L<n> the card cites exists at base (git show master:docs/lessons/LEDGER.md), not only in the dirty working ledger (gate 16).
+- enforced_by: 
+- refs: renumbered from the uncommitted L329 by the 2026-09 reconcile (#339)
+- addendum(2026-09-25, T1-APP-STORAGE-ANDROID): a card whose paths are android/ product files has no GATE-MAP row, so the tier-1 route escalates to the full 17 gates (2594 s on the worktree copy). Budget about 45 minutes, and free memory first: the first attempt was killed for low system memory while an emulator and another session's ship were running.
+
+## L345
+- date: 2026-09-16 ｜ tags: powershell,ordinal,comparison,r3 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 and a fresh-context probe both showed identity checks passing for altered ids: C-1 vs C-<soft hyphen>1, discoverer vs discoverer<ZWSP>, NFC vs NFD text, and a culture Sort-Object leaving case-variant map keys in insertion order
+- root_cause: PowerShell string operators (-eq -ceq -ne -contains -in -like) plus Sort-Object, Select-Object -Unique and Compare-Object are culture comparisons: default-ignorable code points and canonical equivalents compare equal and -ceq only adds case sensitivity; @{} and [ordered]@{} are case-insensitive while ConvertFrom-Json -AsHashtable (7.3+) is case-sensitive
+- rule: Identity of external data (ids, keys, worker names, canonical JSON) is compared with [string]::Equals(a, b, [StringComparison]::Ordinal), ordinal HashSet / Hashtable / OrderedDictionary and [Array]::Sort(arr, [StringComparer]::Ordinal); the test harness uses the same ordinal helpers and carries a soft-hyphen / ZWSP / case regression so the assertions themselves cannot pass on a culture tie
+- enforced_by: 
+- refs: renumbered from the uncommitted L330 by the 2026-09 reconcile (#339)
+
+## L331
+- date: 2026-09-16 ｜ tags: powershell,git,fixtures,native-command ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
+- symptom: A fixture helper named Git recursively called itself when its body invoked git, stalling the self-check before any production assertion.
+- root_cause: PowerShell command lookup is case-insensitive and functions take precedence over external executables; Git and git resolve to the same function.
+- rule: Give native-command test wrappers distinct names such as Invoke-FixtureGit. Before integrating the wrapper, run one small real command and require its exit code and output so self-recursion is detected immediately. Aliases resolve before functions as well: a helper named like a built-in alias (H is Get-History; also gc, r, ls) is never called, so give helpers Verb-Noun names.
+- enforced_by:
+- refs: specs/archive/tasks/T0-PREREVIEW-FACTS-LIB.md
+
+## L332
+- date: 2026-09-17 ｜ tags: powershell,dot-source,entrypoint,selfcheck ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: The state script entered library mode during SelfCheck after importing another script with the same parameter names; no state assertions ran.
+- root_cause: PowerShell dot-sourcing executes the imported param block in the caller scope, overwriting AsLibrary and SelfCheck values.
+- rule: Capture entry mode before dot-sourcing scripts with overlapping parameter names, or isolate imports in a module. Test the actual process entrypoint and require both exit 0 and its assertion-completion sentinel.
+- enforced_by: specs/archive/tasks/T0-PREREVIEW-STATE-1A.md
+- refs: scripts/_prereview-state.ps1; specs/archive/tasks/T0-PREREVIEW-STATE-1A.md
+
+## L333
+- date: 2026-09-20 ｜ tags: gradle,test,cache,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: An env-gated Gradle unit test (skips unless MYINSPECTION_REAL80_DIR is set) reported PASS against an empty directory and against an altered fixture copy: Gradle restored the previous run result because the Test task cache key ignores the environment, so the test never executed.
+- root_cause: org.gradle.caching=true plus the Test task is UP-TO-DATE/FROM-CACHE on an unchanged classpath; environment variables are not task inputs, so the cached XML (including its old skip/pass counts) is replayed whatever the variable says.
+- rule: Any evidence run whose behaviour depends on the environment (env-gated harness, controls with a different input dir) must pass --rerun-tasks --no-build-cache, and its receipt must show the test actually executed (exit code plus the per-test XML status, not just BUILD SUCCESSFUL); to make it structural, register the variable as a Test task input (inputs.property) in the build script.
+- enforced_by: 
+- refs: 
+
+## L334
+- date: 2026-09-20 ｜ tags: powershell,scripting,mutation-batch ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: A mutation batch script ended with Get-FileHash: Could not find file System.Collections.Hashtable after all mutants had run: the summary line used $M (a file path) but the loop variable $m (a hashtable) had overwritten it.
+- root_cause: PowerShell variable names are case-insensitive, so $M and $m are the same variable; the loop silently replaced the path with the last mutation record.
+- rule: Never rely on case to distinguish PowerShell variables; give path constants and loop variables different names (e.g. $fileM vs $mutation) and let Set-StrictMode surface any leftover collision.
+- enforced_by: 
+- refs: 
+
+## L335
+- date: 2026-09-23 ｜ tags: kotlin,float,r3,prose,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: R3 blocked a 55-line FIT_CENTER function four times: a near-MAX frame gave an infinite rectangle; the fix still rounded the frame extent in Float; then two rounds of comments whose stated conditions were wrong (clamp blamed on the Float conversion, exact-below-2^24 ignored the far-edge sum, extreme-magnitudes-only missed a page frame edge at 0).
+- root_cause: Numeric guarantees (never infinite or NaN, inside the frame, exact below 2^k) were reasoned out by hand, and each fix restated a universal claim that the next reviewer falsified by fuzzing the compiled class.
+- rule: Make numeric guarantees true by construction before review (finite-edge guard, Double arithmetic, clamp each edge into the frame) and fuzz the compiled code against every stated claim yourself; in prose give a verified concrete example rather than a general condition; give every guard clause and every clamp a test case that alone kills its mutant.
+- enforced_by: 
+- refs: 
+
+## L336
+- date: 2026-09-23 ｜ tags: handoff,progress.md ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3
+- symptom: Replacing the HANDOFF block in progress.md with IndexOf overwrote the oldest of 13 historical blocks; it had to be restored from the SessionStart hook print.
+- root_cause: progress.md accumulates one HANDOFF block per session and handoff.ps1 check reads the last one; IndexOf finds the first.
+- rule: Edit only the last block (LastIndexOf of the START and END markers) and compare the block count before and after the write.
+- enforced_by: 
+- refs: 
+
+## L337
+- date: 2026-09-24 ｜ tags: r3,review,remote,ship,codex-quota ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 4
+- symptom: Remote task.ps1 ship ran Codex for R3 (quota error, [R3-NO-OUTPUT]) even though the control checkout set _config.ps1 ReviewCommand to an Opus backend; the same edit worked for -Local ships on the older local scripts.
+- root_cause: Origin task.ps1 (T288) exports the whole reviewer bundle, _config.ps1 included, from the pinned base commit, so an uncommitted ReviewCommand in the running checkout never reaches the ship R3 leg. Separately, [SHIP-SCOPE-CARD-ABSENT] requires the card on the base commit before its product ship.
+- rule: To swap the R3 backend for a remote ship without committing machine-specific config: let the ship run every deterministic gate and open the PR, reset the round after diagnosing the quota failure, run the checkout review.ps1 (verify it is byte-identical to the base blob) with -PostStatus -PrNumber, confirm a successful ci.yml run on the same head and the PR base, then gh pr merge --squash --match-head-commit. Register cards on origin in a separate PR first. When Codex has quota but the user wants another reviewer, run the ship from a control worktree whose uncommitted ReviewCommand passes the ship preflight, with the Codex install directory removed from PATH: the base-bundle R3 leg then stops before invoking any reviewer and spends no round (T0-POST-MERGE-R5-BOARD-TABLE, -WIRING, -GUARDS).
+- enforced_by: 
+- refs: 
+
+## L338
+- date: 2026-09-24 ｜ tags: mutation,test-double,catch,r3 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: T1-APP-STORAGE-POLICY: 35/35 and then 41/41 mutant batches were green, yet two Opus R3 rounds each found surviving mutant classes the batch never contained: the fake usableBytes ignored its directory argument (probing another directory survived), a conversion fixture whose roots covered the whole temp tree let reads from the unconverted environment survive, and every injected failure was an IllegalStateException so narrowing catch (Exception) survived.
+- root_cause: The mutant list was written from the production text (flip a value, drop a guard) and never asked two operator questions for boundary code: what if a port call gets a different in-scope argument, and what if a catch clause is narrowed. Test doubles that do not check their arguments and fault injection with a single exception type make both classes invisible.
+- rule: For every port or fake call in the code under test, make the fake check each argument it receives and add one argument-substitution mutant per argument (another in-scope value of the same type). For every catch clause, inject at least one checked exception (IOException) and one unchecked sibling (SecurityException) besides IllegalStateException, and add mutants narrowing the catch to RuntimeException and to IllegalStateException. Fixture roots must be chosen so each guard or argument is the only thing that decides its row.
+- enforced_by: 
+- refs: 
+
+## L339
+- date: 2026-09-24 ｜ tags: subagent,hook,guard-frozen,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A background (non-interactive) reviewer subagent stopped mid-review with no verdict; the task notification read as completed and the output file was empty.
+- root_cause: The guard-frozen PreToolUse hook answers permissionDecision defer for any PowerShell/Bash/Edit/Write call whose text names a frozen path, even read-only; a background agent cannot answer the prompt, so the call is dropped and the agent ends. Read/Grep/Glob are not covered by the hook.
+- rule: When a background subagent may touch frozen paths (core canon/template/backup/sqldelight), tell it up front to read them only with Read/Grep/Glob and keep shell commands free of frozen path names; if a background agent ends without its expected output, inspect its transcript tail for hook_deferred_tool and resume it with SendMessage instead of relaunching.
+- enforced_by: 
+- refs: 
+
+## L346
+- date: 2026-09-24 ｜ tags: r3,review-round-cap,quota,remote-ship ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: Remote ship while Codex is out of quota: every ship reruns the Codex leg, it fails closed, and ResetRounds after diagnosis also zeroes the real Opus R3 rounds that blocked before it, so ReviewRoundCap never fires (PR #334 reached 4 real rounds with the counter never above 1)
+- root_cause: The .rounds counter is one per-branch tally and ResetRounds clears it whole; it cannot tell an external quota failure from a real reviewer block
+- rule: When resetting after a diagnosed external failure, count the real review rounds yourself; once they reach ReviewRoundCap, ask the user before the next reviewer run even though the counter reads low
+- enforced_by: 
+- refs: 
+
+## L347
+- date: 2026-09-24 ｜ tags: git,bisect,checkout,exit-code,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: one void bisect, redone
+- symptom: A path-level bisect for the reconcile (restore a few files from older commits, re-run a contract check, compare) restored files with `git checkout --detach <sha> -- <paths>`. Every step ran against the unchanged tree, so the first bisect result was void. Git had refused each restore with "fatal: git checkout: --detach does not take a path argument '<path>'" (exit 128), and the script never looked at the exit code.
+- root_cause: `--detach` moves HEAD and accepts no pathspec; with paths the command fails before touching any file. A bisect that trusts the restore command instead of the resulting file state measures the same tree at every step.
+- rule: Restore files with `git checkout <rev> -- <paths>` (no --detach) and stop on a non-zero exit. Before each probe, assert `git hash-object <path>` equals `git rev-parse <rev>:<path>` for every restored file; a bisect step without that check is not evidence. For a directory, `git checkout <rev> -- <dir>` keeps files added after <rev> (overlay mode): use `git restore --source=<rev> --staged --worktree -- <dir>` then compare the mode, object id and path fields of `git ls-files -s -- <dir>` with those of `git ls-tree -r <rev> -- <dir>` (the raw lines differ in layout), and check `git status --porcelain -- <dir>` for untracked files, which neither listing shows.
+- enforced_by:
+- refs: reconcile 2026-09, bisect of the T4-DESIGN-SYMBOL-CHROME-V2 check 07 failure (TD185)
+
+## L348
+- date: 2026-09-24 ｜ tags: powershell,wildcard,like,markdown,backtick ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: two silent misses in one reconcile
+- symptom: Sweeps that matched a Markdown code span with -like, such as ``$line -like '*`T1-FOO`*'``, returned False on lines that plainly contained the span, twice during the reconcile. The sweep looked clean because nothing matched.
+- root_cause: In -like and other wildcard patterns the backtick is the escape character: a backtick before T means a literal T, and the closing backtick before the asterisk makes that asterisk literal, so the pattern demands a line that ends with *. Single quotes do not help; the string keeps the backtick and the wildcard parser consumes it.
+- rule: To match a literal backtick (Markdown code spans), use .Contains() or .StartsWith() with [char]96, or build the pattern with [WildcardPattern]::Escape(...). When a sweep reports zero matches, first show that its pattern matches one known-positive line.
+- enforced_by:
+- refs: reconcile 2026-09, card and board sweeps
+
+## L349
+- date: 2026-09-24 ｜ tags: reconcile,merge,cards,task-board,review ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: three extra R3 rounds on reconcile slice 4
+- symptom: Reconcile slice 4 (PR #338) passed R3 only on round 7. Rounds 4-6 each found one record taken from one side while another record carried by the same PR said otherwise: CLAUDE.md called T3-PDF-RENDER-DEVICE unlocked although the carried re-plan made it wait; T1-LOCAL-DATA-SECURITY kept origin's depends_on although the carried ADR-0006 added T1-APP-STORAGE-ANDROID; the T1-SHARE-SCREEN-PRIVACY board row stayed origin's pre-split row while its card was local's split. The author's sweep started from the rows the PR had changed, so it never checked an untouched origin row next to a changed card, or a card kept at origin's version while a changed ADR paragraph added a prerequisite to it.
+- root_cause: Conflicts are resolved file by file, but a card, its board rows, ADR paragraphs and CLAUDE.md lines describe the same entity; choosing a side per file can pair one side's card with the other side's row. A review that starts from the diff sees only changed lines.
+- rule: After resolving a merge of diverged records, sweep by entity, not by file or diff. Start from every entity named in any record the merge changed (card files, board rows, ADR paragraphs, CLAUDE.md lines), including cards the merge left at one side's version. ADR paragraphs often name deliverables rather than card IDs (ADR-0006 said LocalSecretBox gains a prerequisite): resolve each deliverable to its card and check every "gains X as a prerequisite" claim against that card's depends_on. For each entity, compare its card, board rows, ADR mentions and CLAUDE.md claims with each other at HEAD (dependencies, scope, size, status), and against both parents to separate introduced mismatches from pre-existing ones. Run the sweep before the first review round.
+- enforced_by:
+- refs: #338; 512a7dc4, ab5a4a1b, d6fa1df0 (the round 4-6 fixes)
+
+## L350
+- date: 2026-09-25 ｜ tags: config,selftest,cards,scoping ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: Carding a one-value config change (ReviewIntensityByTier tier 0 advisory to adversarial, T0-REVIEW-GOVERNING-DOCS), a grep for the literal assignment found only scripts/_config.ps1. While implementing it, gate 17ib failed: scripts/selftest.ps1 pins the live value through $map['0'] -ne 'advisory'. The card needed an amendment PR to add scripts/selftest.ps1 to allow_paths and to relax its own forbid entry.
+- root_cause: A config value is pinned through its accessor and key, not its literal spelling. The drift check calls Get-ScaffoldReviewIntensityByTier and indexes ['0'], so a search for the assignment text cannot find it.
+- rule: Before carding a change to a scripts/_config.ps1 value, grep every reader of that key (its Get-Scaffold<Key> accessor and $ScaffoldConfig.<Key>) across scripts/, selftest.ps1 included, and look for assertions that pin the current value. Put each pinning file in allow_paths when the card is written, not after RED.
+- enforced_by: 
+- refs: 
+
+## L351
+- date: 2026-09-25 ｜ tags: android,device,evidence,r3 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: T1-APP-STORAGE-ANDROID: R3 round 1 blocked the device evidence. It pinned the SHA-256 of the four card files only, the runs had been built on an earlier base, and the probe also exercised the unpinned prerequisites AppStoragePolicy and StoragePathBoundary, so the doc claim that the source hashes identify the candidate was false. Baselines, 19 mutants on two devices and the final runs all had to be rerun.
+- root_cause: An APK is built from the whole module tree, so hashes of the changed files cannot identify it, and absorbing base commits after the runs changes the candidate without changing those hashes.
+- rule: Commit the candidate before any device run and have the host script print git rev-parse HEAD:android plus a dirty count on every run. Record that tree id in the evidence, and before merge check that git rev-parse <merge head>:android still equals it; rerun if it does not.
+- enforced_by: 
+- refs: 
+
+## L352
+- date: 2026-09-25 ｜ tags: android,emulator,device ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: After adb emu kill, relaunching the API 35 AVD with its default quick-boot snapshot stayed offline for 16 minutes while qemu used 13 CPU seconds; adb reconnect offline and an adb server restart did not help.
+- root_cause: Not diagnosed: the quick-boot snapshot load hung.
+- rule: If an emulator stays offline for more than about 2 minutes with qemu near idle, kill that instance and cold boot it with -no-snapshot (it booted in about 40 s); do not keep waiting or restarting adb.
+- enforced_by: 
+- refs: 
+
+## L353
+- date: 2026-09-25 ｜ tags: check-secrets,naming,secrets,ci ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- symptom: Two check-secrets FAILs on content that held no secret: card prose quoting a Kotlin signature whose parameter was named secret with a type after the colon (Generic Secret Assignment; verify went red on a card-only PR), and two source files whose names began with Secret (the tracked sensitive-path rule).
+- root_cause: check-secrets judges by shape, not meaning: a tracked path segment that starts with secret counts as a sensitive file, and a secret, password or api-key token followed by a colon or equals sign and eight or more non-space characters counts as an assignment, whether it is code, prose or a type annotation.
+- rule: Name things so the shape does not match: no path segment starting with secret (prefix it, as in LocalSecretEnvelopeStore), and no secret, password or api-key token directly followed by a colon or equals sign and a value-like run (name the parameter plaintext or value). Run pwsh scripts/check-secrets.ps1 on new files and card text before pushing. When it matches something that is not a secret, rename; never add an allowlist entry (user rule, 2026-09-25).
+- enforced_by: 
+- refs: specs/tasks/T1-LOCAL-SECRET-BOX.md; PRs #358, #361
+
+## L354
+- date: 2026-09-25 ｜ tags: powershell,arrays,operators ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
+- symptom: Three times in one session a replacement pair built as @(anchor, text + suffix) silently lost its suffix: one edit replaced a header with itself, one mutant replacement lost its tail, one anchor lost its newline; each surfaced only later as missing text.
+- root_cause: In PowerShell the comma operator binds tighter than +, so @(a, b + c) parses as (a, b) + c: an array of a and b with c appended as a third element, not a pair whose second element is b + c.
+- rule: Build any computed element in a variable first ($new = $b + $c, then @($a, $new)) or parenthesise it (@($a, ($b + $c))). After building replacement pairs, assert each pair has exactly two elements and that the replacement text contains the part you added.
+- enforced_by: 
+- refs: 
+
+## L355
+- date: 2026-09-25 ｜ tags: mutation,receipt,evidence,r3 ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: An R4 receipt appended to a test file said the file was the pre-receipt bytes plus the comment; the reviewer hashed a different prefix, got a different SHA-256 and blocked the round as evidence not bound to the reviewed source.
+- root_cause: plus this comment leaves the byte boundary open (whether the blank separator line, a trailing newline or the opening marker belongs to the prefix), so the pinned hash cannot be reproduced by a reader.
+- rule: When a receipt pins the hash of the file it is appended to, name the exact line range and give a command that reproduces it, such as head -n N path | sha256sum, and run that command yourself before pushing.
+- enforced_by: 
+- refs: specs/tasks/T1-LOCAL-SECRET-BOX.md (R5 delivery); PR #371
+
+## L356
+- date: 2026-09-25 ｜ tags: gh,pr,branch,ship,scripting ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: A scripted merge of PR #376 skipped silently when its head lookup came back empty (no HEAD-MATCH line), and the cleanup step that followed deleted the PR head branch locally and on origin, which closed the unmerged PR.
+- root_cause: The cleanup ran on the script finishing, not on the PR being merged; deleting the head branch of an open PR closes it on GitHub.
+- rule: Delete a PR head branch only after gh pr view <n> --json state reads MERGED, in the same command that deletes it. If a PR was closed this way, push its head commit back to the same branch name and gh pr reopen it.
+- enforced_by: 
+- refs: 
+
+## L357
+- date: 2026-09-25 ｜ tags: testing,mutation,seams,r4 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A recording seam added so tests could see the sync and the atomic move killed the store-level mutants, but a fresh-context review found three one-line mutants in the platform implementation behind the seam (sync removed, ATOMIC_MOVE dropped, delete result ignored) that left every test green: the exact defects the seam was added to prove.
+- root_cause: Once tests talk to a recording or injecting double, the real implementation behind the seam is no longer executed by them, so the mutation surface moves from the call site into the platform object.
+- rule: When you add a test seam, test the platform object behind it directly (make each operation fail loudly on a real input: an invalid descriptor for sync, an occupied directory for delete, an atomic move onto a directory) and put one-line mutants of that object into the R4 batch next to the call-site mutants.
+- enforced_by: 
+- refs: specs/tasks/T1-LOCAL-SECRET-STORE.md (R5 delivery); PR #377
+
+## L358
+- date: 2026-09-25 ｜ tags: testing,mutation,r4,assertions ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
+- symptom: Three R4 mutants counted as killed because the named test ended in an exception thrown by the mutated production code (a raising read, a missing file, a missing directory), not in a failed assertion.
+- root_cause: A test that errors proves only that something went wrong somewhere; the named contract was never compared, and the same test can error for reasons unrelated to the mutant.
+- rule: Have the R4 runner record the failure type of the named test and accept only java.lang.AssertionError as a kill. Where the contract is that a call succeeds, wrap it in runCatching and assert isSuccess before checking its result.
+- enforced_by: 
+- refs: specs/tasks/T1-LOCAL-SECRET-STORE.md (R5 delivery); PR #377
+
+## L359
+- date: 2026-09-25 ｜ tags: r3,diff-budget,markdown ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: T0-POST-MERGE-DOCS-PR neared the 60000-character R3 diff limit although its doc edits were small: one edit to a long task-loop SKILL.md line cost about 5700 characters, and after moving the text to its own sub-bullet the insertion still cost about 4300, because the three context lines around it are also very long.
+- root_cause: The R3 diff counts the old and new copy of every changed line and the full text of each context line, so the cost of an edit is set by the length of the lines it changes and sits beside, not by the words added.
+- rule: When a diff will be near the R3 character budget, add doc text as a new line instead of editing a long line, place it where the neighbouring lines are short when the structure allows, and measure with review.ps1 -SizeOnly (L246) after each doc edit.
+- enforced_by: 
+- refs: 
+
+## L360
+- date: 2026-09-25 ｜ tags: mutation,r4,evidence,powershell ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- symptom: Two mutation batches for T0-POST-MERGE-DOCS-PR produced wrong evidence. The first reported 27 of 29 mutants void because every mutant died of a parse error: the runner decoded the file with its BOM and wrote a second one. A later batch ran 47 mutants while 48 were declared: a here-string inserted without a trailing newline joined the array's closing parenthesis to the previous entry, so M45 sat outside the array and never ran, and nothing reported it.
+- root_cause: A mutation runner is itself untested code that writes the file under test; a broken write path or a malformed mutant list makes every result look like evidence while proving nothing.
+- rule: Give every mutation runner two self-checks before the batch: rewrite the unmutated file through the same write path and require identical bytes and a passing run, and require the number of mutants executed to equal the number declared. Treat any parse error in a mutant run as void, never as a kill. Before trusting a PASS from a self-check you edited by script, run one mutant that must be killed: if every mutant survives with exit 0, the harness is broken, not the code (T0-POST-MERGE-R5-WIRING prototype: an inserted block with no final newline made the SelfCheck summary line extra arguments of the last case, so it always passed).
+- enforced_by: 
+- refs: 
+
+## L361
+- date: 2026-09-25 ｜ tags: worktree,task-loop,start,git ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- symptom: task.ps1 start for a card reused a local branch and worktree of the same id left by an earlier session: the worktree sat on an eight-day-old commit without the merged prerequisites (the build could not find their types) and held three untracked test files from an abandoned attempt, which also blocked the fast-forward.
+- root_cause: start adds the worktree only when none exists; an existing branch or worktree for the card id is reused as found, with no check that it starts at the current base.
+- rule: Before start, run git worktree list and git branch --list <id>. If either exists, check rev-list origin/<base>..<branch> for commits of its own and git status --untracked-files=all for leftovers, preserve any leftovers outside the worktree, and after start confirm HEAD equals origin/<base> before writing code. If the existing worktree has uncommitted changes and another session may own it (start then refuses with "worktree 已存在"), treat it as that session's work: check its creation time against your session and ask the user before removing it, and save its full diff and changed files to _local/ first (T0-POST-MERGE-R5-GUARDS).
+- enforced_by: 
+- refs: 
+
+## L362
+- date: 2026-09-25 ｜ tags: android,keystore,mutation,jca ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: An R4 mutant that dropped the provider name from KeyGenerator.getInstance(AES, "AndroidKeyStore") passed every probe check on both devices.
+- root_cause: JCA selects the provider at init: only AndroidKeyStore accepts a KeyGenParameterSpec, so the key is still a Keystore key and the mutant is equivalent.
+- rule: To prove a key comes from AndroidKeyStore, mutate the key source itself (for example a software KeyGenerator with init(256)), not only the provider string, and record the provider-name mutant as equivalent.
+- enforced_by: 
+- refs: 
+
+## L363
+- date: 2026-09-25 ｜ tags: android,api-level,probe,javap ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: A device probe check on KeyInfo.isUnlockedDeviceRequired did not compile: the getter is listed in the reference docs but is absent from the compileSdk 35 android.jar, so the property could not be read on API 33 or 35 at all.
+- root_cause: Reference pages describe the newest platform; a getter added in a later API level does not exist on the devices or in the compile SDK the project pins.
+- rule: Before designing a device check around an Android API, list the class in the pinned SDK with javap -cp platforms/android-<compileSdk>/android.jar <class>. When the getter is missing, prove the property by behavior (here: open an envelope while the screen is locked) and record why.
+- enforced_by: 
+- refs: 
+
+## L364
+- date: 2026-09-25 ｜ tags: powershell,native-command,logs,privacy ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: Host scripts piped adb pull to Out-Null, yet the probe logs showed the installed APK path under /data/app, which R3 flagged against a card that forbids paths in probe output.
+- root_cause: Out-Null discards only the success stream; a native command writes progress and errors to stderr, which still reaches the console and any log the run is redirected to.
+- rule: For native output that must not appear, redirect every stream with *> $null (the exit code survives) and check $LASTEXITCODE; then grep the saved logs for the forbidden pattern before calling the evidence clean.
+- enforced_by: 
+- refs: 
+
+## L365
+- date: 2026-09-25 ｜ tags: r3,review,claude-cli,evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: An Opus 5.5 R3 run through ReviewCommand returned pass, but its saved raw output was 354 characters: the reviewer's last message (an answer to the project's Stop hook) and the verdict, with no record of what it had read.
+- root_cause: claude -p with --output-format text keeps only the final message, and a headless claude started in the worktree runs the project's hooks (SessionStart context and a Stop-hook turn).
+- rule: Run a headless Claude reviewer with --output-format stream-json --verbose and --settings '{"disableAllHooks":true}', save the stream, and log turns, tool calls and files read next to the verdict. Do not use --bare: it also skips keychain reads, so a subscription login can fail.
+- enforced_by: 
+- refs:
+
+## L366
+- date: 2026-09-25 ｜ tags: gh,repo-settings,branches,ci ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: 273 merged remote branches piled up although task.ps1 and L13 say GitHub deletes them on merge; gh pr checks <n> --required listed no checks at all
+- root_cause: The repo setting delete_branch_on_merge was false (gh-bootstrap.ps1 sets it true, then it drifted), and master has no ruleset or branch protection although CLAUDE.md says required and codex-review are enforced; --required only lists checks that branch protection requires
+- rule: When behaviour depends on a GitHub repo setting, read it (gh api repos/<owner>/<repo> --jq .delete_branch_on_merge; gh api repos/<owner>/<repo>/rulesets) instead of trusting bootstrap code or comments. Wait on the CI fan-in job by name (required), never on gh pr checks --required. Delete merged branches only with a lease on the merged head: git push origin --force-with-lease=refs/heads/<b>:<headRefOid> :refs/heads/<b>
+- enforced_by: none (repo settings have no local gate; post-merge.ps1 prune covers deletion)
+- refs: PR #362, PR #390, 2026-09-25 prune of 277 branches
+
+## L367
+- date: 2026-09-25 ｜ tags: cards,concurrency,multi-session ｜ tier: ledger ｜ kind: judgment ｜ severity: minor ｜ recurrence: 1
+- symptom: Two sessions registered overlapping cards for the same request within minutes (PR #359 and a draft for PR #362)
+- root_cause: Card drafting started from a stale view of master; the other session's registration PR had merged on origin minutes earlier
+- rule: Before drafting a new card, git fetch origin and read git log --oneline -10 origin/master plus gh pr list --state open for cards on the same topic; build on or amend what exists instead of opening a parallel card
+- enforced_by: 
+- refs: PR #359, PR #362
+
+## L368
+- date: 2026-09-26 ｜ tags: powershell,stub,selfcheck ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: A PowerShell function named git used as a test stub never saw the -- that production passes (git add -- <paths>, git ls-tree ... -- <paths>), so an exact-call allowlist written from the source rejected legitimate calls (T0-POST-MERGE-CARD-DRIFT).
+- root_cause: When a name resolves to a PowerShell function, the parameter binder consumes -- as its end-of-parameters marker and drops it from $args; a native executable receives it. A comma list such as headRefOid,baseRefName also reaches $args as a nested array, so "$args" shows it space-joined.
+- rule: In a function stub that shadows a native command, rebuild the argument text with @($args | ForEach-Object { $_ -join ',' }) -join ' ' and treat -- as optional in every pattern matched against it. Before writing exact-call assertions, print the stub log once and write the patterns from that log, not from the production source.
+- enforced_by: 
+- refs: 
+
+## L369
+- date: 2026-09-26 ｜ tags: r3,review,selfcheck,plumbing,judgment ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: T0-POST-MERGE-CARD-DRIFT needed three Codex R3 rounds, all on dimension #6: round 1 found the audit and retire plumbing untested (only pure helpers were), round 2 found the dispatch arms and exit codes untested and the DoD checking 6 of 40 recorded mutants. Each round needed a base-card DoD PR, and the second a user-approved budget raise.
+- root_cause: The first round tested pure decisions only. The reviewer treats every branch reachable from the command line (dispatch arm, exit code, git or gh call, refusal before any side effect) and every recorded mutant as needing a test that fails when it breaks, and each fix round exposed the next untested layer.
+- rule: For a script subcommand that calls git or gh, build it into round 1: the dispatch as a function that returns the exit code; a SelfCheck whose git, gh and pwsh functions record every call over a temp repo with GIT_* removed; one case per subcommand and exit code that asserts the exact call list; and an R4 manifest (id | mutant | case) that the DoD checks row by row. Budget about twice the pure-logic estimate for it.
+- enforced_by: 
+- refs: 

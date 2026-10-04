@@ -65,7 +65,11 @@ data class ReportSnapshot(
 
 data class ReportOptions(val includePrivacyPhotos: Boolean = false)
 
-data class MeasuredText(val lines: List<String>, val lineHeightMm: Int) {
+data class MeasuredText(
+    val lines: List<String>,
+    val lineHeightMm: Int,
+    val metricSnapshot: TextMetricSnapshot,
+) {
     init {
         require(lines.isNotEmpty() && lines.none { it.isEmpty() }) { "measured text requires non-empty lines" }
         require(lineHeightMm > 0) { "measured text requires a positive line height" }
@@ -74,6 +78,7 @@ data class MeasuredText(val lines: List<String>, val lineHeightMm: Int) {
 
 /**
  * Wraps text to a column and reports the resulting lines and line height in millimetres.
+ * The explicit request language and returned snapshot bind measurement evidence to the selected profile.
  *
  * Preconditions the composer relies on and checks at `compose` entry:
  * - every returned line fits `widthMm`, so the composer may draw a line without re-measuring it;
@@ -82,7 +87,7 @@ data class MeasuredText(val lines: List<String>, val lineHeightMm: Int) {
  *   bound makes every report ungenerable rather than merely ugly.
  */
 fun interface TextMeasurer {
-    fun measure(text: String, style: TextStyle, widthMm: Int): MeasuredText
+    fun measure(text: String, language: TextLanguage, style: TextStyle, widthMm: Int): MeasuredText
 }
 
 enum class TextStyle { TITLE, BODY, CAPTION }

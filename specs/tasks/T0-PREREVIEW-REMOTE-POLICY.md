@@ -28,3 +28,7 @@ Remote adoption of the already approved final local artifact; no original local 
 The original tests and mutation receipts are historical evidence only. Run the DoD and the current remote delivery gates on this candidate. R5 records the new PR/review/CI identity and archives this adoption card.
 
 PR #308 retained two real source-evidence blocks: first head fd682ef6a57e648283ed4680dbd56712effada10 and second head efcc79084b0a23fd5eda587e3334750c4b1d8a23. Both formal verdicts and the round counter remain preserved. Source publication precedes the next repair; any subsequent round handling requires the separate explicit authorization recorded by the coordinator. This amendment strengthens A2 and the DoD, and grants no bypass.
+
+## Reconcile note (2026-09-24)
+
+The 2026-09 local/origin reconcile landed the local-only parts of local master's PR review v2 phase 1a chain on master: PROTOCOL-DOC (`a66af219`), CHECKLISTS (`2782b55b`), RECORDS (`dec30514`), FACTS-LIB (`b675d6a6`) and STATE-1A (`62ec5f3b`). For the schema and its checker (SCHEMA and UNIT-ID-REVISION), master keeps origin's versions from T0-PREREVIEW-REMOTE-SCHEMA. Both files in this card's allow_paths, `docs/PREREVIEW-PROTOCOL.md` and `docs/PREREVIEW-CHECKLISTS.md`, are therefore on master at their local merged bytes. Whether this card is closed, narrowed or kept is a user decision.

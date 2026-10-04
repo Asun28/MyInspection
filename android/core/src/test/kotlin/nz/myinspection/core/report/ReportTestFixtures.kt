@@ -109,8 +109,18 @@ internal object ReportTestFixtures {
 
     const val LINE_HEIGHT_MM = 4
 
-    fun measurerOf(lineHeightMm: Int): TextMeasurer = TextMeasurer { text, _, widthMm ->
-        MeasuredText(text.chunked(charBudget(widthMm)).ifEmpty { listOf(" ") }, lineHeightMm)
+    val typography = typographyOf(LINE_HEIGHT_MM, LINE_HEIGHT_MM, LINE_HEIGHT_MM)
+
+    fun typographyOf(titleMm: Int, bodyMm: Int, captionMm: Int): ReportTypography = ReportTypography(
+        title = TextStyleProfile(fontSizePt = 2.0, lineHeightMm = titleMm),
+        body = TextStyleProfile(fontSizePt = 2.0, lineHeightMm = bodyMm),
+        caption = TextStyleProfile(fontSizePt = 2.0, lineHeightMm = captionMm),
+    )
+
+    fun measurerOf(lineHeightMm: Int): TextMeasurer = measurerOf(typographyOf(lineHeightMm, lineHeightMm, lineHeightMm))
+
+    fun measurerOf(typography: ReportTypography): TextMeasurer = TextMeasurer { text, language, style, widthMm ->
+        measured(text, language, style, widthMm, typography)
     }
 
     /**
@@ -118,13 +128,39 @@ internal object ReportTestFixtures {
      * measurer: a heading line is taller than a small-print caption line. The uniform measurer above cannot
      * express that difference at all, so a composer precondition that mixes the two styles is invisible to it.
      */
-    fun measurerOf(titleMm: Int, bodyMm: Int, captionMm: Int): TextMeasurer = TextMeasurer { text, style, widthMm ->
-        val lineHeightMm = when (style) {
-            TextStyle.TITLE -> titleMm
-            TextStyle.BODY -> bodyMm
-            TextStyle.CAPTION -> captionMm
-        }
-        MeasuredText(text.chunked(charBudget(widthMm)).ifEmpty { listOf(" ") }, lineHeightMm)
+    fun measurerOf(titleMm: Int, bodyMm: Int, captionMm: Int): TextMeasurer =
+        measurerOf(typographyOf(titleMm, bodyMm, captionMm))
+
+    fun measured(
+        text: String,
+        language: TextLanguage,
+        style: TextStyle,
+        widthMm: Int,
+        typography: ReportTypography = this.typography,
+    ): MeasuredText {
+        return measuredLines(text.chunked(charBudget(widthMm)).ifEmpty { listOf(" ") }, language, style, typography)
+    }
+
+    fun measuredLines(
+        lines: List<String>,
+        language: TextLanguage,
+        style: TextStyle,
+        typography: ReportTypography = this.typography,
+    ): MeasuredText {
+        val profile = typography.profileFor(style)
+        return MeasuredText(
+            lines,
+            profile.lineHeightMm,
+            TextMetricSnapshot(
+                style = style,
+                language = language,
+                fontRole = typography.roleFor(language),
+                fontSizePt = profile.fontSizePt,
+                baselineOffsetPt = 8.0,
+                glyphTopPt = -8.0,
+                glyphBottomPt = 3.0,
+            ),
+        )
     }
 
     val measurer = measurerOf(LINE_HEIGHT_MM)

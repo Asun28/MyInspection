@@ -24,10 +24,12 @@ CREATE TABLE report_export_receipt (
     content_hash TEXT NOT NULL,
     byte_size INTEGER NOT NULL,
     exported_at INTEGER NOT NULL,
+    format TEXT NOT NULL,
     CHECK (length(id) > 0),
     CHECK (length(inspection_id) > 0),
     CHECK (audience IN ('LANDLORD', 'TENANT')),
-    CHECK (quality IN ('LOW', 'MEDIUM', 'HIGH', 'EXTRA_HIGH')),
+    CHECK ((format = 'PDF' AND quality IN ('LOW', 'MEDIUM', 'HIGH', 'EXTRA_HIGH'))
+        OR (format = 'HTML' AND quality = 'NONE')),
     CHECK (length(rel_path) > 0),
     CHECK (length(content_hash) > 0),
     CHECK (byte_size >= 0),
@@ -35,7 +37,7 @@ CREATE TABLE report_export_receipt (
 );
 
 CREATE UNIQUE INDEX idx_report_export_receipt_identity
-ON report_export_receipt (inspection_id, audience, quality);
+ON report_export_receipt (inspection_id, audience, format, quality);
 
 CREATE TABLE verified_backup_receipt (
     id TEXT NOT NULL PRIMARY KEY,
@@ -108,22 +110,23 @@ ORDER BY rel_path ASC;
 
 insertReportExportReceipt:
 INSERT INTO report_export_receipt (
-    id, inspection_id, audience, quality, rel_path, content_hash, byte_size, exported_at
+    id, inspection_id, audience, quality, rel_path, content_hash, byte_size, exported_at, format
 ) VALUES (
-    :id, :inspection_id, :audience, :quality, :rel_path, :content_hash, :byte_size, :exported_at
+    :id, :inspection_id, :audience, :quality, :rel_path, :content_hash, :byte_size, :exported_at, 'PDF'
 );
 
 selectReportExportReceiptsByInspection:
-SELECT *
+SELECT id, inspection_id, audience, quality, rel_path, content_hash, byte_size, exported_at
 FROM report_export_receipt
-WHERE inspection_id = :inspection_id
+WHERE inspection_id = :inspection_id AND format = 'PDF'
 ORDER BY
     CASE audience WHEN 'LANDLORD' THEN 0 WHEN 'TENANT' THEN 1 END ASC,
     CASE quality WHEN 'LOW' THEN 0 WHEN 'MEDIUM' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'EXTRA_HIGH' THEN 3 END ASC;
 
 selectAllReportExportReceipts:
-SELECT *
+SELECT id, inspection_id, audience, quality, rel_path, content_hash, byte_size, exported_at
 FROM report_export_receipt
+WHERE format = 'PDF'
 ORDER BY id ASC;
 
 insertVerifiedBackupReceipt:

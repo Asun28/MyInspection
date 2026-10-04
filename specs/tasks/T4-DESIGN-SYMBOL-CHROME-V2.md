@@ -4,7 +4,7 @@ title: 「符号化 chrome」准入条件收口（承接 T4-DESIGN-SYMBOL-CHROME
 depends_on: []
 parallelizable_with: []
 plan_ref: context/DESIGN.md#components
-status: todo
+status: merged
 branch: T4-DESIGN-SYMBOL-CHROME-V2
 worktree: C:\wt\T4-DESIGN-SYMBOL-CHROME-V2
 allow_paths:
@@ -754,3 +754,7 @@ WCAG 1.4.1 这条下限，而我把它写松了。点名实例 `summary-stat`：
 | 2026-09-08 | R3 第 5 轮 1 条属实且命中 `forbid` 第 1 条：把播报当作与颜色并列的充分载体，弱化了 WCAG 1.4.1 下限（播报服务屏幕阅读器，不是明眼可见的视觉线索）。句 2 拆为「非颜色视觉线索」+「无自身可见文字时 owner 另外播报」，播报只补充不替代；新增锚点与 M24。收紧后暴露并关掉六处既有无障碍缺口，含签名组件 evidence rail 的默认态与 `task-stepper` 的失败阶段。R4 按最终字节重跑 24/24。 |
 | 2026-09-08 | R3 第 6 轮 2 条属实，均落播报半、均由第 5 轮修法引入（加了必带字形却未加播报）。改用两半同时代入的扫描法，再查出 5 处语义格播报窄于状态清单并统一修法。补记方法论第三处：规则有两半时代入表须两半同时判。R4 按最终字节重跑 24/24。 |
 | 2026-09-08 | R3 第 7 轮 2 条属实并当轮证伪拆卡切口：撤回行补齐后下限声明立即与 rail 规格矛盾，且我改产线未同步收据。补齐全部还原（SHA 回 64E20D38 与收据一致），承接卡收窄为三处遗留。第 8 轮 1 条属实：把状态字形定为必带却未证其可感知。取「约束到对比度闸已登记的配对」这条出路，不新造绑定不改色值；新增 M25 钉住。R4 按最终字节重跑 25/25。 |
+
+## Reconcile note (2026-09-24)
+
+Local master merged this card's design as `53673571` (2026-09-08, a human-ruled merge after eight R3 rounds; the local R3 and R4 records are above), with its own DoD and hygiene lines, which remain in history at `53673571:specs/tasks/T4-DESIGN-SYMBOL-CHROME-V2.md`. Origin kept this card live and added the remote publication checkpoint and the executable location-bound acceptance above; that DoD runs the `scripts/_symbol-markdown.ps1` contract (40 obligations). The 2026-09 local/origin reconcile lands the local design on origin and records the card as merged at this path, where `T4-SYMBOL-REMOTE-CONTRACT` and `T4-SYMBOL-DESIGN-HISTORY` still find it. Measured on 2026-09-24: origin's contract passes against `context/DESIGN.md` and `docs/UI-UX-ELEMENTS.md` at `53673571` and at `46bf6ff1`, and fails only check 07 from `174c7ce6` onward, because `T4-DESIGN-STATUS-CARRIERS` (`856268c3`) changed the wording that check pins. The design on master is that later version. The reconcile replaces the publication condition stated near the top of this card (status stays todo until a fresh remote task-loop): the card's own DoD therefore stays red on check 07 until a follow-up re-pins that check to the successor wording; TD185 tracks it.
