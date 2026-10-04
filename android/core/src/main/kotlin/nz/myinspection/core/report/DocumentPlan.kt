@@ -43,6 +43,7 @@ data class TextRun(
     val yMm: Int,
     val widthMm: Int,
     val heightMm: Int,
+    val metricSnapshot: TextMetricSnapshot,
 )
 
 sealed interface TextBearingBlock : DocumentBlock {
