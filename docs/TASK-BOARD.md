@@ -31,6 +31,8 @@
 
 | 波 | 卡 id | 产出（一句话） | depends_on | 难度 | 首选模型 · effort | 备选 | 卡片状态 / 备注 |
 |---|---|---|---|---|---|---|---|
+| W0 | T0-ROUND45-DELIVERY-CLOSEOUT-REGISTER | 登记第4轮双产品收尾契约及两行看板 | T0-ARCHIVE-TARGETED-CARDS | S | GPT-6 Astra · high | GPT-5.6 Terra · high | **todo**：仅登记；沿用PR438及原评审历史；零新增产品 |
+| W0 | T0-ROUND45-DELIVERY-CLOSEOUT | 第4轮StorageAndroid与Binding记录同步及定向归档 | T0-ARCHIVE-TARGETED-CARDS,T1-APP-STORAGE-ANDROID,T3-PDF-MEASUREMENT-BINDING | S | GPT-6 Astra · high | GPT-5.6 Terra · high | **todo**：八路径收尾；完整第4轮结束后再执行第5轮；零新增产品 |
 | W0 | T0-ARCHIVE-TARGETED-CARDS-REGISTER | 登记定向卡片归档契约与两张卡的看板行 | — | XS | Codex | Codex R3 | **merged**（PR #432，squash `be5c5043`，reviewed `5c3aca0c`，R3 第 2 轮 pass，CI `37195579926` attempt 1 success）：已登记契约及两卡看板行；归档运行时仍待实现，零新增产品。 |
 | W0 | T0-ARCHIVE-TARGETED-CARDS | 仅归档显式选中的已合并卡片，保留其它卡片与债务 | — | S | Codex | Codex R3 | merged: PR436; head52c1e0a7; R3 round2 spec/standards PASS0; CI37207356196/1; merge83b2f87b; full17 PASS; targeted archival capability only, zero new products. |
 | W0 | T0-TOOLCHAIN | JDK17+SDK+`android/` Gradle 骨架空编译绿+verify/ci 收紧 | — | M | Sonnet 5 · max | Opus 5 | **merged**（本地合并 `eb22da38`；R3 pass 证据 `5fec73c`） |
