@@ -1,7 +1,7 @@
 ---
 id: T0-REMOTE-ROUND2-PAGINATION-CLOSURE
 title: Close remote Pagination R5 from the observed PR and preserved proof
-status: todo
+status: merged
 depends_on: [T0-REMOTE-ROUND2-BOUNDARY-CLOSURE, T3-PDF-PAGINATION-FIXTURES-REMOTE]
 parallelizable_with: []
 allow_paths:
@@ -236,3 +236,7 @@ Eq $reviewMergeBase $reviewBase 'actual R3 base is the non-rewriting candidate a
 git diff --check "$reviewBase...HEAD"; if ($LASTEXITCODE -ne 0) { throw '[R5-REVIEWBASE] Complete actual R3 diff whitespace' }
 Write-Output '[R5-PAGINATION-CLOSURE-PASS] Saved lifecycle, copied proof, archive projection and pinned candidate verified.'
 ```
+
+## Status recorded (2026-09-25)
+
+PR #320 merged on 2026-09-18 as `c0afac77`, but R5 never set this card's status. The card-status check that opened `T0-POST-MERGE-CARD-DRIFT` found it. Its DoD could not be rerun: it reads proof files under `_local/`, which are not on the machine that ran the check. Its results are on master: the archived `T3-PDF-PAGINATION-FIXTURES-REMOTE` card has status merged and a remote delivery receipt, its active copy is gone, and `specs/archive/cards-index.md` lists it as merged. A2 left this closure card active at merge time, so its status was due in a later R5. This commit changes only the status line and adds this note.

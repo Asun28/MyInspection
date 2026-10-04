@@ -435,4 +435,211 @@ class ReportComposerLayoutContractTest {
             it.copy(lineHeightMm = 5)
         }
     }
+
+    /* Binding R4, 2026-10-04: eight compiling mutations each produced a named java.lang.AssertionError.
+     * ordinary / footer / appendix-photo / thumbnail -> every-language accepted-snapshot test below;
+     * old-elision-snapshot / earlier-lines-final-snapshot / measured-lines-replace-candidate
+     *   -> final-text elision test below; default-capacity (108 -> 109) -> DEFAULT assembly test below.
+     * Each run invoked compileTestKotlin plus this whole class, returned native 1, and wrote fresh XML.
+     * Production was restored byte-for-byte between cases and after the batch; test assertions were fixed.
+     * ReportComposer SHA256: C8BEBE7B3219A47E44C8160876B3C678502F2A05AE978B2921B5F73DF9D41491.
+     * 36-leaf manifest SHA256: 7CF624579E07C928D471E3E353E0C6192B336B604AAFFC58FBDD5BC91A00DB17.
+     * Local evidence: _local/root-recovery-20261004/r4 (mutant bytes, logs, XML, pins and runner).
+     * This annotation was added after the sealed batch; it changes no executable test assertion.
+     */
+    private val smallTypography = ReportTypography(
+        title = TextStyleProfile(fontSizePt = 2.0, lineHeightMm = 4),
+        body = TextStyleProfile(fontSizePt = 2.0, lineHeightMm = 4),
+        caption = TextStyleProfile(fontSizePt = 2.0, lineHeightMm = 4),
+    )
+
+    @Test
+    fun `default profile places two worst case appendix photographs on one page`() {
+        val typography = ReportTypography.DEFAULT
+
+        val base = ReportTestFixtures.report()
+        val worstCase = base.copy(
+            rooms = base.rooms.map { room ->
+                room.copy(
+                    photos = room.photos.map { it.copy(reference = "S".repeat(300)) },
+                    items = room.items.map { item ->
+                        item.copy(photos = item.photos.map { it.copy(reference = "R".repeat(300)) })
+                    },
+                )
+            },
+        )
+        val result = runCatching {
+            ReportComposer(
+                TextMeasurer { text, language, style, widthMm ->
+                    MeasuredText(
+                        text.chunked((widthMm / 3).coerceAtLeast(1)).ifEmpty { listOf(" ") },
+                        typography.profileFor(style).lineHeightMm,
+                        TextMetricSnapshot(
+                            style = style,
+                            language = language,
+                            fontRole = typography.roleFor(language),
+                            fontSizePt = typography.profileFor(style).fontSizePt,
+                            baselineOffsetPt = 8.0,
+                            glyphTopPt = -8.0,
+                            glyphBottomPt = 3.0,
+                        ),
+                    )
+                },
+            ).compose(worstCase, Audience.LANDLORD)
+        }
+        assertTrue(result.isSuccess, "DEFAULT worst-case assembly failed: ${result.exceptionOrNull()}")
+        val plan = result.getOrThrow()
+        val appendixPages = plan.pages.filter { page ->
+            page.blocks.any { (it.content as? ImageSlotBlock)?.purpose == ImagePurpose.APPENDIX }
+        }
+        assertEquals(1, appendixPages.size, "the two appendix photographs split across pages")
+        val appendixSlots = appendixPages.single().blocks.mapNotNull { it.content as? ImageSlotBlock }
+            .filter { it.purpose == ImagePurpose.APPENDIX }
+        assertEquals(2, appendixSlots.size)
+        assertTrue(appendixSlots.all { it.imageHeightMm == 108 })
+        assertEquals(256, appendixPages.single().blocks.filter { it.content !is FooterBlock }.sumOf { it.heightMm })
+        assertTrue(
+            appendixSlots.all { it.textRuns.size == 3 },
+            "the selected default profile cannot place its maximum three-line appendix slots",
+        )
+    }
+
+    @Test
+    fun `composer forwards every language to the measurer and carries its accepted snapshot`() {
+        val expected = mutableMapOf<MeasureRequest, TextMetricSnapshot>()
+        val composer = ReportComposer(
+            TextMeasurer { text, language, style, widthMm ->
+                val request = MeasureRequest(text, language, style, widthMm)
+                val metric = expected.getOrPut(request) {
+                    snapshot(style, language).copy(
+                        baselineOffsetPt = 3.0 + expected.size / 1000.0,
+                        glyphTopPt = -2.0,
+                        glyphBottomPt = 1.0,
+                    )
+                }
+                MeasuredText(listOf(text), 4, metric)
+            },
+            smallTypography,
+        )
+        val plan = composer.compose(ReportTestFixtures.report(), Audience.LANDLORD)
+        assertTrue(TextLanguage.entries.all { language -> expected.keys.any { it.language == language } })
+        val runs = plan.pages.flatMap { it.blocks }.flatMap { (it.content as? TextBearingBlock)?.textRuns.orEmpty() } +
+            plan.pages.flatMap { it.blocks }.flatMap { (it.content as? ItemRowBlock)?.thumbnails.orEmpty() }.flatMap { it.textRuns }
+        assertTrue(runs.isNotEmpty())
+        runs.forEach { run ->
+            val request = MeasureRequest(run.text, run.language, run.style, run.widthMm)
+            assertEquals(expected.getValue(request), run.metricSnapshot, "snapshot for $request")
+        }
+    }
+
+    @Test
+    fun `elided caption carries the measurement of its final text`() {
+        val candidates = mutableMapOf<MeasureRequest, MeasuredText>()
+        val measurer = TextMeasurer { text, language, style, width ->
+            ReportTestFixtures.measured(text, language, style, width).let {
+                it.copy(
+                    lines = if (text.endsWith("…")) it.lines.map { line -> line.lowercase() } else it.lines,
+                    metricSnapshot = it.metricSnapshot.copy(
+                        baselineOffsetPt = if (text.endsWith("…")) 4.0 + text.length / 1000.0 else 8.0,
+                        glyphTopPt = -2.0, glyphBottomPt = 1.0,
+                    ),
+                ).also { result ->
+                    if (text.endsWith("…")) candidates[MeasureRequest(text, language, style, width)] = result
+                }
+            }
+        }
+        val report = reportWithItemReference("R".repeat(300))
+        val plan = ReportComposer(measurer, ReportTestFixtures.typography).compose(report, Audience.LANDLORD)
+        val slots = plan.slots().filter { it.textRuns.first().text.startsWith("R") }
+        assertTrue(slots.isNotEmpty())
+        slots.forEach { slot ->
+            assertEquals(3, slot.textRuns.size)
+            slot.textRuns.dropLast(1).forEach { run ->
+                assertEquals(snapshot(run.style, run.language).copy(
+                    baselineOffsetPt = 8.0, glyphTopPt = -2.0, glyphBottomPt = 1.0,
+                ), run.metricSnapshot)
+            }
+            val last = slot.textRuns.last()
+            assertTrue(last.text.endsWith("…"))
+            assertTrue(last.text.startsWith("R"), "elision must retain the accepted candidate text")
+            val accepted = candidates.getValue(MeasureRequest(last.text, last.language, last.style, last.widthMm))
+            assertEquals(1, accepted.lines.size)
+            val rejected = candidates.filter { (request, result) ->
+                request.widthMm == last.widthMm && result.lines.size > 1
+            }.values
+            assertTrue(rejected.isNotEmpty(), "the fixture must reject a longer candidate before accepting this one")
+            assertTrue(rejected.all { it.metricSnapshot != accepted.metricSnapshot })
+            assertEquals(accepted.metricSnapshot, last.metricSnapshot)
+        }
+    }
+
+    /* R3 repair R4: rejected-candidate, generic split, generic rebase, item split and moved-thumbnail
+     * snapshot faults all compiled and failed named assertions; the three earlier elision faults were
+     * rerun against the strengthened test and also killed. All eight returned native 1 with fresh XML.
+     * Restored production has the same SHA256 as the first R4 batch. Evidence: _local/root-recovery-20261004/round2/r4.
+     * Manifest SHA256: 9139745AC9279AFE682C755AFCB0E73DF8085433A5642F94A7ACC7ED99FC32E6.
+     * This annotation follows the sealed batch and changes no executable assertion.
+     */
+    @Test
+    fun `generic and item splits preserve snapshots through rebasing and moved thumbnails`() {
+        val base = ReportTestFixtures.canonical()
+        val item = base.items.last().copy(note = "FLOW-NOTE")
+        val photos = (1..6).map { index ->
+            val source = base.photos.first().copy(contentHash = "split-$index")
+            ReportPhoto("split-$index", source, false, "split.$index", 1_755_303_000_000L)
+        }
+        val report = ReportSnapshot(
+            canonical = base.copy(items = listOf(item), photos = photos.map { it.snapshot }),
+            tenancyReference = null,
+            rooms = listOf(ReportRoom("split-room", BilingualText("Room", "房间"),
+                listOf(ReportItem("split-item", item, BilingualText("Item", "项目"), photos)))),
+            statusDefinitions = ReportTestFixtures.report().statusDefinitions,
+            supplements = listOf(ReportSupplement("SPLIT", "FLOW-SUPPLEMENT")),
+        )
+        val expected = mutableMapOf<MeasureRequest, TextMetricSnapshot>()
+        var requestId = 0
+        val measurer = TextMeasurer { text, language, style, width ->
+            val id = requestId++
+            val metric = snapshot(style, language).copy(
+                baselineOffsetPt = 3.0 + id / 1000.0, glyphTopPt = -2.0, glyphBottomPt = 1.0,
+            )
+            val count = when {
+                text.startsWith("FLOW-") -> 150
+                style == TextStyle.CAPTION && text.startsWith("split.") -> 3
+                else -> 1
+            }
+            val lines = (0 until count).map { "request-$id-line-$it" }
+            lines.forEach { line -> expected[MeasureRequest(line, language, style, width)] = metric }
+            MeasuredText(lines, 4, metric)
+        }
+        val plan = ReportComposer(measurer, smallTypography).compose(report, Audience.LANDLORD)
+        val blocks = plan.pages.flatMap { it.blocks }.map { it.content }
+        val generic = blocks.filterIsInstance<SupplementBlock>()
+        val rows = blocks.filterIsInstance<ItemRowBlock>()
+        assertTrue(generic.size > 1, "generic split was not exercised")
+        assertTrue(rows.size > 1, "ItemRow split was not exercised")
+        assertEquals(150, generic.sumOf { it.textRuns.count { run -> run.language == TextLanguage.ORIGINAL } })
+        assertEquals(150, rows.sumOf { it.textRuns.count { run -> run.language == TextLanguage.ORIGINAL } })
+        assertEquals(listOf(4, 2), rows.filter { it.thumbnails.isNotEmpty() }.map { it.thumbnails.size })
+        assertEquals(listOf("split-5", "split-6"), rows[1].thumbnails.map { it.photoId })
+        assertEquals(listOf(0, 56), rows[1].thumbnails.map { it.yMm })
+        assertTrue(generic.drop(1).all { it.textRuns.first().yMm == 0 }, "generic chunks were not rebased")
+        val runs = blocks.filterIsInstance<TextBearingBlock>().flatMap { it.textRuns } +
+            rows.flatMap { it.thumbnails }.flatMap { it.textRuns }
+        runs.forEach { run ->
+            assertEquals(expected.getValue(MeasureRequest(run.text, run.language, run.style, run.widthMm)),
+                run.metricSnapshot, "originating snapshot for ${run.text}")
+        }
+    }
+
+    private fun snapshot(style: TextStyle, language: TextLanguage): TextMetricSnapshot = TextMetricSnapshot(
+        style = style,
+        language = language,
+        fontRole = smallTypography.roleFor(language),
+        fontSizePt = smallTypography.profileFor(style).fontSizePt,
+        baselineOffsetPt = 8.0,
+        glyphTopPt = -8.0,
+        glyphBottomPt = 3.0,
+    )
+
 }

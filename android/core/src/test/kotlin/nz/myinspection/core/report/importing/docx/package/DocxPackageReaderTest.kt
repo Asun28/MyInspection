@@ -266,6 +266,170 @@ class DocxPackageReaderTest {
         source["docProps/core.xml"] = "<!DOCTYPE metadata><metadata/>".toByteArray()
         reject(DocxPackageReason.DTD_OR_ENTITY, zip(source))
     }
+    /* TD174 R4, 2026-09-07: ten independent faults compiled and failed real tests (94 tests/run).
+     * Final production SHA-256:
+     * DocxPackageReader.kt f402d9094807c6500a31da9d9a58a08296e5d80530d084c1392a4375c9a9a747
+     * DocxXmlBoundary.kt 9f752de380a744e7eb6b3f3ec49aea6f3a131c50d3d868bbe1d5b1e2288d3fae
+     * M1 exit 1 -> customPropertiesAreInertAndDiscardedForBothZipMethodsAndXmlEncodings
+     * M2 exit 1 -> customPartPathContentTypeAndRootAreExact
+     * M3 exit 1 -> customPartPathContentTypeAndRootAreExact
+     * M4 exit 1 -> customPartPathContentTypeAndRootAreExact
+     * M5 exit 1 -> customPropertiesAreInertAndDiscardedForBothZipMethodsAndXmlEncodings
+     * M6 exit 1 -> customPropertiesRequireOneInternalRootBinding
+     * M7 exit 1 -> customPropertiesRequireOneInternalRootBinding
+     * M8 exit 1 -> customPropertiesRequireOneInternalRootBinding
+     * M9 exit 1 -> discardedCustomPropertiesStillRejectUnsafeAndMalformedXmlWithoutLeakingDiagnostics
+     * M10 exit 1 -> customPropertiesNeverBecomeExtractionEvidence
+     * Exact substitutions, commands, original test hashes and fresh XML are in
+     * .review/T3-DOCX-CUSTOM-PROPERTIES-r4 (preserved in the owning local task evidence).
+     * New tests retain distinct binding, resource, encoding, rejection and manifest obligations;
+     * no whole-test redundancy candidate was identified. Historical R4 is not reused as current evidence.
+     */
+    private val customNamespace = "http://schemas.openxmlformats.org/officeDocument/2006/custom-properties"
+    private val customType = "application/vnd.openxmlformats-officedocument.custom-properties+xml"
+    private fun customXml(body: String = "") = "<Properties xmlns='$customNamespace'>$body</Properties>"
+    private fun customRelationship(id: String = "custom", target: String = "docProps/custom.xml", mode: String = "") =
+        "<Relationship Id='$id' Type='${office}custom-properties' Target='$target' $mode/>"
+    private fun customParts(xml: String = customXml()): LinkedHashMap<String, ByteArray> = parts().apply {
+        this["docProps/custom.xml"] = xml.toByteArray()
+        this["[Content_Types].xml"] = getValue("[Content_Types].xml").toString(Charsets.UTF_8)
+            .replace("</Types>", "<Override PartName='/docProps/custom.xml' ContentType='$customType'/></Types>").toByteArray()
+        this["_rels/.rels"] = getValue("_rels/.rels").toString(Charsets.UTF_8)
+            .replace("</Relationships>", customRelationship() + "</Relationships>").toByteArray()
+    }
+    private fun replaceRootCustom(source: LinkedHashMap<String, ByteArray>, replacement: String) {
+        source["_rels/.rels"] = source.getValue("_rels/.rels").toString(Charsets.UTF_8)
+            .replace(customRelationship(), replacement).toByteArray()
+    }
+
+    @Test fun customPropertiesAreInertAndDiscardedForBothZipMethodsAndXmlEncodings() {
+        val markers = listOf("PRIVATE_PROPERTY_NAME_731", "PRIVATE_PROPERTY_VALUE_842", "PRIVATE_COMMENT_953")
+        val xml = customXml("<!--${markers[2]}--><property name='${markers[0]}' pid='2'>" +
+            "<vt:lpwstr xmlns:vt='http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes'>" +
+            "${markers[1]} https://private.invalid/metadata file:///private/path</vt:lpwstr></property>" +
+            "<property><number>12</number><boolean>true</boolean><date>2026-09-07</date></property>")
+        val expected = DocxPackageReader().read(ByteArrayInputStream(zip())).parts
+        for (stored in listOf(true, false)) for (encoding in listOf(Charsets.UTF_8, Charsets.UTF_16)) {
+            val source = customParts(xml).apply { this["docProps/custom.xml"] = xml.toByteArray(encoding) }
+            val actual = DocxPackageReader().read(ByteArrayInputStream(zip(source, stored))).parts
+            assertEquals(expected.map { it.name to it.kind }, actual.map { it.name to it.kind })
+            actual.forEach { part ->
+                markers.forEach { assertFalse(part.copyBytes().toString(Charsets.UTF_8).contains(it), part.name) }
+                if (part.name != "_rels/.rels") {
+                    assertContentEquals(expected.single { it.name == part.name }.copyBytes(), part.copyBytes())
+                }
+            }
+        }
+        assertEquals(expected.size, DocxPackageReader().read(ByteArrayInputStream(zip(customParts()))).parts.size)
+        val explicit = customParts().also { replaceRootCustom(it, customRelationship(mode = "TargetMode='Internal'")) }
+        assertEquals(expected.size, DocxPackageReader().read(ByteArrayInputStream(zip(explicit))).parts.size)
+    }
+
+    @Test fun customPartPathContentTypeAndRootAreExact() {
+        for (path in listOf("docProps/custom2.xml", "docProps/private.xml", "word/custom.xml", "docProps/_rels/custom.xml.rels")) {
+            reject(DocxPackageReason.UNSUPPORTED_PART, zip(customParts().apply { this[path] = customXml().toByteArray() }))
+        }
+        val duplicate = customParts().apply { this["DOCPROPS/CUSTOM.XML"] = customXml().toByteArray() }
+        reject(DocxPackageReason.DUPLICATE_PART, zip(duplicate))
+        val wrongType = customParts().apply {
+            this["[Content_Types].xml"] = getValue("[Content_Types].xml").toString(Charsets.UTF_8)
+                .replace(customType, "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml").toByteArray()
+        }
+        reject(DocxPackageReason.UNSUPPORTED_CONTENT, zip(wrongType))
+        for (xml in listOf("<Properties/>", "<properties xmlns='$customNamespace'/>",
+            "<Properties xmlns='http://schemas.openxmlformats.org/officeDocument/2006/extended-properties'/>",
+            "<Other xmlns='$customNamespace'/>")) {
+            reject(DocxPackageReason.INVALID_PACKAGE, zip(customParts(xml)))
+        }
+        val upper = customParts().apply { this["DOCPROPS/CUSTOM.XML"] = remove("docProps/custom.xml")!! }
+        assertEquals(6, DocxPackageReader().read(ByteArrayInputStream(zip(upper))).parts.size)
+    }
+
+    @Test fun customPropertiesRequireOneInternalRootBinding() {
+        val bindings = listOf("", customRelationship() + customRelationship("custom2"),
+            customRelationship(mode = "TargetMode='External'"), customRelationship(mode = "TargetMode='external'"),
+            customRelationship().replace("custom-properties", "extended-properties"),
+            customRelationship(target = "docProps/missing.xml"), customRelationship(target = "word/document.xml"),
+            customRelationship(target = "https://private.invalid/custom.xml"), customRelationship(target = "/docProps/custom.xml"),
+            customRelationship(target = "../docProps/custom.xml"), customRelationship(target = "docProps/./custom.xml"))
+        bindings.forEach { replacement ->
+            reject(DocxPackageReason.UNSAFE_RELATIONSHIP, zip(customParts().also { replaceRootCustom(it, replacement) }))
+        }
+        val dangling = customParts().apply {
+            remove("docProps/custom.xml")
+            this["[Content_Types].xml"] = parts().getValue("[Content_Types].xml")
+        }
+        reject(DocxPackageReason.UNSAFE_RELATIONSHIP, zip(dangling))
+        val wrongOwner = customParts().also { replaceRootCustom(it, "") }.apply {
+            this["word/_rels/document.xml.rels"] = getValue("word/_rels/document.xml.rels").toString(Charsets.UTF_8)
+                .replace("</Relationships>", customRelationship(target = "../docProps/custom.xml") + "</Relationships>").toByteArray()
+        }
+        reject(DocxPackageReason.UNSAFE_RELATIONSHIP, zip(wrongOwner))
+    }
+
+    @Test fun discardedCustomPropertiesStillRejectUnsafeAndMalformedXmlWithoutLeakingDiagnostics() {
+        for (encoding in listOf(Charsets.UTF_8, Charsets.UTF_16)) {
+            for (declaration in listOf("<!DOCTYPE Properties>",
+                "<!DOCTYPE Properties [<!ENTITY secret SYSTEM 'file:///PRIVATE_CUSTOM_SECRET'>]>",
+                "<!DOCTYPE Properties [<!ENTITY secret 'PRIVATE_CUSTOM_SECRET'>]>")) {
+                val source = customParts().apply { this["docProps/custom.xml"] = (declaration + customXml()).toByteArray(encoding) }
+                reject(DocxPackageReason.DTD_OR_ENTITY, zip(source))
+            }
+        }
+        for (body in listOf("<?private PRIVATE_CUSTOM_SECRET?>", "<x:include xmlns:x='http://www.w3.org/2001/XInclude' href='PRIVATE_CUSTOM_SECRET'/>",
+            "<script>PRIVATE_CUSTOM_SECRET</script>", "<object/>", "<control/>", "<altChunk/>", "<OLEObject/>")) {
+            reject(DocxPackageReason.UNSUPPORTED_CONTENT, zip(customParts(customXml(body))))
+        }
+        val previous = System.err
+        val diagnostics = ByteArrayOutputStream()
+        try {
+            System.setErr(java.io.PrintStream(diagnostics, true, "UTF-8"))
+            for (xml in listOf(customXml("<private>PRIVATE_CUSTOM_SECRET"), customXml("&PRIVATE_CUSTOM_SECRET;"))) {
+                val failure = reject(DocxPackageReason.MALFORMED_XML, zip(customParts(xml)))
+                assertFalse(failure.toString().contains("PRIVATE_CUSTOM_SECRET"))
+            }
+            assertEquals("", diagnostics.toString("UTF-8"))
+        } finally { System.setErr(previous) }
+    }
+
+    @Test fun customPartXmlBudgetsAcceptExactLimitsAndRejectOneBeyond() {
+        val depthBytes = zip(customParts(customXml("<a><b><c><d><e/></d></c></b></a>")))
+        assertEquals(6, DocxPackageReader(DocxPackageLimits(maxXmlDepth = 6)).read(ByteArrayInputStream(depthBytes)).parts.size)
+        reject(DocxPackageReason.XML_DEPTH, depthBytes, DocxPackageLimits(maxXmlDepth = 5))
+        val textBytes = zip(customParts(customXml("<property>" + "x".repeat(30) + "<![CDATA[yz]]></property>")))
+        assertEquals(6, DocxPackageReader(DocxPackageLimits(maxTextNodeChars = 32)).read(ByteArrayInputStream(textBytes)).parts.size)
+        reject(DocxPackageReason.XML_TEXT, textBytes, DocxPackageLimits(maxTextNodeChars = 31))
+        // Original fixture has 19 elements; custom adds its override, relationship, root and two children.
+        val nodeBytes = zip(customParts(customXml("<a/><b/>")))
+        assertEquals(6, DocxPackageReader(DocxPackageLimits(maxXmlNodes = 24)).read(ByteArrayInputStream(nodeBytes)).parts.size)
+        reject(DocxPackageReason.XML_NODES, nodeBytes, DocxPackageLimits(maxXmlNodes = 23))
+        val source = customParts(customXml("<property>" + "z".repeat(2500) + "</property>"))
+        val size = source.getValue("docProps/custom.xml").size
+        val bytes = zip(source)
+        assertEquals(6, DocxPackageReader(DocxPackageLimits(maxXmlBytes = size)).read(ByteArrayInputStream(bytes)).parts.size)
+        reject(DocxPackageReason.XML_BYTES, bytes, DocxPackageLimits(maxXmlBytes = size - 1))
+    }
+
+    @Test fun customPartStillConsumesZipBudgetsAndMustPassCrc() {
+        val source = customParts(customXml("<property>" + "z".repeat(2500) + "</property>"))
+        val bytes = zip(source)
+        val size = source.getValue("docProps/custom.xml").size
+        val total = source.values.sumOf { it.size.toLong() }
+        val exact = DocxPackageLimits(maxArchiveBytes = bytes.size, maxEntries = source.size, maxEntryBytes = size, maxTotalBytes = total)
+        assertEquals(6, DocxPackageReader(exact).read(ByteArrayInputStream(bytes)).parts.size)
+        reject(DocxPackageReason.ARCHIVE_BYTES, bytes, exact.copy(maxArchiveBytes = bytes.size - 1))
+        reject(DocxPackageReason.ENTRY_COUNT, bytes, exact.copy(maxEntries = source.size - 1))
+        reject(DocxPackageReason.ENTRY_BYTES, bytes, exact.copy(maxEntryBytes = size - 1))
+        reject(DocxPackageReason.TOTAL_BYTES, bytes, exact.copy(maxTotalBytes = total - 1))
+        val compressed = customParts(customXml("<property>" + "z".repeat(20000) + "</property>"))
+        reject(DocxPackageReason.COMPRESSION_RATIO, zip(compressed, false), DocxPackageLimits(maxCompressionRatio = 20))
+        val corrupt = bytes.copyOf()
+        val marker = corrupt.toString(Charsets.ISO_8859_1).indexOf("z".repeat(50))
+        assertTrue(marker >= 0)
+        corrupt[marker] = 'y'.code.toByte()
+        reject(DocxPackageReason.MALFORMED_ZIP, corrupt)
+    }
+
     @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     @Test fun validAndHostileReadsCannotWriteOrConnect() {
         val original = System.getSecurityManager()

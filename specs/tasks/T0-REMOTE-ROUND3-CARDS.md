@@ -1,7 +1,7 @@
 ---
 id: T0-REMOTE-ROUND3-CARDS
 title: Register the round-three pair remote product contracts
-status: todo
+status: merged
 depends_on: []
 allow_paths:
   - specs/tasks/T0-REMOTE-ROUND3-CARDS.md
@@ -161,3 +161,7 @@ foreach ($path in $scopePaths) {
 }
 Write-Host '[REMOTE-REGISTRATION-SCOPE-OK] full nine-path candidate'
 ```
+
+## Status recorded (2026-09-25)
+
+PR #313 merged on 2026-09-18 as `d53cec8c`, but R5 never set this card's status. The card-status check that opened `T0-POST-MERGE-CARD-DRIFT` found it. Its DoD passes at the merge commit; on origin/master `8146d794` it fails only because `specs/tasks/T1-APP-STORAGE-POLICY-REMOTE.md`, whose bytes it pins, changed later. This commit changes only the status line and adds this note.

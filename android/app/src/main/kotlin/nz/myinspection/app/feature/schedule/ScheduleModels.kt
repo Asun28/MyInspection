@@ -1,6 +1,8 @@
 package nz.myinspection.app.feature.schedule
 
 import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import nz.myinspection.core.schedule.InspectionScheduleType
 import nz.myinspection.core.schedule.ScheduleAdvice
 
@@ -531,4 +533,312 @@ class SchedulePresenter(
         /** POST_NOTIFICATIONS became a runtime permission in Android 13. */
         const val REQUIRES_PERMISSION_SDK = 33
     }
+}
+
+/** The actions the top app bar may carry. REQ-031 caps this at two, so the enum is the cap. */
+enum class ScheduleTopAppBarAction(val actionName: ScheduleActionName) {
+    FILTER(ScheduleActionName.FILTER),
+}
+
+/**
+ * What an action is called. The phrase is authored here rather than derived from an enum name or a
+ * route, because a name derived from an identifier is the one thing context/DESIGN.md's symbol-only
+ * admission refuses. This card renders the phrase as visible text, and T4-SCHEDULE-UI-SYMBOL-CHROME
+ * turns the same value into an accessible name once the control becomes a glyph.
+ */
+enum class ScheduleActionName(val phrase: String) {
+    ADD_PROPERTY("Add a property"),
+    CLEAR_FILTER("Clear the inspection type filter"),
+    RETRY("Retry registering this reminder"),
+    OPEN_SETTINGS("Open notification settings"),
+    FILTER("Filter by inspection type"),
+}
+
+/**
+ * Why a state offers no primary action. A reason rather than a null, so that a state offering none
+ * has said so: the same reason ScheduleBadge.NONE is a declared value. A state whose author forgot
+ * to decide cannot compile, because the sealed action type below has no third shape.
+ */
+enum class ScheduleNoActionReason {
+    NOTHING_TO_ACT_ON_YET,
+    ACTIONS_BELONG_TO_ROWS,
+}
+
+/**
+ * What a state declares about its one primary action. Two shapes, never a list: "this state offers
+ * two primary actions" is not expressible, so REQ-030's cap is structural rather than a rule a
+ * renderer has to obey.
+ */
+sealed interface ScheduleStateAction {
+    data class One(
+        val slot: ScheduleActionSlot,
+        val actionName: ScheduleActionName,
+    ) : ScheduleStateAction
+
+    data class None(val reason: ScheduleNoActionReason) : ScheduleStateAction
+}
+
+/**
+ * A recovery offered beside the screen rather than by it. Deliberately not a [ScheduleStateAction]:
+ * that type is the one primary action a state declares, and a feedback banner's recovery is a
+ * secondary action by REQ-030, so keeping them apart in the type system is what makes "two primary
+ * actions at once" unconstructable rather than merely discouraged.
+ */
+data class ScheduleSecondaryAction(
+    val slot: ScheduleActionSlot,
+    val actionName: ScheduleActionName,
+)
+
+/**
+ * Non-blocking feedback drawn beside the screen it leaves readable, which is what
+ * context/DESIGN.md's `feedback-banner` is for. A banner always carries both halves: copy that
+ * says what happened and exactly one secondary recovery, so a banner with nothing to do about it
+ * is not expressible.
+ */
+data class ScheduleFeedbackBanner(
+    val content: List<ScheduleContentValue>,
+    val recovery: ScheduleSecondaryAction,
+)
+
+/**
+ * How many tappable controls a state may show at once. Two shapes rather than a bare number, so
+ * that [Unbounded] is an answer chosen among alternatives instead of the only thing expressible.
+ */
+sealed interface ScheduleControlCountPolicy {
+    data object Unbounded : ScheduleControlCountPolicy
+
+    data class AtMost(val count: Int) : ScheduleControlCountPolicy
+}
+
+/**
+ * A rendered domain value. Every member carries [text], because REQ-053's guarantee is that a
+ * domain value keeps its text and numerals: there is no member that carries a glyph instead, so
+ * "this count was replaced by a symbol" is not a state this type can hold.
+ */
+sealed interface ScheduleContentValue {
+    val text: String
+
+    /** Copy that explains a state. Chrome by the scope boundary, but still text on this card. */
+    data class Message(override val text: String) : ScheduleContentValue
+
+    /** A property name, exactly as the planner supplied it. */
+    data class PropertyName(override val text: String) : ScheduleContentValue
+
+    /**
+     * A due line. [text] is the absolute date and is never empty, and [relative] is added to it rather
+     * than replacing it, which is REQ-036 held as a shape rather than as a rule.
+     */
+    data class DueLine(
+        override val text: String,
+        val relative: String,
+    ) : ScheduleContentValue
+
+    /** A count rendered as a complete plural-aware phrase, never a bare numeral. REQ-037. */
+    data class CountPhrase(
+        val count: Int,
+        override val text: String,
+    ) : ScheduleContentValue
+
+    /**
+     * An inspection type as the user reads it. OD-1 judged the type a domain value, so it keeps its
+     * text. The phrase is authored here rather than taken from the enum constant, which
+     * T4-SCHEDULE-UI REQ-023 forbids reaching a screen.
+     */
+    data class TypeLabel(
+        val type: InspectionScheduleType,
+        override val text: String,
+    ) : ScheduleContentValue
+}
+
+/**
+ * The presentation contract: what each state declares about its action, what it puts on screen, and
+ * how a date and a count are spelled. Pure and parameterised the way ScheduleReducer is, so nothing
+ * here reads a clock, a locale or a system setting. OD-8 fixed the date form, so the formatting
+ * below is deliberately hand-rolled rather than delegated to a locale-sensitive formatter: a
+ * formatter that consults Locale.getDefault would render 05/19/2026 on one device and 19/05/2026 on
+ * another, and this app's schedule feeds a record that can end up in a tenancy dispute.
+ */
+object SchedulePresentation {
+    /** Month names in the fixed NZ form OD-8 chose. Spelled out, so no numeric order is ambiguous. */
+    private val monthNames = listOf(
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    )
+
+    /** What the top app bar carries. REQ-031 caps it at two and the enum is that cap. */
+    val topAppBarActions: List<ScheduleTopAppBarAction> = ScheduleTopAppBarAction.entries
+
+    /**
+     * What a screen state declares about its one primary action. The slot is read off the reducer's
+     * own [actionSlot] rather than decided again here, so the two cannot drift into disagreeing
+     * about which state acts. This card authors only the name.
+     */
+    fun actionOf(screen: ScheduleScreenState): ScheduleStateAction =
+        when (val slot = screen.actionSlot) {
+            null -> ScheduleStateAction.None(noActionReasonOf(screen))
+            else -> ScheduleStateAction.One(slot, nameOf(slot))
+        }
+
+    /**
+     * The non-blocking feedback shown beside the screen, or none while there is nothing to say.
+     * Its recovery is a [ScheduleSecondaryAction] rather than a [ScheduleStateAction], which is
+     * what stops a blocked permission from putting a second primary action on a screen that
+     * already has one: the two are different types, so "this screen shows two primary actions" is
+     * not a state an implementation can express while still type-checking. REQ-030 and REQ-048 are
+     * therefore both structural here rather than rules a renderer has to keep.
+     */
+    fun feedbackBannerOf(state: ScheduleUiState): ScheduleFeedbackBanner? =
+        state.permissionRecovery?.let { slot ->
+            ScheduleFeedbackBanner(
+                content = listOf(ScheduleContentValue.Message(PERMISSION_BLOCKED_MESSAGE)),
+                recovery = ScheduleSecondaryAction(slot, nameOf(slot)),
+            )
+        }
+
+    /**
+     * What bounds the number of tappable controls one state may show at once. Unbounded is a
+     * declared answer chosen from alternatives rather than a rule nobody wrote: the content screen
+     * is a scrolling list, so any fixed number is false once the list is long enough, and REQ-030
+     * and REQ-031 are the two constraints that actually hold.
+     */
+    val visibleControlPolicy: ScheduleControlCountPolicy = ScheduleControlCountPolicy.Unbounded
+
+    /**
+     * What a screen state puts on screen. Never empty, and not because a rule says so: the content
+     * screen opens with its count phrase, so even a content state constructed with no rows at all
+     * still says something true. That is what keeps A2 from resting on the reducer happening never
+     * to build an empty one.
+     *
+     * The content screen's rows go through [rowContentOf], so a due occurrence's date reaches the
+     * screen by the same path a test drives rather than by a renderer remembering to format one.
+     * [now] and [zone] are arguments for the same reason nothing else here reads a clock.
+     */
+    fun contentOf(
+        screen: ScheduleScreenState,
+        now: Instant,
+        zone: ZoneId,
+    ): List<ScheduleContentValue> = when (screen) {
+        is ScheduleScreenState.Loading ->
+            listOf(ScheduleContentValue.Message(LOADING_MESSAGE))
+
+        is ScheduleScreenState.Content ->
+            listOf(countPhrase(screen.rows.size)) +
+                screen.rows.flatMap { row -> rowContentOf(row, now, zone) }
+
+        is ScheduleScreenState.NoContentEmpty ->
+            listOf(ScheduleContentValue.Message(NO_CONTENT_MESSAGE))
+
+        is ScheduleScreenState.FilteredEmpty ->
+            listOf(ScheduleContentValue.Message(FILTERED_EMPTY_MESSAGE), typeLabel(screen.filter))
+
+        is ScheduleScreenState.Error ->
+            listOf(ScheduleContentValue.Message(ERROR_MESSAGE))
+    }
+
+    /**
+     * What one row puts on screen. The due line is present exactly when the row carries a due date,
+     * which is a property of the row kind rather than a rule: [ScheduleRow.dueAt] is null on every
+     * kind that declares no due date, so a first-inspection row cannot acquire one here.
+     */
+    fun rowContentOf(
+        row: ScheduleRow,
+        now: Instant,
+        zone: ZoneId,
+    ): List<ScheduleContentValue> = listOfNotNull(
+        ScheduleContentValue.PropertyName(row.propertyName),
+        typeLabel(row.inspectionType),
+        row.dueAt?.let { dueAt -> dueLine(dueAt, now, zone) },
+    )
+
+    /**
+     * An absolute date in the fixed form OD-8 chose, for example `19 May 2026`. Every part is
+     * assembled from the month table and from Int.toString, neither of which consults a locale, so
+     * a device set to another language or another numeral system still renders this exact string.
+     */
+    fun absoluteDate(instant: Instant, zone: ZoneId): String {
+        val date = instant.atZone(zone).toLocalDate()
+        return "${date.dayOfMonth} ${monthNames[date.monthValue - 1]} ${date.year}"
+    }
+
+    /**
+     * A due line: the absolute date always, with a relative phrase added to it. The absolute date
+     * is the field the type calls [ScheduleContentValue.DueLine.text], so REQ-036's "relative only
+     * in addition" is the shape of the value rather than a rule a renderer has to keep.
+     */
+    fun dueLine(dueAt: Instant, now: Instant, zone: ZoneId): ScheduleContentValue.DueLine {
+        val days = ChronoUnit.DAYS.between(
+            now.atZone(zone).toLocalDate(),
+            dueAt.atZone(zone).toLocalDate(),
+        )
+        val relative = when {
+            days == 0L -> "today"
+            days > 0L -> "in ${dayCount(days)}"
+            else -> "${dayCount(-days)} ago"
+        }
+        return ScheduleContentValue.DueLine(text = absoluteDate(dueAt, zone), relative = relative)
+    }
+
+    /** An inspection type as the user reads it, authored rather than derived. OD-1, REQ-023. */
+    fun typeLabel(type: InspectionScheduleType): ScheduleContentValue.TypeLabel {
+        val text = when (type) {
+            InspectionScheduleType.ROUTINE -> "Routine"
+            InspectionScheduleType.ANNUAL -> "Annual home check"
+            InspectionScheduleType.INGOING -> "Ingoing"
+            InspectionScheduleType.EXIT -> "Exit"
+        }
+        return ScheduleContentValue.TypeLabel(type = type, text = text)
+    }
+
+    /**
+     * A count as a complete plural-aware phrase that keeps its numeral, never a bare number and
+     * never a word standing in for one. Zero is written `0` rather than `No`, because the rendered
+     * text is the whole of what reaches the screen: a value that spells its number away has lost
+     * it, which is what REQ-037 and REQ-053 are both about.
+     */
+    fun countPhrase(count: Int): ScheduleContentValue.CountPhrase {
+        val text = if (count == 1) "1 inspection due" else "$count inspections due"
+        return ScheduleContentValue.CountPhrase(count = count, text = text)
+    }
+
+    /**
+     * Why a state that offers none offers none. Only the two states whose [actionSlot] is null can
+     * reach this, and the content screen is the one that differs: its actions are its rows. No
+     * branch throws, because a throw here would be a guard no mutation could kill.
+     */
+    private fun noActionReasonOf(screen: ScheduleScreenState): ScheduleNoActionReason =
+        when (screen) {
+            is ScheduleScreenState.Content -> ScheduleNoActionReason.ACTIONS_BELONG_TO_ROWS
+            else -> ScheduleNoActionReason.NOTHING_TO_ACT_ON_YET
+        }
+
+    /** What each slot is called. One authored phrase per slot, never derived from the slot name. */
+    private fun nameOf(slot: ScheduleActionSlot): ScheduleActionName = when (slot) {
+        ScheduleActionSlot.NEXT -> ScheduleActionName.ADD_PROPERTY
+        ScheduleActionSlot.CLEAR_FILTER -> ScheduleActionName.CLEAR_FILTER
+        ScheduleActionSlot.RETRY -> ScheduleActionName.RETRY
+        ScheduleActionSlot.OPEN_SETTINGS -> ScheduleActionName.OPEN_SETTINGS
+    }
+
+    private fun dayCount(days: Long): String = if (days == 1L) "1 day" else "$days days"
+
+    private const val LOADING_MESSAGE = "Reading the schedule from this device"
+
+    private const val NO_CONTENT_MESSAGE = "No inspections are scheduled yet"
+
+    private const val FILTERED_EMPTY_MESSAGE = "No inspections match this filter"
+
+    private const val ERROR_MESSAGE = "That reminder did not go through"
+
+    private const val PERMISSION_BLOCKED_MESSAGE =
+        "Reminders are turned off. The schedule below still works"
 }

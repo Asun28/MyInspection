@@ -12,7 +12,7 @@
 | **Tier 3** | 项目总经验（热账本 + 冷库） | `docs/lessons/LEDGER.md` + `specs/archive/lessons-archive.md` | `lessons.ps1 search` 统一检索 | append-only |
 
 必须层为何封顶：`CLAUDE.md` 每轮全量进上下文，是稀缺预算；铁律只能放**会复发且会卡死**的极少数。超限即淘汰最不活跃项回按需层。
-**计量单位是驻留的经验 id、不是本节的条目数**：一条写着 `[L190][L193]` 的 Markdown bullet 包含 2 个驻留 id、占 2 个封顶单位，
+**计量单位是驻留的经验 id、不是本节的条目数**：一条写着 `[L21][L205]` 的 Markdown bullet 包含 2 个驻留 id、占 2 个封顶单位，
 封顶要管的正是后者——否则把几条并进一条 bullet 就能一边「合规」一边让每轮成本继续涨。判定核只有
 `scripts/_lessons.ps1` 一处（`lessons.ps1 check` 与心跳探针 `lessons-cap` 共用）；小节标题找不到时两者一律
 fail-closed 报错，不把「测不出」读成「未超」。
@@ -75,6 +75,26 @@ fail-closed 报错，不把「测不出」读成「未超」。
 - 冷库是只读历史面：对冷项执行 `bump/promote` 会 fail-closed，并给出
   `archive.ps1 -LessonsOnly -RestoreLessonIds <id>`。这是唯一受支持的反向例外：脚本先把完整块无损移回热账本、
   再从冷库移除；任一步失败都至少保留一份，冷热并存态可重跑自愈。不要手工复制或删除冷库正文。
+
+## 从 scaffold 采纳的代码里的经验 id
+
+`scripts/`、`.claude/`、`.github/` 下有一批代码是从上游 scaffold（`Asun28/claude-devops-scaffold`）整段采纳的：
+2026-09-11 的 PR #297（合并提交 `d991cc92`，取自上游提交 `96ebfcec`）带进 461 行含 `L<数字>` 的代码与注释。
+这些 id 是**上游账本**的编号，不是本仓 `docs/lessons/LEDGER.md` 的编号。两本账各自分配编号，所以同一个 id
+在本仓通常是另一条经验：`scripts/selftest.ps1` 闸 17ib 引用的 L353，在上游是「信任一条绿色断言前，先查被断言的值
+还能从哪些别的路径到达观测点」，在本仓是 check-secrets 的命名规则。核过的 9 个 id（L302、L303、L308、L313、L317、
+L325、L337、L352、L353）都是这种情况。
+
+看到这类引用，先查这一行来自哪个提交；来自 `d991cc92` 的，到上游账本查原意：
+
+```powershell
+git blame -L <行号>,<行号> -- <文件>
+git show 96ebfcec:docs/lessons/LEDGER.md | Select-String -Pattern '^## L353$' -Context 0,6
+```
+
+本机没有该上游提交时，看 https://github.com/Asun28/claude-devops-scaffold/blob/96ebfcec2a1ff89ac77e665123978d7ae138c857/docs/lessons/LEDGER.md 。
+`lessons.ps1 search` 只查本仓的经验，查不到上游 id 的原意。采纳来的文件保持原样，以免之后同步 scaffold 时冲突；
+本仓新写的代码与文档只引用本仓账本的 id。已向上游报告，见 `docs/SCAFFOLD-SYNC.md`「Upstream lesson ids」一段。
 
 ## 与既有记忆面的边界（不重复）
 其余记忆面各管各的、不与本系统重叠：`claude-mem`（若装）走自动 episodic 观察 + `mem-search` 召回；

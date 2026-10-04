@@ -29,3 +29,7 @@ hygiene: Preserve both positive faces and four named semantic negative probes. R
 Use the actual task router at this card's execution base; only newly run candidate checks establish acceptance. Preserve the full source and all four negative probes when fitting the independent budget.
 
 After both prerequisite PRs actually merge, POLICY absorbs the new baseline without rewriting history, updates only its two allowed receipts to the durable paths, and runs the committed verifier with CandidateRoot plus the original DoD. Root separately authorizes round handling and the next normal protected ship; this card itself grants no reset or bypass.
+
+## Reconcile note (2026-09-24)
+
+The 2026-09 local/origin reconcile landed the local-only parts of local master's PR review v2 phase 1a chain on master: PROTOCOL-DOC (`a66af219`), CHECKLISTS (`2782b55b`), RECORDS (`dec30514`), FACTS-LIB (`b675d6a6`) and STATE-1A (`62ec5f3b`). For the schema and its checker (SCHEMA and UNIT-ID-REVISION), master keeps origin's versions from T0-PREREVIEW-REMOTE-SCHEMA. The source documents that `scripts/fixtures/prereview/policy-source/raw/` copies are now on master, and each raw copy is byte-identical to its document (`git hash-object` equal on 2026-09-24). Whether this card is closed, narrowed or kept is a user decision.

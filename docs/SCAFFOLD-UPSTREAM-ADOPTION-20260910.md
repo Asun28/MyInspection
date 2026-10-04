@@ -162,3 +162,5 @@ These predecessor cards are marked `superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
 - `T0-ASCII-REVIEW-ARCHIVE-CODES`
 
 Their original individual DoD/RED/mutation/performance queues were not completed by this adoption and must not be resumed from historical dispatch state. Their original worktrees and evidence remain available. INPUT, TRIAGE and RECEIPT stay separate and are not closed.
+
+> 2026-09 local/origin reconcile: `T0-REVIEW-LOW-RISK`, listed above among the closed predecessors, was kept live by a user ruling on 2026-09-24, then retired again as superseded by `T0-SCAFFOLD-UPSTREAM-ADOPTION` the same day; see the notes on that card.

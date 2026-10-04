@@ -445,9 +445,13 @@ $script:ScaffoldConfig = @{
   PrereviewDiscoverCommand = ''            # '' = 内置 claude 适配器；自定义命令：stdin 收 prompt，envelope 写到 $env:PRE_OUT
   PrereviewLensCommand = ''                # '' = 内置 deepseek 透镜适配器
   PrereviewModel = 'claude-sonnet-5'
-  PrereviewRiskyModel = 'claude-opus-5'    # 改动命中 FrozenPaths ∪ PrereviewRiskyExtraPaths 时
+  PrereviewRiskyModel = 'claude-opus-5-5'  # 改动命中 FrozenPaths ∪ PrereviewRiskyExtraPaths 时
   PrereviewRiskyExtraPaths = @('scripts/', '.claude/', '.github/', 'configs/compliance/')   # FACTS-LIB 路由时与 FrozenPaths 取并集，此处不复制冻结表
-  PrereviewEffort = 'high'
+  PrereviewEffort = 'high'                 # 标准路由（PrereviewModel，Sonnet）的档位
+  # 风险路由（PrereviewRiskyModel，Opus 5.5）自己的档位：官方测试中 Opus 5.5 的 medium 在编码与知识工作 eval 上已追平或超过
+  # Opus 5 的 high，早期测试者另报告其评审抓 bug 更多、误报更少；且同档比 Opus 5 想得多（docs/references/
+  # claude-opus-5-5-prompting-llms.txt「强项」「effort 校准」）。只是一个值：内置 claude 适配器落地时读它；在那之前没有代码读取本项。
+  PrereviewRiskyEffort = 'medium'
   PrereviewLensEnabled = $true             # $false = 透镜 skipped（[PRE-LENS-SKIPPED]），发现者照跑
   PrereviewLensModel = 'deepseek-v4-flash'
   PrereviewLensDocModel = 'deepseek-v4-pro'
@@ -488,9 +492,13 @@ $script:ScaffoldConfig = @{
   # Why tier and not size: ReviewEffortBySize already keys on changed lines, and a 300-line doc card draws
   # the same 40-minute adversarial read as a 300-line enforcer change. 80% of the last 813 commits touch no
   # code file (ADR 0016), so most R3 minutes are spent where the blast radius is a document.
-  # Consumed by scripts/review.ps1, sentinel [R3-INTENSITY]. The values below are THIS repo's decision
-  # (T301), and the trade-off they buy is recorded on that card and in docs/QUALITY-RUBRIC.md section 4.
-  ReviewIntensityByTier = @{ 'S' = 'adversarial'; '1' = 'adversarial'; '0' = 'advisory' }
+  # Consumed by scripts/review.ps1, sentinel [R3-INTENSITY]. The values below are THIS repo's decision.
+  # T301 set them and recorded the trade-off on that card and in docs/QUALITY-RUBRIC.md section 4. Tier 0
+  # was raised from 'advisory' to 'adversarial' by T0-REVIEW-GOVERNING-DOCS: a card editing only
+  # docs/QUALITY-RUBRIC.md, docs/SECURITY.md, CLAUDE.md or another doc that defines the gates computes
+  # tier 0, and such edits now draw the same review class as a code change. ReviewEffortBySize still sets
+  # the effort by diff size, so a small doc diff is still reviewed at 'low'.
+  ReviewIntensityByTier = @{ 'S' = 'adversarial'; '1' = 'adversarial'; '0' = 'adversarial' }
 
   # 经验系统「必须层」（CLAUDE.md 经验铁律）封顶条数。超限须淘汰最不活跃项回按需层。
   LessonsMustCap = 10

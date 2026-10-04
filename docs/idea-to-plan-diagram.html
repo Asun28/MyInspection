@@ -397,7 +397,7 @@
           <div class="step">
             <span class="step-tag mul" aria-hidden="true">× project → audit</span>
             <h3>投影任务卡 → 卡审</h3>
-            <p>裁决通过后投影成任务卡 <span class="arrow">→</span> decompose-cards 卡审：守 id、依赖、DoD、allow-paths。</p>
+            <p>裁决通过后投影成任务卡 <span class="arrow">→</span> decompose-cards 卡审：守右尺寸、依赖、DoD、硬边界与许可、allow-paths。</p>
           </div>
         </div>
 
@@ -438,7 +438,7 @@
         <!-- frontend branch (T2) -->
         <div class="branch" aria-label="前端分支 frontend-flow">
           <div class="branch-head">前端分支 · frontend-flow <span class="ph-tier">T2 · 复杂多页前端</span></div>
-          <p>复杂多页前端走串联驱动卡，把现有件串成四段：<b style="color:var(--fog-bright)">流程卡（页面地图）</b>→喂 <code>plan-forge</code> 投卡 ·
+          <p>复杂多页前端走串联驱动卡，把现有件串成四段：<b style="color:var(--fog-bright)">流程卡（页面地图）</b>→<code>plan-forge</code> 审计、<code>decompose-cards</code> 投卡 ·
             <b style="color:var(--fog-bright)">意图卡（单页目标）</b>→<code>grill-design</code> 拷问敲定 ·
             生成→<code>pencil MCP</code> / Claude Design 高保真 + <code>frontend-design</code> / <code>taste-skill</code> 局部改 ·
             验证过的区块→回流 <code>context/frontend-assets/</code>。不重造引擎；简单单页直接 frontend-design + pencil。</p>

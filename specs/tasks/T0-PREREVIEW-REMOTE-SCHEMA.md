@@ -1,7 +1,7 @@
 ---
 id: T0-PREREVIEW-REMOTE-SCHEMA
 title: Adopt approved prereview schema revision 1 and configuration on remote master
-status: todo
+status: merged
 branch: T0-PREREVIEW-REMOTE-SCHEMA
 worktree: C:\wt\T0-PREREVIEW-REMOTE-SCHEMA
 depends_on: []
@@ -43,3 +43,7 @@ The first formal R3 on `13f2cbfb516f54523bec42f90a00b5e86dbb9da1` returned spec 
 Repair candidate `22c9b8e7f2b9e5c5ae83abab6c9e2dcb3291a533` changes only the schema comment locator and the checker with its regression cases. Schema validation keywords, version/revision constants and unit identities are unchanged. The checker now records whether a node is the direct value of an if/then/else keyword; ordinary properties with those names and nested object schemas still require closure. All 18 new behavioral cases and the original default DoD pass. RED explicitly failed the three typed conditional cases before production changed; three semantic mutants were then killed by the typed-fragment, same-name-object and nested-child assertions. Checker SHA-256: `093A1B5E0D18BD15CD2B6B55E8F7A6CFDB9BD358E9DB723C8E70E2C1C9B1DC87`.
 
 The original byte-identity statement applies to the initial candidate only. The repaired checker and the schema comment are deliberate review fixes; all other imported files and all 17 configuration literals remain unchanged. Final acceptance requires a new ordinary full selftest on the repaired candidate, another formal R3 and required CI. Before reship, write ignored `.review/remote-adoption/current-proof.json` with the new full selftest logs, actually tested candidate and source hashes; an old candidate's proof is historical only.
+
+## Status recorded (2026-09-25)
+
+PR #302 merged on 2026-09-17 as `4e89f3c1`, but R5 never set this card's status. The card-status check that opened `T0-POST-MERGE-CARD-DRIFT` found it. Its DoD passes on origin/master `8146d794`. This commit changes only the status line and adds this note.

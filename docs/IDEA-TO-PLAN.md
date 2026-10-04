@@ -106,7 +106,7 @@
 |---|---|---|---|---|
 | 1 | **Shape（发散→收敛）** | 我们要做什么、为什么？（先发散找痛点，再收敛定 MVP） | `shape-idea` skill（AI 自驱，人把关） | `_local/1-brief.md` |
 | 2 | **Scout（搜现成方案）** | 已经有什么能用？拿什么当地基？ | `scout-options.mjs`（多 agent 搜+评） | `_local/2-options.md` + `docs/adr/NNNN-*.md` |
-| 3 | **Plan（写成计划）** | 具体怎么做？拆成哪些任务？ | `PLAN-TEMPLATE` + `plan-forge.mjs` | `_local/3-plan.md`→ `specs/tasks/*.md` |
+| 3 | **Plan（写成计划）** | 具体怎么做？拆成哪些任务？ | `PLAN-TEMPLATE` + `plan-forge.mjs`（审计）+ `decompose-cards.mjs`（投影卡） | `_local/3-plan.md`→ `specs/tasks/*.md` |
 
 > `1-` `2-` `3-` 的编号就是顺序。这三个 `_local/` 文件不入库（是你的工作草稿）；只有第 2 步的 ADR 和第 3 步的任务卡会进仓库。
 
