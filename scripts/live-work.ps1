@@ -222,8 +222,8 @@ function Invoke-LiveWorkSelfCheck {
     Check 'summary: [LIVE-WORK-NONE] when every worktree was probed and none holds work' { $n.Code -eq 0 -and $n.Lines -ccontains '[LIVE-WORK-NONE] no other worktree holds uncommitted or unmerged work' -and -not (& $has $n '[LIVE-WORK] ' '') }
     & $g $main worktree add -q -b T9-GONE $wtD origin/master; Remove-Item -LiteralPath $wtD -Recurse -Force
     $m = & $run @('-RepoPath', $main); $mt = & $run @('-RepoPath', $main, '-TaskId', 'T9-FREE')
-    Check 'summary: a registered worktree whose directory is missing is [LIVE-WORK-UNKNOWN] and no [LIVE-WORK-NONE] follows' { $m.Code -eq 0 -and (& $has $m '[LIVE-WORK-UNKNOWN] path=' 'wtD') -eq 1 -and -not (& $has $m '[LIVE-WORK-NONE]' '') }
-    Check 'overlap: a registered worktree whose directory is missing exits 2' { $mt.Code -eq 2 -and (& $has $mt '[LIVE-WORK-PROBE-FAIL]' 'wtD') -eq 1 }
+    Check 'summary: a registered worktree whose directory is missing is [LIVE-WORK-UNKNOWN] and no [LIVE-WORK-NONE] follows' { $m.Code -eq 0 -and (& $has $m '[LIVE-WORK-UNKNOWN] path=' 'wtD has no directory') -eq 1 -and -not (& $has $m '[LIVE-WORK-NONE]' '') }
+    Check 'overlap: a registered worktree whose directory is missing exits 2' { $mt.Code -eq 2 -and (& $has $mt '[LIVE-WORK-PROBE-FAIL]' 'wtD has no directory') -eq 1 }
     & $g $main worktree prune
     # A per-worktree core.fsmonitor hook that sleeps holds only wtB's git status, the way a slow disk would. Killing
     # git can leave the shell's sleep running on Windows, so it sleeps just past the 3 s budget.
