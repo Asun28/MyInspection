@@ -9486,7 +9486,7 @@ exit $LASTEXITCODE
         Set-Content (Join-Path $lwWt 'README.md') 'held by this card (15lw)' -Encoding utf8
         $lwC = & pwsh -NoProfile -File $lwTask -TaskId $lwId -Phase start -TakeOver 2>&1 | Out-String; $lwCExit = $LASTEXITCODE
         $lwKept = (Get-Content (Join-Path $lwWt 'README.md') -Raw) -match 'held by this card'
-        if ($lwCExit -eq 0 -or $lwC -notmatch 'uncommitted=1 newest=\d{4}-' -or -not $lwKept) { Fail "[15LW-EXISTING] 闸15lw(c)：worktree 已存在且有 1 个未提交改动时，start -TakeOver 须拒绝、打印 uncommitted=1 newest=<时间> 并保留改动（exit=$lwCExit，改动保留=$lwKept）。"; $lwOk = $false }
+        if ($lwCExit -eq 0 -or $lwC -notmatch "$lwId \(uncommitted=1 newest=\d{4}-" -or -not $lwKept) { Fail "[15LW-EXISTING] 闸15lw(c)：worktree 已存在且有 1 个未提交改动时，start -TakeOver 须拒绝、在拒绝行里打印 <worktree> (uncommitted=1 newest=<时间>) 并保留改动（启动时打印的重叠行也含 uncommitted=1，故断言锚定拒绝行的形状）（exit=$lwCExit，改动保留=$lwKept）。"; $lwOk = $false }
       }
       & git -C $e2e worktree add -q -b lw-gone $lwGone master *> $null
       Remove-Item -LiteralPath $lwGone -Recurse -Force -ErrorAction SilentlyContinue
