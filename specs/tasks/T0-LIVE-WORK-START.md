@@ -69,3 +69,40 @@ on PR #447. The incident behind it is in `T0-LIVE-WORK-GUARD`'s "What happened".
 `T0-MAIN-CHECKOUT-READONLY` also edits CLAUDE.md's execution boundary; whichever ships second merges
 origin/master before ship and keeps both lines. `T0-DIRTY-WORKTREE-HOOK` ships after this card and adds the
 hook to the execution-boundary line this card writes.
+
+## Implementation record (2026-10-07)
+
+Delivered through the AIDLC loop (goal `g-20260925112601-012c7e`, revision 1), after `T0-LIVE-WORK-GUARD` merged
+(#447). The `task.ps1` start check, the gate 15 `-TakeOver` edits and the three rule lines come from the combined
+candidate of PR #447 (`00a0e56d`), applied with `git apply --3way` onto `246d8aa1`. Changes on top of it:
+
+- The existing-worktree refusal first prints one ASCII line, `[START-WORKTREE-EXISTS] <worktree> uncommitted=<n>`
+  `newest=<ISO-8601>` (amended by #449), then throws as before. The pair needs its own line: PowerShell's error
+  view wraps a long `throw` message, and in gate 15 it split the pair across two lines.
+- CLAUDE.md's execution-boundary line no longer names the dirty-worktree hook; `T0-DIRTY-WORKTREE-HOOK` adds it.
+  It says instead that a probe failure stops start even with `-TakeOver`.
+- Gate 15 gains the 15lw block (A2), placed last in the `$e2e` fixture before its cleanup. It prints `[15LW-OK]`
+  only when all four cases hold, and each case fails under its own ASCII sentinel (`[15LW-STOP]`,
+  `[15LW-TAKEOVER]`, `[15LW-EXISTING]`, `[15LW-UNKNOWN]`).
+
+**Start probes from the main checkout.** `task.ps1` runs `live-work.ps1 -TaskId <id> -RepoPath <main checkout>`,
+and the probe always includes the main checkout, so an uncommitted edit there to one of the card's paths also
+stops start. That is intended: the main checkout is shared by every session.
+
+**DoD.** `selftest.ps1 -Only 15` on `9566e125` passed in 967 s with the `[15LW-OK]` line (R4's control run below),
+and the three teaching surfaces and the HANDOFF.md rule pass the DoD's text checks.
+
+**R4.** Each mutant ran `selftest.ps1 -Only 15` in its own detached worktree of `9566e125`, all in parallel
+beside an unmutated control copy, which passed with `[15LW-OK]`. A kill is a non-zero exit, no `[15LW-OK]`, and the
+mutant's own sentinel in the output. 5 of 5 killed on `scripts/task.ps1` at `9566e125`. The first batch (on
+`2a127f35`) let M5 survive: 15lw(c) matched `uncommitted=1` in the overlap line that start prints before it
+refuses. Anchoring the case on the refusal then made the second batch's control fail, which is how the wrapped
+`throw` message above was found.
+
+| id | single-statement change in `scripts/task.ps1` | killed by |
+|---|---|---|
+| M1 | the start stop `if ($liveWork -eq 3 -and -not $TakeOver)` -> `if ($false)` | `[15LW-STOP]` |
+| M2 | `[switch]$TakeOver` -> `[switch]$TakeOver = $true` (-TakeOver by default) | `[15LW-STOP]` |
+| M3 | `elseif ($liveWork -ne 0)` -> `... -and -not $TakeOver` (-TakeOver past exit 2) | `[15LW-UNKNOWN]` |
+| M4 | `$liveWork = $LASTEXITCODE` -> exit 2 mapped to 0 | `[15LW-UNKNOWN]` |
+| M5 | the existing-worktree count -> `if ($false)` | `[15LW-EXISTING]` |
