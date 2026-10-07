@@ -1054,8 +1054,10 @@ switch ($Phase) {
     catch { throw "无法创建 worktree 根目录 '$WtRoot'：$($_.Exception.Message)。请在 scripts\_config.ps1 设 WorktreeRoot 为一个可写的浅路径（如 C:\wt 或 ~/.wt）后重试。" }
     if (Test-Path $Wt) {
       $lwMine = @($lwLines | Where-Object { $_ -like "*worktree=$($Wt.Replace('\', '/')) *" })
-      $lwHeld = if ($lwMine.Count -and $lwMine[0] -match 'uncommitted=(\d+) newest=(\S+)') { "uncommitted=$($Matches[1]) newest=$($Matches[2])：$($Matches[1]) 个未提交改动" } else { '未登记为 worktree' }
-      throw "worktree 已存在: $Wt ($lwHeld)。它可能由另一会话持有：切勿 reset / checkout -- / clean 它，先问用户（L218）。恢复指引——若上次 ship 中断（已 commit、未合并/未推）→ 直接重跑 `-Phase ship` 续（ship 各闸幂等、可安全重入）；若要从头重来 → 先 `-Phase cleanup` 拆除再 start。" }
+      # One ASCII line first: PowerShell's error view wraps a long throw message, so the pair is printed whole here.
+      $lwPair = if ($lwMine.Count -and $lwMine[0] -match 'uncommitted=(\d+) newest=(\S+)') { "uncommitted=$($Matches[1]) newest=$($Matches[2])" } else { 'not-a-registered-worktree' }
+      Write-Host "[START-WORKTREE-EXISTS] $Wt $lwPair"
+      throw "worktree 已存在: $Wt ($lwPair)。它可能由另一会话持有：切勿 reset / checkout -- / clean 它，先问用户（L218）。恢复指引——若上次 ship 中断（已 commit、未合并/未推）→ 直接重跑 `-Phase ship` 续（ship 各闸幂等、可安全重入）；若要从头重来 → 先 `-Phase cleanup` 拆除再 start。" }
     & git -C $RepoRoot worktree add -b $TaskId $Wt $Base
     if ($LASTEXITCODE -ne 0) { throw 'git worktree add 失败' }
 
