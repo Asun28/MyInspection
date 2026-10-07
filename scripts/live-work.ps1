@@ -69,10 +69,16 @@ function Invoke-LiveWorkGit([string]$Dir, [string[]]$GitArgs) {
   return $r.Lines
 }
 
+# The tip of a ref, or $null when it does not exist (rev-parse --verify --quiet exits 1); any other exit is a git error.
+function Get-LiveWorkRefTip([string]$Dir, [string]$Ref) {
+  $r = Invoke-LiveWorkGitRaw $Dir @('rev-parse', '--verify', '--quiet', $Ref)
+  if ($r.Code -eq 1) { return $null }
+  if ($r.Code -ne 0 -or -not $r.Lines.Count) { throw "[LIVE-WORK-PROBE-FAIL] git rev-parse --verify $Ref exited $($r.Code) in $Dir" }
+  return $r.Lines[0]
+}
+
 function Get-LiveWorkBaseRef([string]$Dir, [string]$Name) {
-  foreach ($r in @("refs/remotes/origin/$Name", "refs/heads/$Name")) {
-    if ((Invoke-LiveWorkGitRaw $Dir @('rev-parse', '--verify', '--quiet', $r)).Code -eq 0) { return $r }
-  }
+  foreach ($r in @("refs/remotes/origin/$Name", "refs/heads/$Name")) { if ($null -ne (Get-LiveWorkRefTip $Dir $r)) { return $r } }
   throw "[LIVE-WORK-PROBE-FAIL] neither origin/$Name nor $Name resolves in $Dir"
 }
 
@@ -117,7 +123,7 @@ function Get-LiveWorkHolding([string]$Path, [string]$BaseRef) {
   return [pscustomobject]@{ Uncommitted = $unc; Unmerged = $unm; Newest = $newest }
 }
 
-function Format-LiveWorkTime($Utc) { if ($null -eq $Utc) { return 'unknown' }; return $Utc.ToString('yyyy-MM-ddTHH:mm:ssZ') }
+function Format-LiveWorkTime($Utc) { if ($null -eq $Utc) { return 'unknown' }; return $Utc.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture) }
 
 function Test-LiveWorkSamePath([string]$A, [string]$B) {
   $n = { param($p) [IO.Path]::GetFullPath($p).TrimEnd('\', '/') }
@@ -185,10 +191,10 @@ function Get-LiveWorkOverlap([string]$Dir, [string]$Id, [string]$BaseName, [int]
     }
   }
   foreach ($r in @("refs/heads/$Id", "refs/heads/r5-$Id", "refs/remotes/origin/$Id", "refs/remotes/origin/r5-$Id")) {
-    $tip = Invoke-LiveWorkGitRaw $Dir @('rev-parse', '--verify', '--quiet', $r)
-    if ($tip.Code -ne 0 -or -not $tip.Lines.Count) { continue }
-    $anc = (Invoke-LiveWorkGitRaw $Dir @('merge-base', '--is-ancestor', $tip.Lines[0], $baseRef)).Code
-    if ($anc -eq 1) { "[LIVE-WORK-OVERLAP] ref=$r tip=$($tip.Lines[0].Substring(0, 8)) is not on $baseRef" }
+    $tip = Get-LiveWorkRefTip $Dir $r
+    if ($null -eq $tip) { continue }
+    $anc = (Invoke-LiveWorkGitRaw $Dir @('merge-base', '--is-ancestor', $tip, $baseRef)).Code
+    if ($anc -eq 1) { "[LIVE-WORK-OVERLAP] ref=$r tip=$($tip.Substring(0, 8)) is not on $baseRef" }
     elseif ($anc -ne 0) { throw "[LIVE-WORK-PROBE-FAIL] git merge-base --is-ancestor $r $baseRef exited $anc" }
   }
 }
@@ -225,13 +231,14 @@ function Invoke-LiveWorkSelfCheck {
     Check 'summary: a registered worktree whose directory is missing is [LIVE-WORK-UNKNOWN] and no [LIVE-WORK-NONE] follows' { $m.Code -eq 0 -and (& $has $m '[LIVE-WORK-UNKNOWN] path=' 'wtD has no directory') -eq 1 -and -not (& $has $m '[LIVE-WORK-NONE]' '') }
     Check 'overlap: a registered worktree whose directory is missing exits 2' { $mt.Code -eq 2 -and (& $has $mt '[LIVE-WORK-PROBE-FAIL]' 'wtD has no directory') -eq 1 }
     & $g $main worktree prune
-    # A per-worktree core.fsmonitor hook that sleeps holds only wtB's git status, the way a slow disk would. Killing
-    # git can leave the shell's sleep running on Windows, so it sleeps just past the 3 s budget.
-    $slow = Join-Path $root 'slow-fsmonitor.sh'; [IO.File]::WriteAllText($slow, "#!/bin/sh`nsleep 8`n"); if (-not $IsWindows) { & chmod +x $slow }
+    # A per-worktree core.fsmonitor hook that sleeps holds only wtB's git status, the way a slow disk would. The 6 s
+    # budget leaves the calls before wtB's status room on a loaded machine; killing git can leave the shell's sleep
+    # running on Windows, so it sleeps 15 s, past the deadline but not much longer.
+    $slow = Join-Path $root 'slow-fsmonitor.sh'; [IO.File]::WriteAllText($slow, "#!/bin/sh`nsleep 15`n"); if (-not $IsWindows) { & chmod +x $slow }
     & $g $main config extensions.worktreeConfig true; & $g $wtB config --worktree core.fsmonitor $slow.Replace('\', '/')
-    $clock = [Diagnostics.Stopwatch]::StartNew(); $sl = & $run @('-RepoPath', $main, '-BudgetSec', '3'); $slowSec = $clock.Elapsed.TotalSeconds
+    $clock = [Diagnostics.Stopwatch]::StartNew(); $sl = & $run @('-RepoPath', $main, '-BudgetSec', '6'); $slowSec = $clock.Elapsed.TotalSeconds
     & $g $wtB config --worktree --unset core.fsmonitor
-    Check 'summary: a git status a slow fsmonitor hook holds past -BudgetSec is killed at the deadline and reported [LIVE-WORK-UNKNOWN], no [LIVE-WORK-NONE] follows, and the run ends within the budget plus 10 s' { $sl.Code -eq 0 -and @($sl.Lines | Where-Object { $_.StartsWith('[LIVE-WORK-UNKNOWN] path=') -and $_.Contains('wtB') -and $_.Contains('status') -and $_.Contains('was still running at the deadline and was killed') }).Count -eq 1 -and -not (& $has $sl '[LIVE-WORK-NONE]' '') -and $slowSec -lt 13 }
+    Check 'summary: a git status a slow fsmonitor hook holds past -BudgetSec is killed at the deadline and reported [LIVE-WORK-UNKNOWN], no [LIVE-WORK-NONE] follows, and the run ends within the budget plus 10 s' { $sl.Code -eq 0 -and @($sl.Lines | Where-Object { $_.StartsWith('[LIVE-WORK-UNKNOWN] path=') -and $_.Contains('wtB') -and $_.Contains('status') -and $_.Contains('was still running at the deadline and was killed') }).Count -eq 1 -and -not (& $has $sl '[LIVE-WORK-NONE]' '') -and $slowSec -lt 16 }
 
     Set-Content (Join-Path $wtA 'src/app.txt') 'changed by another session' -Encoding utf8
     & $g $main worktree add -q --detach $wtC origin/master; Set-Content (Join-Path $wtC 'docs/c.md') 'c' -Encoding utf8; & $g $wtC add -A; & $g $wtC commit -q -m c
