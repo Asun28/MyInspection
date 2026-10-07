@@ -9479,14 +9479,14 @@ exit $LASTEXITCODE
       & git -C $e2e worktree add -q -b lw-other $lwOther master *> $null
       Set-Content (Join-Path $lwOther 'README.md') 'another session edits README.md (15lw)' -Encoding utf8
       $lwA = & pwsh -NoProfile -File $lwTask -TaskId $lwId -Phase start 2>&1 | Out-String; $lwAExit = $LASTEXITCODE
-      if ($lwAExit -eq 0 -or $lwA -notmatch '\[START-LIVE-WORK\]' -or (Test-Path $lwWt)) { Fail "[15LW-STOP] 闸15lw(a)：另一 worktree 持有 README.md 的未提交改动时，不带 -TakeOver 的 start 须非零退出、打印 [START-LIVE-WORK] 且不建 worktree（exit=$lwAExit，worktree 存在=$(Test-Path $lwWt)）。"; $lwOk = $false }
+      if ($lwAExit -eq 0 -or $lwA -notmatch '\[START-LIVE-WORK\] another worktree' -or (Test-Path $lwWt)) { Fail "[15LW-STOP] 闸15lw(a)：另一 worktree 持有 README.md 的未提交改动时，不带 -TakeOver 的 start 须非零退出、打印 [START-LIVE-WORK] 且不建 worktree（exit=$lwAExit，worktree 存在=$(Test-Path $lwWt)）。"; $lwOk = $false }
       $lwB = & pwsh -NoProfile -File $lwTask -TaskId $lwId -Phase start -TakeOver 2>&1 | Out-String; $lwBExit = $LASTEXITCODE
       if ($lwBExit -ne 0 -or -not (Test-Path $lwWt)) { Fail "[15LW-TAKEOVER] 闸15lw(b)：同一 start 带 -TakeOver 须退出 0 并建出 worktree（exit=$lwBExit）。"; $lwOk = $false }
       else {
         Set-Content (Join-Path $lwWt 'README.md') 'held by this card (15lw)' -Encoding utf8
         $lwC = & pwsh -NoProfile -File $lwTask -TaskId $lwId -Phase start -TakeOver 2>&1 | Out-String; $lwCExit = $LASTEXITCODE
         $lwKept = (Get-Content (Join-Path $lwWt 'README.md') -Raw) -match 'held by this card'
-        if ($lwCExit -eq 0 -or $lwC -notmatch "\[START-WORKTREE-EXISTS\] \S*$lwId uncommitted=1 newest=\d{4}-" -or -not $lwKept) { Fail "[15LW-EXISTING] 闸15lw(c)：worktree 已存在且有 1 个未提交改动时，start -TakeOver 须拒绝、打印 [START-WORKTREE-EXISTS] <worktree> uncommitted=1 newest=<时间> 并保留改动（重叠行也含 uncommitted=1，throw 的长消息会被错误视图折行，故断言锚定这一行）（exit=$lwCExit，改动保留=$lwKept）。"; $lwOk = $false }
+        if ($lwCExit -eq 0 -or $lwC -notmatch "\[START-WORKTREE-EXISTS\] .*$lwId uncommitted=1 newest=\d{4}-" -or -not $lwKept) { Fail "[15LW-EXISTING] 闸15lw(c)：worktree 已存在且有 1 个未提交改动时，start -TakeOver 须拒绝、打印 [START-WORKTREE-EXISTS] <worktree> uncommitted=1 newest=<时间> 并保留改动（重叠行也含 uncommitted=1，throw 的长消息会被错误视图折行，故断言锚定这一行）（exit=$lwCExit，改动保留=$lwKept）。"; $lwOk = $false }
       }
       & git -C $e2e worktree add -q -b lw-gone $lwGone master *> $null
       Remove-Item -LiteralPath $lwGone -Recurse -Force -ErrorAction SilentlyContinue

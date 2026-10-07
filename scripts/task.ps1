@@ -58,7 +58,7 @@ param(
   [switch]$Local,      # 本地完成：按 ReviewGate/card policy 完成 R3 后本地合并，不 push/PR/gh；本仓 required 配置仍强制评审
   [switch]$SkipRed,    # compat no-op since T68 (the RED-evidence gate is gone); kept so documented commands and fixtures still bind
   [switch]$Force,      # cleanup：确认丢弃 worktree 内未提交改动后再拆除（TD47 脏树守卫的显式覆盖；缺省=有脏改动即拒）
-  [switch]$TakeOver    # start：另一会话的 worktree / 分支持有本卡路径或名字时仍继续（T0-LIVE-WORK-GUARD）；仅在用户同意接手后
+  [switch]$TakeOver    # start：另一会话的 worktree / 分支持有本卡路径或名字时仍继续（T0-LIVE-WORK-START）；仅在用户同意接手后
 )
 
 Set-StrictMode -Version Latest
@@ -1037,7 +1037,7 @@ switch ($Phase) {
     & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'check-cards.ps1') -TaskId $TaskId
     if ($LASTEXITCODE -ne 0) { throw "任务卡校验未过：先修正 specs\tasks\$TaskId.md 再 start。" }
 
-    # T0-LIVE-WORK-GUARD (L218): another session's worktree or branch may already hold this card's paths or name.
+    # T0-LIVE-WORK-START (L218): another session's worktree or branch may already hold this card's paths or name.
     # Stop before creating anything; -TakeOver continues only on the user's say-so. The probe only reads.
     Step '[START-LIVE-WORK] 其他 worktree / 分支是否持有本卡的路径或名字（live-work.ps1）'
     $lwLines = @(& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'live-work.ps1') -TaskId $TaskId -RepoPath $RepoRoot -Base ($Base -replace '^origin/', '') 2>&1 | ForEach-Object { "$_" })
@@ -1053,9 +1053,11 @@ switch ($Phase) {
     try { New-Item -ItemType Directory -Force $WtRoot -ErrorAction Stop | Out-Null }
     catch { throw "无法创建 worktree 根目录 '$WtRoot'：$($_.Exception.Message)。请在 scripts\_config.ps1 设 WorktreeRoot 为一个可写的浅路径（如 C:\wt 或 ~/.wt）后重试。" }
     if (Test-Path $Wt) {
-      $lwMine = @($lwLines | Where-Object { $_ -like "*worktree=$($Wt.Replace('\', '/')) *" })
+      # The card's worktree is the one on branch $TaskId (git allows one per branch). Its path is not compared: git
+      # stores the long form of a path given with 8.3 short names (C:\Users\RUNNER~1\...), so the strings can differ.
+      $lwMine = @($lwLines | Where-Object { $_.StartsWith('[LIVE-WORK-OVERLAP] worktree=') -and $_.Contains(" branch=$TaskId uncommitted=") })
       # One ASCII line first: PowerShell's error view wraps a long throw message, so the pair is printed whole here.
-      $lwPair = if ($lwMine.Count -and $lwMine[0] -match 'uncommitted=(\d+) newest=(\S+)') { "uncommitted=$($Matches[1]) newest=$($Matches[2])" } else { 'not-a-registered-worktree' }
+      $lwPair = if ($lwMine.Count -and $lwMine[0] -match 'uncommitted=(\d+) newest=(\S+)') { "uncommitted=$($Matches[1]) newest=$($Matches[2])" } else { "no-worktree-on-branch-$TaskId" }
       Write-Host "[START-WORKTREE-EXISTS] $Wt $lwPair"
       throw "worktree 已存在: $Wt ($lwPair)。它可能由另一会话持有：切勿 reset / checkout -- / clean 它，先问用户（L218）。恢复指引——若上次 ship 中断（已 commit、未合并/未推）→ 直接重跑 `-Phase ship` 续（ship 各闸幂等、可安全重入）；若要从头重来 → 先 `-Phase cleanup` 拆除再 start。" }
     & git -C $RepoRoot worktree add -b $TaskId $Wt $Base
