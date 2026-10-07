@@ -127,3 +127,6 @@ case now requires the kill's own reason, and the batch was rerun on the final by
 | M8 | missing directories skipped again (`-and (Test-Path …)` on the bare test) | overlap: a registered worktree whose directory is missing exits 2 |
 | M9 | per-call wait `if (-not $p.WaitForExit(…))` -> `if ($false)` | summary: a git status a slow fsmonitor hook holds past -BudgetSec is killed at the deadline … |
 | M10 | caller's-tree card fallback -> `elseif ($false)` | overlap: a card the base lacks is read from the caller's tree |
+
+**Tier-S full selftest** (`-Parallel`, this worktree): `fc51968f` passed all 17 gates in five shards (1221 s).
+Later commits change only this record and other cards.
