@@ -85,3 +85,48 @@ this order:
 
 Implementation evidence from the combined candidate (R4 of the probe mutants, the A3 real start run, Tier-S
 runs) stays in PR #447's history and in the records of the cards that now own each part.
+
+## Implementation record (2026-10-07)
+
+Delivered through the AIDLC loop (goal `g-20260925112601-012c7e`, revision 1 after the split, no `aidlc init`);
+task-loop and `task.ps1` do the work under the goal's card lease.
+
+**Changes after R3 round 1 on PR #447.** A registered worktree whose directory is missing is kept: the summary
+prints `[LIVE-WORK-UNKNOWN] … has no directory …` and `-TaskId` exits 2. `[LIVE-WORK-NONE]` is printed only when no
+worktree was unknown. Every git call the probe makes goes through `Invoke-LiveWorkGitRaw`, which starts git as a
+process, waits for it at most until the run's deadline (`-BudgetSec`: 10 s for the summary, 120 s with `-TaskId`)
+and then kills it with its process tree; reading its output once it has exited has no separate bound. A ref that
+does not exist (`rev-parse --verify --quiet` exits 1) is skipped, any other exit fails the probe. The self-check's
+fixture wrapper reports git's own output and the directory it ran in, and a fixture failure keeps the fixture root
+and names it. The self-check went from 12 probe cases to 19, plus one case for the fixture wrapper.
+
+**A slow worktree, for real.** A per-worktree `core.fsmonitor` hook (`extensions.worktreeConfig`) that sleeps slows
+`git status` in that one worktree only: measured 20.2 s there against 0.1 s in the main checkout. The self-check
+uses a 15 s sleep against a 6 s budget, so the calls before that status have room on a loaded machine. On Windows
+the hook's `sleep` can outlive the killed git; it ends by itself: a check after one self-check run found the
+leftover `sleep` already gone and no fixture directory left.
+
+**Measured on this machine (40 registered worktrees).** The summary took 7.8 s with no `[LIVE-WORK-UNKNOWN]` line.
+
+**R4.** Single-statement edits of `scripts/live-work.ps1` (SHA-256
+`E7814B537557F39A64D398795B8BDADDDA4D6D6A6FED8EDC95E4307A5AF64A81`), the file restored after each and checked
+against that hash; the unmutated self-check (20 cases) passed first. A kill is exit 1 with
+`[LIVE-WORK-SELF-CHECK-FAIL]` and the named case among the failures. 10 of 10 killed. In the first batch M9
+survived: the slow-worktree case accepted any unknown line, and the next git call also found the budget spent. The
+case now requires the kill's own reason, and the batch was rerun on the final bytes.
+
+| id | single-statement change | killed by |
+|---|---|---|
+| M1 | overlap test `if ($inside.Count -or $named)` -> `if ($named)` | overlap: a worktree changing the card's allow_paths exits 3 |
+| M2 | `$h.Newest -ge $cutoff` -> `$true` | overlap: an overlap older than -SinceHours is [LIVE-WORK-OVERLAP-STALE] and exits 0 |
+| M3 | branch-name test -> `$named = $false` | overlap: a clean worktree on a branch named after the card exits 3 |
+| M4 | `exit 3` on an overlap -> `exit 0` | overlap: a worktree changing the card's allow_paths exits 3 |
+| M5 | ref arm `if ($anc -eq 1)` -> `if ($false)` | overlap: a local branch r5-<id> whose tip is not on the base exits 3 |
+| M6 | HEAD-time fallback condition -> `$false` | summary: a worktree holding only a deletion gets its HEAD commit time as newest |
+| M7 | `-and -not $unknown` dropped from the [LIVE-WORK-NONE] test | summary: a registered worktree whose directory is missing is [LIVE-WORK-UNKNOWN] and no [LIVE-WORK-NONE] follows |
+| M8 | missing directories skipped again (`-and (Test-Path …)` on the bare test) | overlap: a registered worktree whose directory is missing exits 2 |
+| M9 | per-call wait `if (-not $p.WaitForExit(…))` -> `if ($false)` | summary: a git status a slow fsmonitor hook holds past -BudgetSec is killed at the deadline … |
+| M10 | caller's-tree card fallback -> `elseif ($false)` | overlap: a card the base lacks is read from the caller's tree |
+
+**Tier-S full selftest** (`-Parallel`, this worktree): `fc51968f` passed all 17 gates in five shards (1221 s).
+Later commits change only this record and other cards.
