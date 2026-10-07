@@ -231,7 +231,7 @@ function Invoke-LiveWorkSelfCheck {
     & $g $main config extensions.worktreeConfig true; & $g $wtB config --worktree core.fsmonitor $slow.Replace('\', '/')
     $clock = [Diagnostics.Stopwatch]::StartNew(); $sl = & $run @('-RepoPath', $main, '-BudgetSec', '3'); $slowSec = $clock.Elapsed.TotalSeconds
     & $g $wtB config --worktree --unset core.fsmonitor
-    Check 'summary: a git status a slow fsmonitor hook holds past -BudgetSec is [LIVE-WORK-UNKNOWN], no [LIVE-WORK-NONE] follows, and the run ends within the budget plus 10 s' { $sl.Code -eq 0 -and (& $has $sl '[LIVE-WORK-UNKNOWN] path=' 'wtB') -eq 1 -and -not (& $has $sl '[LIVE-WORK-NONE]' '') -and $slowSec -lt 13 }
+    Check 'summary: a git status a slow fsmonitor hook holds past -BudgetSec is killed at the deadline and reported [LIVE-WORK-UNKNOWN], no [LIVE-WORK-NONE] follows, and the run ends within the budget plus 10 s' { $sl.Code -eq 0 -and @($sl.Lines | Where-Object { $_.StartsWith('[LIVE-WORK-UNKNOWN] path=') -and $_.Contains('wtB') -and $_.Contains('status') -and $_.Contains('was still running at the deadline and was killed') }).Count -eq 1 -and -not (& $has $sl '[LIVE-WORK-NONE]' '') -and $slowSec -lt 13 }
 
     Set-Content (Join-Path $wtA 'src/app.txt') 'changed by another session' -Encoding utf8
     & $g $main worktree add -q --detach $wtC origin/master; Set-Content (Join-Path $wtC 'docs/c.md') 'c' -Encoding utf8; & $g $wtC add -A; & $g $wtC commit -q -m c
