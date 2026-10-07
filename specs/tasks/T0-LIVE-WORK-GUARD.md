@@ -100,7 +100,7 @@ both SessionStart hooks and both execution-boundary lines. `T0-POST-MERGE-LESSON
 `T0-POST-MERGE-CARD-DRIFT` edit the task-loop skill's R5 lines; this card adds one line under 前置, so merge
 origin/master before ship.
 
-## Implementation record (2026-09-26)
+## Implementation record (2026-09-26, review fixes 2026-10-07)
 
 Delivered through the AIDLC loop on defaults (goal `g-20260925112601-012c7e`, no `aidlc init`, user ruling); the
 card is tier S, so task-loop and `task.ps1` do the work under the goal's card lease.
@@ -127,20 +127,20 @@ worktree held an uncommitted edit to `.claude/skills/task-loop/SKILL.md`:
    worktree.
 3. With an uncommitted edit in that new worktree, a third start with `-TakeOver` refused: `worktree 已存在: …
    \T0-POST-MERGE-LESSONS（1 个未提交改动，最新改动 2026-09-25T11:48:07Z）。它可能由另一会话持有：切勿 reset /
-   checkout -- / clean 它，先问用户（L218）。` The worktree kept its uncommitted edit. The clone was removed.
+   checkout -- / clean 它，先问用户（L218）。` The worktree kept its uncommitted edit. Without `-TakeOver` start
+   stops earlier, at `[START-LIVE-WORK]`, and its overlap line for that worktree carries the same count and time.
 
 **Selftest gate 15.** `selftest.ps1 -Only 15` on the first candidate failed at four fixture starts (15w, 15g9,
-15h3, 15h4): the fixture's earlier steps leave `README.md` edits in other fixture worktrees and every fixture
-card declares `README.md`. The fixture starts after 15a's first one, and the 15r helper, now pass `-TakeOver`
-(`scripts/selftest.ps1` added to `allow_paths` by #421, user ruling).
+15h3, 15h4): earlier steps leave `README.md` edits in other fixture worktrees and every fixture card declares
+`README.md`. From 15w on, every start in that fixture and the 15r helper pass `-TakeOver` (#421, user ruling).
 
 **R4.** One single-statement edit per guard, each file restored after every mutant and checked against its
-SHA-256: `scripts/live-work.ps1` `1680C1FAD619326A7CAD0B1DFC29954123E1C1874DC59181E4EA829715219050`,
-`.claude/hooks/guard-dirty-worktree.ps1` `A0A36D98BE2E27F04CF116E4E9F4C362E16A69306B1D2D48F2BFD50BACB6D758`,
+SHA-256: `scripts/live-work.ps1` `BD38935E623351154B2EE8E2F71FA919CF328D46BD8AE5750E9867AABB049CED`,
+`.claude/hooks/guard-dirty-worktree.ps1` `CBD775BF274B3B297BF1C4E1E7F239CF2D289A8538F8307A808F9D09E008DE82`,
 `scripts/task.ps1` `8ADB00F1C73C2C9DB203183B6470A92D3E0239321679090C3B0285A3801F65D8`. Probe and hook mutants
-are judged by `live-work.ps1 -SelfCheck` (19 cases, all pass unmutated): each exited 1 with
-`[LIVE-WORK-SELF-CHECK-FAIL]` and the named case among its failures. The two `task.ps1` mutants are judged by the
-A3 real run: run 1 must stop start. 15 of 15 killed.
+(rerun on 2026-10-07 on these bytes) are judged by `live-work.ps1 -SelfCheck` (20 cases, all pass unmutated): each
+exited 1 with `[LIVE-WORK-SELF-CHECK-FAIL]` and the named case among its failures. The two `task.ps1` mutants are
+judged by the A3 real run: run 1 must stop start. 16 of 16 killed.
 
 | id | single-statement change | killed by |
 |---|---|---|
@@ -159,6 +159,7 @@ A3 real run: run 1 must stop start. 15 of 15 killed.
 | M13 | hook: `cd` no longer moves the target | hook: cd <dirty> && git reset --hard asks |
 | M14 | task.ps1: the start stop -> `if ($false)` | A3 run 1: exit 0, worktree created |
 | M15 | task.ps1: `-not $TakeOver` -> `-not $true` | A3 run 1: exit 0, worktree created |
+| M16 | `-and -not $unknown` dropped from the [LIVE-WORK-NONE] test | summary: worktrees not probed within -BudgetSec are [LIVE-WORK-UNKNOWN] and no [LIVE-WORK-NONE] follows |
 
 **Tier-S full selftest** (`-Parallel`, this worktree): run 1 (`c3674b0b`) red on 14f only (`DocSyncMap` pairs
 `task.ps1` with `DEVOPS-WORKFLOW.md`, fixed via #426); run 2 (`749ad6b4`) red on `seed-post` only, a null-method

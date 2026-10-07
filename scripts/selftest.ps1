@@ -9048,7 +9048,7 @@ exit $LASTEXITCODE
         Publish-CbCard $cbId 'register the seeded card-budget card on the base branch'
         # T0-LIVE-WORK-GUARD: gate 15 starts several fixture cards that all declare README.md while its earlier
         # steps leave README.md edits in other fixture worktrees, which task.ps1 start reads as another session's
-        # work ([START-LIVE-WORK]). 15a's first start proves a plain start; every later fixture start passes -TakeOver.
+        # work ([START-LIVE-WORK]). 15a's first start and 15b''s start stay plain; every later start in this $e2e fixture passes -TakeOver.
         & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId $cbId -Phase start -TakeOver *> $null
         $cbWt = Join-Path $e2e "wt/$cbId"
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path $cbWt)) {

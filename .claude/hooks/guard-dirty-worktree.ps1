@@ -7,7 +7,7 @@
   nothing, and the hook always exits 0.
   The target worktree is the -C directory, else the directory of the last cd / Set-Location / Push-Location earlier in
   the same command, else the event's cwd; for worktree remove it is the path being removed. Best effort, like
-  guard-frozen: a command built from a variable or an alias is not seen.
+  guard-frozen: a command built from a variable or an alias, or with git options other than -C and -c, is not seen.
 #>
 try {
   try { [Console]::InputEncoding = [Text.Encoding]::UTF8 } catch {}
@@ -43,11 +43,11 @@ try {
     foreach ($m in [regex]::Matches($opts, '-C\s+(?<d>"[^"]+"|''[^'']+''|\S+)')) { $c = & $unquote $m.Groups['d'].Value; $target = if ([IO.Path]::IsPathRooted($c)) { $c } else { Join-Path $target $c } }
     if ($sub -eq 'worktree' -and $rest -match 'remove\s+(?:(?:-f|--force)\s+)*(?<p>"[^"]+"|''[^'']+''|[^\s-]\S*)') { $p = & $unquote $Matches.p; $target = if ([IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $target $p } }
     if (-not (Test-Path -LiteralPath $target)) { continue }
-    $top = @(& git -C $target rev-parse --show-toplevel 2>$null)
+    $top = @(& git --no-optional-locks -C $target rev-parse --show-toplevel 2>$null)
     if ($LASTEXITCODE -ne 0 -or -not $top.Count) { continue }
     $unc = @(Get-LiveWorkUncommitted $top[0])
     if (-not $unc.Count) { continue }
-    $branch = "$(& git -C $top[0] branch --show-current 2>$null)".Trim(); if (-not $branch) { $branch = 'detached' }
+    $branch = "$(& git --no-optional-locks -C $top[0] branch --show-current 2>$null)".Trim(); if (-not $branch) { $branch = 'detached' }
     $asks.Add("git $sub would discard or move work in $($top[0]) (branch $branch): $($unc.Count) uncommitted path(s), newest change $(Format-LiveWorkTime (Get-LiveWorkNewest $top[0] $unc)).")
   }
   if ($asks.Count) {

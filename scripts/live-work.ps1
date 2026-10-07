@@ -42,7 +42,7 @@ function Invoke-LiveWorkGit([string]$Dir, [string[]]$GitArgs) {
 
 function Get-LiveWorkBaseRef([string]$Dir, [string]$Name) {
   foreach ($r in @("refs/remotes/origin/$Name", "refs/heads/$Name")) {
-    & git -C $Dir rev-parse --verify --quiet $r *> $null
+    & git --no-optional-locks -C $Dir rev-parse --verify --quiet $r *> $null
     if ($LASTEXITCODE -eq 0) { return $r }
   }
   throw "[LIVE-WORK-PROBE-FAIL] neither origin/$Name nor $Name resolves in $Dir"
@@ -116,17 +116,17 @@ function Invoke-LiveWorkSummary([string]$Dir, [string]$BaseName, [int]$Hours, [i
   '[LIVE-WORK-SUMMARY] work other sessions may hold, read-only; before starting, resuming, splitting or resetting a card run scripts/live-work.ps1 -TaskId <id> and ask the user about any overlap (L218)'
   $baseRef = Get-LiveWorkBaseRef $Dir $BaseName
   $clock = [Diagnostics.Stopwatch]::StartNew(); $cutoff = [DateTime]::UtcNow.AddHours(-$Hours)
-  $held = 0; $stale = 0; $trees = @(Get-LiveWorkOthers $Dir)
+  $held = 0; $stale = 0; $unknown = 0; $trees = @(Get-LiveWorkOthers $Dir)
   foreach ($t in $trees) {
-    if ($clock.Elapsed.TotalSeconds -gt $Budget) { "[LIVE-WORK-UNKNOWN] path=$($t.Path) (time budget of $Budget s spent)"; continue }
-    try { $h = Get-LiveWorkHolding $t.Path $baseRef } catch { "[LIVE-WORK-UNKNOWN] path=$($t.Path) ($($_.Exception.Message))"; continue }
+    if ($clock.Elapsed.TotalSeconds -gt $Budget) { $unknown++; "[LIVE-WORK-UNKNOWN] path=$($t.Path) (time budget of $Budget s spent)"; continue }
+    try { $h = Get-LiveWorkHolding $t.Path $baseRef } catch { $unknown++; "[LIVE-WORK-UNKNOWN] path=$($t.Path) ($($_.Exception.Message))"; continue }
     if (-not (@($h.Uncommitted).Count + @($h.Unmerged).Count)) { continue }
     if ($null -ne $h.Newest -and $h.Newest -lt $cutoff) { $stale++; continue }
     $held++
     "[LIVE-WORK] path=$($t.Path) branch=$($t.Branch) uncommitted=$(@($h.Uncommitted).Count) unmerged=$(@($h.Unmerged).Count) newest=$(Format-LiveWorkTime $h.Newest)"
   }
   if ($stale) { "[LIVE-WORK-STALE] count=$stale (worktrees whose newest change is older than $Hours h)" }
-  if (-not $held -and -not $stale) { '[LIVE-WORK-NONE] no other worktree holds uncommitted or unmerged work' }
+  if (-not $held -and -not $stale -and -not $unknown) { '[LIVE-WORK-NONE] no other worktree holds uncommitted or unmerged work' }
   Get-LiveWorkHandoffLines @($trees | Where-Object Main)[0].Path
 }
 
@@ -135,7 +135,7 @@ function Invoke-LiveWorkSummary([string]$Dir, [string]$BaseName, [int]$Hours, [i
 function Get-LiveWorkOverlap([string]$Dir, [string]$Id, [string]$BaseName, [int]$Hours) {
   $baseRef = Get-LiveWorkBaseRef $Dir $BaseName
   $cutoff = [DateTime]::UtcNow.AddHours(-$Hours)
-  & git -C $Dir show "${baseRef}:specs/tasks/$Id.md" *> $null
+  & git --no-optional-locks -C $Dir show "${baseRef}:specs/tasks/$Id.md" *> $null
   $cardText = if ($LASTEXITCODE -eq 0) { (Invoke-LiveWorkGit $Dir @('show', "${baseRef}:specs/tasks/$Id.md")) -join "`n" }
   elseif (Test-Path -LiteralPath (Join-Path $Dir "specs/tasks/$Id.md")) { [IO.File]::ReadAllText((Join-Path $Dir "specs/tasks/$Id.md")) }
   else { throw "[LIVE-WORK-PROBE-FAIL] no card specs/tasks/$Id.md on $baseRef or in $Dir" }
@@ -154,9 +154,9 @@ function Get-LiveWorkOverlap([string]$Dir, [string]$Id, [string]$BaseName, [int]
     }
   }
   foreach ($r in @("refs/heads/$Id", "refs/heads/r5-$Id", "refs/remotes/origin/$Id", "refs/remotes/origin/r5-$Id")) {
-    $tip = @(& git -C $Dir rev-parse --verify --quiet $r 2>$null)
+    $tip = @(& git --no-optional-locks -C $Dir rev-parse --verify --quiet $r 2>$null)
     if ($LASTEXITCODE -ne 0 -or -not $tip.Count) { continue }
-    & git -C $Dir merge-base --is-ancestor $tip[0] $baseRef *> $null
+    & git --no-optional-locks -C $Dir merge-base --is-ancestor $tip[0] $baseRef *> $null
     if ($LASTEXITCODE -eq 1) { "[LIVE-WORK-OVERLAP] ref=$r tip=$($tip[0].Substring(0, 8)) is not on $baseRef" }
     elseif ($LASTEXITCODE -ne 0) { throw "[LIVE-WORK-PROBE-FAIL] git merge-base --is-ancestor $r $baseRef exited $LASTEXITCODE" }
   }
@@ -195,6 +195,7 @@ function Invoke-LiveWorkSelfCheck {
     Check 'summary: a handoff line for progress.md and for _local/handoff-*.md' { @($s.Lines | Where-Object { $_ -ceq '[LIVE-WORK-HANDOFF] file=progress.md task=T9-DEMO updated=2026-09-25' -or $_ -ceq '[LIVE-WORK-HANDOFF] file=_local/handoff-T9-NAME.md task=T9-NAME updated=2026-09-24' }).Count -eq 2 }
     $st = & $run @('-RepoPath', $main, '-SinceHours', '0')
     Check 'summary: work older than -SinceHours collapses into one [LIVE-WORK-STALE] line' { @($st.Lines | Where-Object { $_.StartsWith('[LIVE-WORK] ') }).Count -eq 0 -and @($st.Lines | Where-Object { $_.StartsWith('[LIVE-WORK-STALE] count=1 ') }).Count -eq 1 }
+    Check 'summary: worktrees not probed within -BudgetSec are [LIVE-WORK-UNKNOWN] and no [LIVE-WORK-NONE] follows' { $u = & $run @('-RepoPath', $main, '-BudgetSec', '0'); $u.Code -eq 0 -and @($u.Lines | Where-Object { $_.StartsWith('[LIVE-WORK-UNKNOWN] path=') }).Count -eq 3 -and -not @($u.Lines | Where-Object { $_.StartsWith('[LIVE-WORK-NONE]') }).Count }
     $o = & $run @('-RepoPath', $main, '-TaskId', 'T9-DEMO')
     Check 'overlap: a worktree changing the card''s allow_paths exits 3' { $o.Code -eq 3 -and @($o.Lines | Where-Object { $_.StartsWith('[LIVE-WORK-OVERLAP] worktree=') -and $_.Contains('branch=T9-OTHER') -and $_.EndsWith('paths=src/app.txt') }).Count -eq 1 }
     $os = & $run @('-RepoPath', $main, '-TaskId', 'T9-DEMO', '-SinceHours', '0')
