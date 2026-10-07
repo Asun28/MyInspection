@@ -161,6 +161,6 @@ judged by the A3 real run: run 1 must stop start. 16 of 16 killed.
 | M15 | task.ps1: `-not $TakeOver` -> `-not $true` | A3 run 1: exit 0, worktree created |
 | M16 | `-and -not $unknown` dropped from the [LIVE-WORK-NONE] test | summary: worktrees not probed within -BudgetSec are [LIVE-WORK-UNKNOWN] and no [LIVE-WORK-NONE] follows |
 
-**Tier-S full selftest** (`-Parallel`, this worktree): run 1 (`c3674b0b`) red on 14f only (`DocSyncMap` pairs
-`task.ps1` with `DEVOPS-WORKFLOW.md`, fixed via #426); run 2 (`749ad6b4`) red on `seed-post` only, a null-method
-crash after `T37-CIGATE/DEADLINE OK` in a shard run 1 passed; run 3 (same `749ad6b4`) all five shards pass.
+**Tier-S full selftest** (`-Parallel`, this worktree): run 1 (`c3674b0b`) red on 14f only (fixed via #426); run 2
+(`749ad6b4`) red on a `seed-post` null-method crash that run 3 (same commit) passed; run 4 (`6cbe6bcd`) was stopped
+when the review fixes superseded it; run 5 (`13194f09`; later commits touch only this card) passed all 17 gates.
