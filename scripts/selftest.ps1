@@ -956,8 +956,7 @@ function New-ShipFixtureCard([string]$Root, [string]$Id, [string]$Title, [string
     Set-Content (Join-Path $Root "specs/tasks/$Id.md") -Encoding utf8
   & git -C $Root add specs/tasks/$Id.md *> $null
   & git -C $Root commit -q -m "fixture card $Id" *> $null
-  # -TakeOver: 15r starts several cards in one fixture repo (see the gate 15 note, T0-LIVE-WORK-GUARD).
-  & pwsh -NoProfile -File (Join-Path $Root 'scripts/task.ps1') -TaskId $Id -Phase start -TakeOver *> $null
+  & pwsh -NoProfile -File (Join-Path $Root 'scripts/task.ps1') -TaskId $Id -Phase start *> $null
   return (Join-Path $Root "wt/$Id")
 }
 
@@ -9046,10 +9045,7 @@ exit $LASTEXITCODE
         $cbId = 'T0-BUDGET'
         Write-CbCard $e2e $cbId '5'
         Publish-CbCard $cbId 'register the seeded card-budget card on the base branch'
-        # T0-LIVE-WORK-GUARD: gate 15 starts several fixture cards that all declare README.md while its earlier
-        # steps leave README.md edits in other fixture worktrees, which task.ps1 start reads as another session's
-        # work ([START-LIVE-WORK]). 15a's first start and 15b''s start stay plain; every later start in this $e2e fixture passes -TakeOver.
-        & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId $cbId -Phase start -TakeOver *> $null
+        & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId $cbId -Phase start *> $null
         $cbWt = Join-Path $e2e "wt/$cbId"
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path $cbWt)) {
           Fail "闸15w 前置：seeded budget card $cbId 的 -Phase start 未建出 worktree（$cbWt）——ship 侧预算闸无法被驱动，本段四例全部落空。"
@@ -9084,7 +9080,7 @@ exit $LASTEXITCODE
             $cbNone = 'T0-BUDGETNONE'
             Write-CbCard $e2e $cbNone ''
             Publish-CbCard $cbNone 'register a card that declares no budget at all'
-            & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId $cbNone -Phase start -TakeOver *> $null
+            & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId $cbNone -Phase start *> $null
             $cbWtNone = Join-Path $e2e "wt/$cbNone"
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path $cbWtNone)) { Fail "闸15w4 前置：无预算卡 $cbNone 的 -Phase start 未建出 worktree（$cbWtNone）。" }
             else {
@@ -9108,7 +9104,7 @@ exit $LASTEXITCODE
       @('---', "id: $hazId", 'title: seeded red-phase preflight hazard', 'status: todo',
         'dod_command: "pwsh -NoProfile -File scripts/check-cards.ps1"', 'allow_paths:', '  - README.md', '---') -join "`n" |
         Set-Content $hazCard -Encoding utf8
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId $hazId -Phase start -TakeOver *> $null
+      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId $hazId -Phase start *> $null
       $hazWt = Join-Path $e2e "wt/$hazId"
       if ($LASTEXITCODE -ne 0 -or -not (Test-Path $hazWt)) { Fail "闸15g9 前置：合法卡 $hazId -Phase start 未建出 worktree——无法测 red 相前置闸。" }
       else {
@@ -9151,7 +9147,7 @@ exit $LASTEXITCODE
 
       # h3 正路径（无回归）：重建干净 worktree（h2 已删 worktree+分支）→ 无 -Force cleanup 须成功（exit 0、worktree 拆除）。
       #   证守卫不误伤日常正路径——每次 merge 后对干净树 cleanup 都走这条，守卫误拒即等于破坏收尾链。
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start -TakeOver *> $null
+      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start *> $null
       if (-not (Test-Path $wtDir)) { Fail '闸15h3：重建 worktree 失败（task start 未产出 worktree）——无法验证 cleanup 正路径。' }
       else {
         & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase cleanup *> $null
@@ -9170,7 +9166,7 @@ exit $LASTEXITCODE
       #   (a) 正路径：ship -Local 成功铸凭据（tip 绑定）→ 干净 cleanup 须删分支**并注销凭据**（单次性）；
       #   (b) tip 前移：ship 铸凭据后分支又添新提交 → cleanup（无 -Force）须**保留**分支（旧凭据不授权删新状态，R3 #17）。
       $tokFile = Join-Path (Join-Path (Join-Path $e2e '.git') 'scaffold-merged') 'T0-SMOKE'
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start -TakeOver *> $null
+      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start *> $null
       Set-Content (Join-Path $wtDir 'README.md') 'h4a probe' -Encoding utf8
       & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed *> $null
       if ($LASTEXITCODE -ne 0) { Fail '闸15h4(a)：夹具 ship -Local 未过（无法铸凭据）——前置搭建失败。' }
@@ -9185,7 +9181,7 @@ exit $LASTEXITCODE
         elseif (Test-Path $tokFile) { Fail '闸15h4(a)：分支已删但凭据未注销（单次性失效——残留凭据可再授权一次同名分支删除，R3 #9）。' }
         else { Write-Host '  15h4(a) 凭据正路径 OK（tip 匹配 → 删分支 + 注销凭据）' -ForegroundColor Green }
       }
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start -TakeOver *> $null
+      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start *> $null
       Set-Content (Join-Path $wtDir 'README.md') 'h4b probe' -Encoding utf8
       & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed *> $null
       if ($LASTEXITCODE -ne 0) { Fail '闸15h4(b)：夹具第二次 ship -Local 未过——前置搭建失败。' }
@@ -9231,7 +9227,7 @@ exit $LASTEXITCODE
       if (-not $hadOrigin15h4) { & git -C $e2e remote add origin (Join-Path $e2e 'fake-origin.git') 2>$null }
       $oldPath15h4 = $env:Path
       # (d) MERGED + headRefOid 匹配 → CAS 删除
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start -TakeOver *> $null
+      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start *> $null
       $h4dTip = "$(& git -C $e2e rev-parse T0-SMOKE 2>$null)".Trim()
       Set-Content (Join-Path $ghStub15h4 'gh.ps1') "Write-Output '{""state"":""MERGED"",""headRefOid"":""$h4dTip""}'" -Encoding ascii
       $env:Path = "$ghStub15h4$([IO.Path]::PathSeparator)$oldPath15h4"
@@ -9244,7 +9240,7 @@ exit $LASTEXITCODE
       elseif ($h4dBranchAlive) { Fail '闸15h4(d)：gh 报 MERGED 且 headRefOid==分支 tip，但分支未被删除——在线补验正路径回归（-NoAutoMerge/他机合并收尾链破坏）。' }
       else { Write-Host '  15h4(d) 在线补验匹配删除 OK（stub gh：MERGED + headRefOid==tip → CAS 删）' -ForegroundColor Green }
       # (e) MERGED 但 headRefOid 不匹配 → 保留
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start -TakeOver *> $null
+      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start *> $null
       Set-Content (Join-Path $ghStub15h4 'gh.ps1') "Write-Output '{""state"":""MERGED"",""headRefOid"":""0000000000000000000000000000000000000000""}'" -Encoding ascii
       $env:Path = "$ghStub15h4$([IO.Path]::PathSeparator)$oldPath15h4"
       & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase cleanup *> $null
@@ -9316,7 +9312,7 @@ exit $LASTEXITCODE
       $cardDiag15h5 = 'T0-SMOKE.md'
       # Mint a worktree, a branch and a merge credential; returns $true when the setup really happened.
       function Initialize-CardlessFixture15h5 ([string]$Probe) {
-        & pwsh -NoProfile -File $task15h5 -TaskId T0-SMOKE -Phase start -TakeOver *> $null
+        & pwsh -NoProfile -File $task15h5 -TaskId T0-SMOKE -Phase start *> $null
         if (-not (Test-Path $wtDir)) { Fail "[15H5-SETUP] 闸15h5($Probe)：-Phase start 未产出 worktree——前置搭建失败，不是对无卡路径的裁决。"; return $false }
         Set-Content (Join-Path $wtDir 'README.md') "15h5 $Probe probe" -Encoding utf8
         & pwsh -NoProfile -File $task15h5 -TaskId T0-SMOKE -Phase ship -Local -SkipRed *> $null
@@ -9386,7 +9382,7 @@ exit $LASTEXITCODE
       $h5cOk = $true
       Restore-CardlessFixture15h5
       # (c1) red and ship, WITH a worktree in place, so neither can refuse for want of one.
-      & pwsh -NoProfile -File $task15h5 -TaskId T0-SMOKE -Phase start -TakeOver *> $null
+      & pwsh -NoProfile -File $task15h5 -TaskId T0-SMOKE -Phase start *> $null
       if (-not (Test-Path $wtDir)) { Fail '[15H5-SETUP] 闸15h5(c)：-Phase start 未产出 worktree——无法在「worktree 在场」的前提下追问 red / ship。'; $h5cOk = $false }
       else {
         $h5cBaseBefore = "$(& git -C $e2e rev-parse master 2>$null)".Trim()
@@ -9403,7 +9399,7 @@ exit $LASTEXITCODE
       # (c2) start on a clean slate: it BUILDS the worktree, so the assertion is that it built nothing.
       Restore-CardlessFixture15h5
       Remove-Item $cardHot15h5 -Force
-      $h5c2Out = & pwsh -NoProfile -File $task15h5 -TaskId T0-SMOKE -Phase start -TakeOver 2>&1 | Out-String
+      $h5c2Out = & pwsh -NoProfile -File $task15h5 -TaskId T0-SMOKE -Phase start 2>&1 | Out-String
       $h5c2Exit = $LASTEXITCODE
       if ($h5c2Exit -eq 0) { Fail '[15H5-GUARD-EXIT] 闸15h5(c)：缺卡时 -Phase start 退出 0——start 读卡字段，缺卡是真错误。'; $h5cOk = $false }
       elseif (Test-Path $wtDir) { Fail '[15H5-GUARD-SIDEEFFECT] 闸15h5(c)：-Phase start 因缺卡拒绝了，却已经建出 worktree——拒绝须发生在任何副作用之前。'; $h5cOk = $false }
@@ -9419,7 +9415,7 @@ exit $LASTEXITCODE
       #       不补这一步，未加守卫时 task.ps1 会先在「任务卡不存在」处抛，走不到 base==TaskId 那条链。
       #   (b) -SkipRed——历史参数（RED 证据闸已随 T68 拆除，现为兼容 no-op；保留传参不影响行为）。
       #   哨兵取 ASCII `L86`（同 TD50-BADID 手法，免中文断言在异构控制台产假 FAIL · L17）。
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start -TakeOver *> $null
+      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start *> $null
       if (-not (Test-Path $wtDir)) { Fail '闸15m：重建 worktree 失败（task start 未产出 worktree）——无法验证 base==TaskId 守卫。' }
       else {
         # (a) 把卡片提交到分支上（$e2e 的仓级 user.email/name 已配，worktree 提交继承之）。
