@@ -1,7 +1,7 @@
 ---
 id: T0-LIVE-WORK-GUARD
 title: Show each session the worktrees, branches and handoff files other sessions hold (read-only live-work probe and SessionStart summary)
-status: todo
+status: merged
 depends_on: []
 parallelizable_with: []
 allow_paths:
@@ -130,3 +130,18 @@ case now requires the kill's own reason, and the batch was rerun on the final by
 
 **Tier-S full selftest** (`-Parallel`, this worktree): `fc51968f` passed all 17 gates in five shards (1221 s).
 Later commits change only this record and other cards.
+
+## R5 (2026-10-07)
+
+Merged by PR #447 (squash `372ebc34`, reviewed head `3264bfd3`, CI `37593283167` attempt 1). Codex R3 round 2 passed
+both axes with zero findings. Round 1 blocked the earlier combined candidate, which led to the split above.
+
+**Note for the AIDLC project (plan v5 Package S).** MyInspection now has `scripts/live-work.ps1`. Run with no
+arguments, it prints what other worktrees hold (`[LIVE-WORK]`, `[LIVE-WORK-STALE]`, `[LIVE-WORK-UNKNOWN]`,
+`[LIVE-WORK-NONE]`, `[LIVE-WORK-HANDOFF]`) and always exits 0. With `-TaskId <id>` it exits 3 when another worktree
+or branch holds the card's paths or name, 0 when none does, and 2 when it cannot tell. A multi-session coordinator
+can call it before it dispatches a card instead of keeping its own registry of who holds a worktree.
+
+**Known limits, not fixed here.** Reading git's output after git has exited has no separate time bound. Paths
+that git status quotes with C escapes keep the escapes. The SessionStart hook has about 5 s over the 10 s budget
+for pwsh startup.
