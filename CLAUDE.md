@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-10-07 远端交付**：`T0-LIVE-WORK-GUARD` 经 [PR #447](https://github.com/Asun28/MyInspection/pull/447) 合并（`372ebc34`；reviewed head `3264bfd3`，CI `37593283167` attempt 1，Codex R3 第 2 轮 pass、零 finding）。只读探针 `scripts/live-work.ps1` 列出其他会话持有的 worktree（未提交与未合并改动、最新改动时间）、以卡 id 命名的分支和交接文件；SessionStart 以 15 秒超时打印摘要；`-TaskId` 判一张卡是否与别的会话重叠（退出 3/0/2）。目录已不存在的登记 worktree、或在 `-BudgetSec` 截止时仍在跑的 git 调用一律报 UNKNOWN（`-TaskId` 退出 2），绝不报「无人持有」；每个 git 调用到截止即连进程树一起终止。R3 第 1 轮（PR #447 原合并版）block：缺目录的 worktree 被静默丢弃、预算只在 worktree 之间检查、自检漏测多处；修复超出 450 行预算，用户裁定拆成三张（卡片 #448，#449 把后继卡的断言改为 ASCII）。自检 20 例，R4 10/10，Tier-S 全 17 闸通过（`fc51968f`）。后继：`T0-LIVE-WORK-START`（start 遇重叠即停、闸 15、会话规则）、`T0-DIRTY-WORKTREE-HOOK`（丢弃类 git 命令前先问）。
+
 **2026-10-05 prereview 来源校验交付**：`T0-PREREVIEW-POLICY-SOURCE-CHECK` 经 [PR #318](https://github.com/Asun28/MyInspection/pull/318) 合并（reviewed head `29e3d44721c57f778cea1060dc686216c7a27939`，CI `37243668732/1`，squash `4ec53add20b62a02c021301a397a3eaa63cfe281`）。固定 manifest 校验两份已提交来源的身份、完整替换重放与候选正文；两项正例和八项负例通过，含三项等长 SHA-256 探针。当前候选普通全量自检五分片覆盖 17 闸、DoD、verify、范围、许可、防泄露均通过；正式 Sol/high R3 双轴 pass、零 finding。历史四次 BLOCK 与完整证据保留；本轮经用户授权在原配置下恢复实际读取和验收后正常交付。未运行 IncludeMeta；POLICY／FACTS 后续工作独立处理，零新增产品。
 
 **2026-10-05 登记交付**：`T0-TRIAGE-EVIDENCE-SPLIT-REGISTER` 经 PR #321 合并（reviewed head `879dea35374528462259ef0f85aae0c3623fe4eb`，CI `37238972191` attempt 1，squash `f8ca11743ab64bcd4ec17177c423f86da2a6d4de`）。登记 INPUTS 前置卡并保留 CASE 的 dual-actual 最终验收；当前主线同步后只更新三项源码摘要绑定。30 个 schema 样例与 14 个原生子检查、verify、范围、许可、防泄露和完整 diff 预算均通过；正式 Sol/high R3 的 spec/standards 均 pass、零 finding。此前 BLOCK 与全部历史证据保留。本次仅完成登记，INPUTS/CASE 行为仍待各自交付，不计新增产品。
