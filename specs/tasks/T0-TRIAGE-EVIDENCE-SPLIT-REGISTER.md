@@ -1,7 +1,7 @@
 ---
 id: T0-TRIAGE-EVIDENCE-SPLIT-REGISTER
 title: Register one evidence-input predecessor and preserve the existing PR294 case contract
-status: todo
+status: merged
 depends_on: []
 allow_paths:
   - specs/tasks/T0-TRIAGE-EVIDENCE-SPLIT-REGISTER.md
@@ -56,11 +56,11 @@ $sourcePins = @{
     'scripts/review.ps1' = '124BE2DD5DC4448E6B2E27D445E72C0DE9CBD3E84BD324246ED1D4AC11EA7329'
     'specs/verdict.schema.json' = '7FD70EBAA6E65F231CB78ED6E26D42BDDFBF92612CC371CCCB8705D090A04672'
     'scripts/triage.ps1' = '1DA2BA39797DDD8E00ACA7D4DA3088A74977BA78498B54A2347311D342CC9580'
-    'scripts/selftest.ps1' = '3E8D8B9908F2EB15C0A472CF6C24069E9B61981C37C3B3847017D39DA1F4099F'
+    'scripts/selftest.ps1' = '395A34FE1B1B6E91E3F0E7FE68707A8B92FD28DD71B90948EA1EBC0A2DB404E8'
     'scripts/check-cards.ps1' = '02B2436F5C00CC047BD96D205B19BC67FB0329ED620DCECDB3D1007C50494C5C'
     'scripts/_cards.ps1' = '1611AA1712908DDACE7E1C99E79829FAA49BABD2A06C8B38C97C96A066913D44'
-    'scripts/archive.ps1' = '74FB4D80559AA0DA9E05597551C457A69BD24CFFC6CA9873041DB5CD6CF3F2B9'
-    'scripts/_config.ps1' = 'B2F2F5DCF2ECFF8F1A1CA56C5B9A1131E4804EBB3AA8B2859DB531C2A998CF21'
+    'scripts/archive.ps1' = 'AC1E3F9DEAF796EF2646CDAF4B9AD7D30A3E9616EA22C7EF91F451E0A313E921'
+    'scripts/_config.ps1' = '0D415124683063D8E6F9A954678125E4AC6EA4EFD513979566C3F4CD58D6FF5B'
     'docs/LOOP-ENGINEERING.md' = 'DE58B3D74ED7F96CC8C672242CB0A7AC8E7A24A5E352ED9077F490D28B1EF395'
 }
 foreach ($path in $sourcePins.Keys) {
@@ -266,3 +266,13 @@ All twelve negatives require exactly native 1 and their named diagnostic. Positi
 ## Normalized evidence metadata correction
 
 Normal DoD checks INPUTS's 6 valid and 24 invalid schema samples before the unchanged corruption controls. This registers future behavior only. CASE remains byte-identical.
+
+## 2026-10-05 R5 registration delivery
+
+PR #321 merged as `f8ca11743ab64bcd4ec17177c423f86da2a6d4de`, after reviewing exact head `879dea35374528462259ef0f85aae0c3623fe4eb`. Formal Sol/high R3 passed both spec and standards with zero findings. Exact CI workflow `37238972191`, attempt 1, passed verify and required.
+
+The continuation synchronized the current baseline and changed only three source pins for selftest, archive and configuration. All payload and historical-byte assertions remained intact. Normal DoD passed 6 valid and 24 invalid schema samples, all 12 corruption controls, and positive/restored native controls; project verify, scope, license, secrets and full diff budget also passed. Full diff was 180 changed lines / 24,950 UTF-16 units.
+
+Earlier BLOCK verdicts and their complete raw evidence remain historical records. The user authorized one further round on 2026-10-05; its normal ship returned native 0. This closes metadata registration only. INPUTS and CASE remain pending behavior tasks; no prior RED, CASE counter or original historical evidence was reclassified as new acceptance.
+
+R5.5: no new product defect or new reusable lesson was identified. Baseline pin drift and preserving actual review outcomes are already covered by existing rules; no duplicate lesson entry is added.
