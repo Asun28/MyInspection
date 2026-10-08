@@ -18,7 +18,8 @@
       count. Exit 3 when any [LIVE-WORK-OVERLAP] line was printed, 0 when none, 2 when a probe fails: an unreadable
       card, a git error, a registered worktree whose directory is missing, or the time budget running out.
   live-work.ps1 -SelfCheck
-      Builds temporary Git fixtures and checks both modes; prints [LIVE-WORK-SELF-CHECK-PASS].
+      Builds temporary Git fixtures and checks both modes and the dirty-worktree hook (.claude/hooks/
+      guard-dirty-worktree.ps1); prints [LIVE-WORK-SELF-CHECK-PASS].
   -BudgetSec bounds the whole run: every git call is killed once it passes the deadline. 0 (the default) means 10 s
   for the summary, which the SessionStart hook runs under a 15 s timeout, and 120 s with -TaskId.
   The worktree the caller runs in is left out, except the main checkout, which every session shares. The base is
@@ -278,7 +279,57 @@ function Invoke-LiveWorkSelfCheck {
     Remove-Item -LiteralPath (Join-Path $wtB 'docs/free.md')
     $d = & $run @('-RepoPath', $main)
     Check 'summary: a worktree holding only a deletion gets its HEAD commit time as newest' { (& $has $d '[LIVE-WORK] ' 'branch=T9-NAME uncommitted=1 unmerged=0 newest=20') -eq 1 }
-  } catch { $keep = $true; $fails.Add("fixture: $($_.Exception.Message) (fixture kept at $root)") }
+
+    # The dirty-worktree hook (T0-DIRTY-WORKTREE-HOOK), fed event JSON the way Claude Code sends it: wtA is dirty
+    # (src/app.txt, branch T9-OTHER); wtC is clean but holds one ignored file. Stderr is merged into the output, so an
+    # ask must be exactly one line of hook JSON, "prints nothing" means no line at all, and every case requires exit 0.
+    $hook = Join-Path $PSScriptRoot '../.claude/hooks/guard-dirty-worktree.ps1'
+    New-Item -ItemType Directory -Force (Join-Path $wtC '_local') | Out-Null; Set-Content (Join-Path $wtC '_local/keep.md') 'keep' -Encoding utf8
+    # wtE's index is garbage, so git status fails there while rev-parse still finds the worktree: a git error.
+    $wtE = Join-Path $root 'wtE'; & $g $main worktree add -q --detach $wtE origin/master; [IO.File]::WriteAllText((Join-Path @(& git -C $wtE rev-parse --absolute-git-dir)[0] 'index'), 'not an index')
+    $ask ={ param([string]$In) $o = @($In | & pwsh -NoProfile -File $hook 2>&1 | ForEach-Object { "$_" }); [pscustomobject]@{ Code = $LASTEXITCODE; Out = $o } }
+    $evt = { param($Command, $Cwd, $Tool = 'Bash') & $ask (@{ tool_name = $Tool; tool_input = @{ command = $Command }; cwd = $Cwd } | ConvertTo-Json -Compress) }
+    $asksAbout = { param($r, [string]$What) if ($r.Code -ne 0 -or $r.Out.Count -ne 1) { return $false }; $h = ($r.Out[0] | ConvertFrom-Json).hookSpecificOutput
+      $h.hookEventName -ceq 'PreToolUse' -and $h.permissionDecision -ceq 'ask' -and $h.permissionDecisionReason.Contains($What) -and $h.permissionDecisionReason.Contains('Another session may hold this worktree (L218)') }
+    $asks = { param($r) & $asksAbout $r 'wtA (branch T9-OTHER): 1 uncommitted path(s), newest change 20' }
+    $quiet ={ param($r) $r.Code -eq 0 -and $r.Out.Count -eq 0 }
+    foreach ($c in @('reset --hard', 'reset --merge', 'reset --keep', 'checkout -f', 'checkout -- src/app.txt', 'checkout .', 'restore src/app.txt',
+        'restore --staged --worktree src/app.txt', 'clean -fd', 'stash', 'stash push', 'switch -C lw-x', 'switch --force-create lw-x', 'switch -f T9-OTHER',
+        'switch --discard-changes T9-OTHER', 'branch -D lw-x', 'branch -f lw-x', 'branch -M lw-x', 'update-ref refs/heads/lw-x HEAD')) {
+      Check "hook: git -C <dirty> $c asks" { & $asks (& $evt "git -C '$wtA' $c" $main) }
+      Check "hook: git -C <clean> $c prints nothing" { & $quiet (& $evt "git -C '$wtC' $c" $main) }
+    }
+    Check 'hook: git worktree remove --force <dirty> asks' { & $asks (& $evt "git worktree remove --force '$wtA'" $main) }
+    Check 'hook: git worktree remove --force <clean> prints nothing' { & $quiet (& $evt "git worktree remove --force '$wtC'" $main) }
+    Check 'hook: a -c option is not a directory (dirty asks)' { & $asks (& $evt "git -C '$wtA' -c core.quotepath=false reset --hard" $main) }
+    Check 'hook: a -c option is not a directory (clean prints nothing)' { & $quiet (& $evt "git -c core.quotepath=false -C '$wtC' reset --hard" $main) }
+    Check 'hook: & git.exe is git' { & $asks (& $evt "& git.exe -C '$wtA' reset --hard" $main) }
+    Check 'hook: a relative -C joins the event cwd' { & $asks (& $evt 'git -C wtA reset --hard' $root) }
+    Check 'hook: a relative -C joins the directory a Set-Location moved to' { & $asks (& $evt "Set-Location '$root'; git -C wtA reset --hard" $wtC) }
+    Check 'hook: cd moves the target' { & $asks (& $evt "cd '$wtA' && git reset --hard" $wtC) }
+    Check 'hook: Set-Location -LiteralPath moves the target' { & $asks (& $evt "Set-Location -LiteralPath '$wtA'; git reset --hard" $wtC) }
+    Check 'hook: Push-Location moves the target' { & $asks (& $evt "Push-Location '$wtA'; git reset --hard" $wtC) }
+    Check 'hook: pushd moves the target' { & $asks (& $evt "pushd '$wtA' && git reset --hard" $wtC) }
+    Check 'hook: Pop-Location moves it back' { & $quiet (& $evt "Push-Location '$wtA'; Pop-Location; git reset --hard" $wtC) }
+    Check 'hook: a cd inside ( ... ) moves the target inside it' { & $asks (& $evt "(cd '$wtA' && git reset --hard)" $wtC) }
+    Check 'hook: in PowerShell ( ... ) keeps the location change' { & $asks (& $evt "(Set-Location '$wtA'); git reset --hard" $wtC 'PowerShell') }
+    Check 'hook: popd moves it back' { & $quiet (& $evt "pushd '$wtA' && popd && git reset --hard" $wtC) }
+    Check 'hook: a ) inside quotes does not close the subshell' { & $asks (& $evt "(cd '$wtA' && echo `")`" && git reset --hard)" $wtC) }
+    Check 'hook: a git error in one command leaves the later ones checked' { & $asks (& $evt "git -C '$wtE' reset --hard; git -C '$wtA' reset --hard" $main) }
+    Check 'hook: the closing parenthesis of ( ... ) moves it back' { & $quiet (& $evt "(cd '$wtA'); git reset --hard" $wtC) }
+    Check 'hook: the event cwd is the target when nothing moves it' { & $asks (& $evt 'git reset --hard' $wtA) }
+    if ($IsWindows) {
+      Check 'hook: a Git Bash /c/... path is read as C:/...' { & $asks (& $evt "cd '/$($wtA.Substring(0, 1).ToLowerInvariant())$($wtA.Substring(2).Replace('\', '/'))' && git reset --hard" $wtC) }
+      $nd = @([char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "$($_):\") })[0]
+      Check 'hook: a command it cannot check leaves the earlier ask in place' { & $asks (& $evt "git -C '$wtA' reset --hard; cd ${nd}:\nope; git -C sub reset --hard" $wtC) }
+    }
+    foreach ($c in @('git -C <wt> restore --staged src/app.txt', 'git -C <wt> stash list', 'git -C <wt> stash show', 'git -C <wt> status', 'git commit -m "note: git reset --hard asks"', 'git commit -m "wip; git stash pop later"', 'echo git stash')) {
+      Check "hook: $c on a dirty worktree prints nothing" { & $quiet (& $evt $c.Replace('<wt>', "'$wtA'") $wtA) }
+    }
+    Check 'hook: clean -fdx on a worktree whose only extra file is ignored asks' { & $asksAbout (& $evt "git -C '$wtC' clean -fdx" $main) 'wtC (branch detached): 0 uncommitted path(s) and 1 ignored path(s), newest change unknown' }
+    Check 'hook: clean -fX counts ignored files too' { & $asksAbout (& $evt "git -C '$wtC' clean -fX" $main) 'wtC (branch detached): 0 uncommitted path(s) and 1 ignored path(s), newest change unknown' }
+    Check 'hook: clean -fd (no -x) there prints nothing' { & $quiet (& $evt "git -C '$wtC' clean -fd" $main) }
+    Check 'hook: unreadable input prints nothing' { & $quiet (& $ask 'not json') }  } catch { $keep = $true; $fails.Add("fixture: $($_.Exception.Message) (fixture kept at $root)") }
   finally { if (-not $keep) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue } }
   if ($fails.Count) {
     foreach ($x in $fails) { Write-Host "LIVE-WORK-FAIL: $x" }
