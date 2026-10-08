@@ -94,6 +94,9 @@ stops start. That is intended: the main checkout is shared by every session.
 **DoD.** `selftest.ps1 -Only 15` on `92063c73` passed in 1073 s with the `[15LW-OK]` line (R4's control run below),
 and the three teaching surfaces and the HANDOFF.md rule pass the DoD's text checks.
 
+**Tier-S (A5).** `selftest.ps1 -Parallel` from the card worktree at `283c7546` (code as `92063c73`; only this record
+changed since) passed: 5 shards exited 0, their union is all 17 gates, 1680 s wall.
+
 **R4.** Each mutant ran `selftest.ps1 -Only 15` in its own detached worktree of `92063c73`, all in parallel
 beside an unmutated control copy, which passed with `[15LW-OK]`. A kill is a non-zero exit, no `[15LW-OK]`, and the
 mutant's own sentinel in the output. 5 of 5 killed on `scripts/task.ps1` at `92063c73` (SHA-256 `B982AF68…4988`;
