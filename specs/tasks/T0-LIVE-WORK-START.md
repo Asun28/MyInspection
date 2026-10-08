@@ -78,7 +78,9 @@ candidate of PR #447 (`00a0e56d`), applied with `git apply --3way` onto `246d8aa
 
 - The existing-worktree refusal first prints one ASCII line, `[START-WORKTREE-EXISTS] <worktree> uncommitted=<n>`
   `newest=<ISO-8601>` (amended by #449), then throws as before. The pair needs its own line: PowerShell's error
-  view wraps a long `throw` message, and in gate 15 it split the pair across two lines.
+  view wraps a long `throw` message, and in gate 15 it split the pair across two lines. The card's worktree is
+  found by its branch in the probe's overlap lines, not by its path: git stores the long form of a path given with
+  8.3 short names, so on a runner whose TEMP is `C:\Users\RUNNER~1\...` the two strings differ.
 - CLAUDE.md's execution-boundary line no longer names the dirty-worktree hook; `T0-DIRTY-WORKTREE-HOOK` adds it.
   It says instead that a probe failure stops start even with `-TakeOver`.
 - Gate 15 gains the 15lw block (A2), placed last in the `$e2e` fixture before its cleanup. It prints `[15LW-OK]`
@@ -89,15 +91,18 @@ candidate of PR #447 (`00a0e56d`), applied with `git apply --3way` onto `246d8aa
 and the probe always includes the main checkout, so an uncommitted edit there to one of the card's paths also
 stops start. That is intended: the main checkout is shared by every session.
 
-**DoD.** `selftest.ps1 -Only 15` on `9566e125` passed in 967 s with the `[15LW-OK]` line (R4's control run below),
+**DoD.** `selftest.ps1 -Only 15` on `92063c73` passed in 1073 s with the `[15LW-OK]` line (R4's control run below),
 and the three teaching surfaces and the HANDOFF.md rule pass the DoD's text checks.
 
-**R4.** Each mutant ran `selftest.ps1 -Only 15` in its own detached worktree of `9566e125`, all in parallel
+**R4.** Each mutant ran `selftest.ps1 -Only 15` in its own detached worktree of `92063c73`, all in parallel
 beside an unmutated control copy, which passed with `[15LW-OK]`. A kill is a non-zero exit, no `[15LW-OK]`, and the
-mutant's own sentinel in the output. 5 of 5 killed on `scripts/task.ps1` at `9566e125`. The first batch (on
-`2a127f35`) let M5 survive: 15lw(c) matched `uncommitted=1` in the overlap line that start prints before it
-refuses. Anchoring the case on the refusal then made the second batch's control fail, which is how the wrapped
-`throw` message above was found.
+mutant's own sentinel in the output. 5 of 5 killed on `scripts/task.ps1` at `92063c73` (SHA-256 `B982AF68…4988`;
+`selftest.ps1` `7DE68355…4686`). The first batch (on `2a127f35`) let M5 survive: 15lw(c) matched `uncommitted=1`
+in the overlap line that start prints before it refuses. Anchoring the case on the refusal then made the second
+batch's control fail, which is how the wrapped `throw` message above was found. The third batch, on `9566e125`,
+killed 5 of 5 with a passing control. A fresh-context review before ship then found the path comparison above and a
+15lw(a) assertion that the start's own step header satisfied (it now anchors on the stop's text), so the fourth batch
+reran all five on the fix.
 
 | id | single-statement change in `scripts/task.ps1` | killed by |
 |---|---|---|
@@ -105,4 +110,4 @@ refuses. Anchoring the case on the refusal then made the second batch's control 
 | M2 | `[switch]$TakeOver` -> `[switch]$TakeOver = $true` (-TakeOver by default) | `[15LW-STOP]` |
 | M3 | `elseif ($liveWork -ne 0)` -> `... -and -not $TakeOver` (-TakeOver past exit 2) | `[15LW-UNKNOWN]` |
 | M4 | `$liveWork = $LASTEXITCODE` -> exit 2 mapped to 0 | `[15LW-UNKNOWN]` |
-| M5 | the existing-worktree count -> `if ($false)` | `[15LW-EXISTING]` |
+| M5 | `$lwPair = if ($lwMine.Count -and …)` -> `$lwPair = if ($false)` | `[15LW-EXISTING]` |
