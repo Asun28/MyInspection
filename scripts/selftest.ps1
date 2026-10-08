@@ -9460,12 +9460,17 @@ exit $LASTEXITCODE
         }
       }
     }
-    # 15lw. task.ps1 start against work another session holds (T0-LIVE-WORK-START A2), with the real task.ps1 and
+    # 15lw. task.ps1 start against work another session holds (T0-LIVE-WORK-START A1, A2), with the real task.ps1 and
     #   live-work.ps1 in this fixture: (a) a start whose card declares a path another fixture worktree has
-    #   uncommitted stops with [START-LIVE-WORK] and builds nothing; (b) the same start with -TakeOver builds the
-    #   worktree; (c) with an uncommitted edit in that worktree, a start with -TakeOver refuses with uncommitted=1 and
-    #   leaves the edit; (d) a start whose probe fails (a registered worktree whose directory is gone) stops with
-    #   [START-LIVE-WORK-UNKNOWN], -TakeOver or not. Prints [15LW-OK] only when all four hold.
+    #   uncommitted stops with [START-LIVE-WORK], prints that worktree's [LIVE-WORK-OVERLAP] line and builds nothing;
+    #   (b) the same start with -TakeOver prints the same line and builds the worktree; (c) a start with -TakeOver of
+    #   a card whose worktree exists refuses with the whole [START-WORKTREE-EXISTS] line (uncommitted=<n>, newest=<UTC
+    #   time>, do not reset it), clean (uncommitted=0, its HEAD commit time) and with an edit (uncommitted=1, the
+    #   edit's write time, edit kept); (d) a start whose
+    #   probe fails (a registered worktree whose directory is gone) stops with [START-LIVE-WORK-UNKNOWN], -TakeOver or
+    #   not; (e) so does a probe that exits 5, a code other than 0, 2 and 3; (f) task.ps1's help block has a
+    #   .PARAMETER TakeOver line (Get-Help cannot parse that block, so the line is read). Prints [15LW-OK] only when
+    #   all of these hold.
     if (-not $fail) {
       $lwTask = Join-Path $e2e 'scripts/task.ps1'; $lwOk = $true
       $lwId = 'T0-LWSTART'; $lwWt = Join-Path $e2e "wt/$lwId"; $lwGoneId = 'T0-LWGONE'; $lwGoneWt = Join-Path $e2e "wt/$lwGoneId"
@@ -9478,15 +9483,25 @@ exit $LASTEXITCODE
       & git -C $e2e commit -q -m 'register the live-work start seeds' *> $null
       & git -C $e2e worktree add -q -b lw-other $lwOther master *> $null
       Set-Content (Join-Path $lwOther 'README.md') 'another session edits README.md (15lw)' -Encoding utf8
+      # The overlap line the probe prints for lw-other; start must print it whether it stops or takes over.
+      $lwOverlap = { param($o) @($o -split "`r?`n" | Where-Object { $_.Trim().StartsWith('[LIVE-WORK-OVERLAP] worktree=') -and $_.Contains(' branch=lw-other uncommitted=1 ') -and $_.TrimEnd().EndsWith(' paths=README.md') }).Count -eq 1 }
       $lwA = & pwsh -NoProfile -File $lwTask -TaskId $lwId -Phase start 2>&1 | Out-String; $lwAExit = $LASTEXITCODE
-      if ($lwAExit -eq 0 -or $lwA -notmatch '\[START-LIVE-WORK\] another worktree' -or (Test-Path $lwWt)) { Fail "[15LW-STOP] 闸15lw(a)：另一 worktree 持有 README.md 的未提交改动时，不带 -TakeOver 的 start 须非零退出、打印 [START-LIVE-WORK] 且不建 worktree（exit=$lwAExit，worktree 存在=$(Test-Path $lwWt)）。"; $lwOk = $false }
+      if ($lwAExit -eq 0 -or $lwA -notmatch '\[START-LIVE-WORK\] another worktree' -or -not (& $lwOverlap $lwA) -or (Test-Path $lwWt)) { Fail "[15LW-STOP] 闸15lw(a)：另一 worktree 持有 README.md 的未提交改动时，不带 -TakeOver 的 start 须非零退出、打印 [START-LIVE-WORK] 与 lw-other 的 [LIVE-WORK-OVERLAP] 行且不建 worktree（exit=$lwAExit，worktree 存在=$(Test-Path $lwWt)）。"; $lwOk = $false }
       $lwB = & pwsh -NoProfile -File $lwTask -TaskId $lwId -Phase start -TakeOver 2>&1 | Out-String; $lwBExit = $LASTEXITCODE
-      if ($lwBExit -ne 0 -or -not (Test-Path $lwWt)) { Fail "[15LW-TAKEOVER] 闸15lw(b)：同一 start 带 -TakeOver 须退出 0 并建出 worktree（exit=$lwBExit）。"; $lwOk = $false }
+      if ($lwBExit -ne 0 -or -not (& $lwOverlap $lwB) -or -not (Test-Path $lwWt)) { Fail "[15LW-TAKEOVER] 闸15lw(b)：同一 start 带 -TakeOver 须打印同一条 [LIVE-WORK-OVERLAP] 行、退出 0 并建出 worktree（exit=$lwBExit）。"; $lwOk = $false }
       else {
+        # The whole line start prints for an existing worktree (one line: the error view wraps a long throw message),
+        # with the exact newest time: the HEAD commit when the worktree is clean, else the edited file's write time.
+        $lwUtc = { param($t) $t.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture) }
+        $lwExists = { param($o, $n, $t) @($o -split "`r?`n" | Where-Object { $_ -cmatch "^\[START-WORKTREE-EXISTS\] .*[\\/]$lwId uncommitted=$n newest=$t another session may hold this worktree: do not reset, checkout or clean it; ask the user \(L218\)$" }).Count -eq 1 }
+        $lwHeadAt = & $lwUtc ([DateTimeOffset]::Parse("$(& git -C $lwWt log -1 --format=%cI HEAD)".Trim(), [Globalization.CultureInfo]::InvariantCulture).UtcDateTime)
+        $lwC0 = & pwsh -NoProfile -File $lwTask -TaskId $lwId -Phase start -TakeOver 2>&1 | Out-String; $lwC0Exit = $LASTEXITCODE
+        if ($lwC0Exit -eq 0 -or -not (& $lwExists $lwC0 0 $lwHeadAt)) { Fail "[15LW-EXISTING-CLEAN] 闸15lw(c)：worktree 已存在且无未提交改动时，start -TakeOver 须拒绝并打印整行 [START-WORKTREE-EXISTS] <worktree> uncommitted=0 newest=$lwHeadAt（HEAD 提交时间）another session may hold this worktree...（exit=$lwC0Exit）。"; $lwOk = $false }
         Set-Content (Join-Path $lwWt 'README.md') 'held by this card (15lw)' -Encoding utf8
+        $lwEditAt = & $lwUtc (Get-Item -LiteralPath (Join-Path $lwWt 'README.md')).LastWriteTimeUtc
         $lwC = & pwsh -NoProfile -File $lwTask -TaskId $lwId -Phase start -TakeOver 2>&1 | Out-String; $lwCExit = $LASTEXITCODE
         $lwKept = (Get-Content (Join-Path $lwWt 'README.md') -Raw) -match 'held by this card'
-        if ($lwCExit -eq 0 -or $lwC -notmatch "\[START-WORKTREE-EXISTS\] .*$lwId uncommitted=1 newest=\d{4}-" -or -not $lwKept) { Fail "[15LW-EXISTING] 闸15lw(c)：worktree 已存在且有 1 个未提交改动时，start -TakeOver 须拒绝、打印 [START-WORKTREE-EXISTS] <worktree> uncommitted=1 newest=<时间> 并保留改动（重叠行也含 uncommitted=1，throw 的长消息会被错误视图折行，故断言锚定这一行）（exit=$lwCExit，改动保留=$lwKept）。"; $lwOk = $false }
+        if ($lwCExit -eq 0 -or -not (& $lwExists $lwC 1 $lwEditAt) -or -not $lwKept) { Fail "[15LW-EXISTING] 闸15lw(c)：worktree 已存在且有 1 个未提交改动时，start -TakeOver 须拒绝、打印整行 [START-WORKTREE-EXISTS] <worktree> uncommitted=1 newest=$lwEditAt（改动文件的写入时间）another session may hold this worktree... 并保留改动（exit=$lwCExit，改动保留=$lwKept）。"; $lwOk = $false }
       }
       & git -C $e2e worktree add -q -b lw-gone $lwGone master *> $null
       Remove-Item -LiteralPath $lwGone -Recurse -Force -ErrorAction SilentlyContinue
@@ -9495,10 +9510,22 @@ exit $LASTEXITCODE
         $lwD = & pwsh @lwArgs 2>&1 | Out-String; $lwDExit = $LASTEXITCODE
         if ($lwDExit -eq 0 -or $lwD -notmatch '\[START-LIVE-WORK-UNKNOWN\]' -or (Test-Path $lwGoneWt)) { Fail "[15LW-UNKNOWN] 闸15lw(d)：探针失败（登记的 worktree 目录已不存在）时 start 须非零退出、打印 [START-LIVE-WORK-UNKNOWN] 且不建 worktree，-TakeOver=$lwFlag（exit=$lwDExit）。"; $lwOk = $false }
       }
+      # (e) The fixture's live-work.ps1 is swapped for one line that exits 5, then restored byte for byte.
+      $lwProbe = Join-Path $e2e 'scripts/live-work.ps1'; $lwProbeBytes = [IO.File]::ReadAllBytes($lwProbe)
+      try {
+        [IO.File]::WriteAllText($lwProbe, "exit 5`n")
+        foreach ($lwFlag in @($false, $true)) {
+          $lwArgs = @('-NoProfile', '-File', $lwTask, '-TaskId', $lwGoneId, '-Phase', 'start') + @(if ($lwFlag) { '-TakeOver' })
+          $lwE = & pwsh @lwArgs 2>&1 | Out-String; $lwEExit = $LASTEXITCODE
+          if ($lwEExit -eq 0 -or $lwE -notmatch '\[START-LIVE-WORK-UNKNOWN\] live-work\.ps1 exited 5' -or (Test-Path $lwGoneWt)) { Fail "[15LW-OTHER-EXIT] 闸15lw(e)：探针以 0/2/3 之外的码（5）退出时 start 须非零退出、打印 [START-LIVE-WORK-UNKNOWN] live-work.ps1 exited 5 且不建 worktree，-TakeOver=$lwFlag（exit=$lwEExit）。"; $lwOk = $false }
+        }
+      } finally { [IO.File]::WriteAllBytes($lwProbe, $lwProbeBytes) }
+      $lwHelp = @(((Get-Content -Raw -LiteralPath $lwTask) -replace '(?s)^.*?<#(.*?)#>.*$', '$1') -split "`r?`n" | Where-Object { $_ -cmatch '^\.PARAMETER TakeOver\s+\S' })
+      if ($lwHelp.Count -ne 1) { Fail "[15LW-HELP] 闸15lw(f)：task.ps1 的帮助块须恰有一行 .PARAMETER TakeOver <说明>（实有 $($lwHelp.Count) 行）。"; $lwOk = $false }
       & git -C $e2e worktree prune *> $null
       foreach ($w in @($lwOther, $lwWt)) { & git -C $e2e worktree remove --force $w *> $null }
       & git -C $e2e branch -D lw-other lw-gone $lwId *> $null
-      if ($lwOk) { Write-Host '  15lw start vs live work OK: overlap stops, -TakeOver continues, existing dirty worktree refused with uncommitted=1, probe failure stops even with -TakeOver [15LW-OK]' -ForegroundColor Green }
+      if ($lwOk) { Write-Host '  15lw start vs live work OK: overlap stops and -TakeOver continues, both printing the overlap line; an existing worktree is refused with the whole uncommitted=<n> newest=<UTC> line, clean and with an edit (kept); a probe failure or exit 5 stops even with -TakeOver; -TakeOver has a help line [15LW-OK]' -ForegroundColor Green }
     }
   } finally {
     Set-Location $RepoRoot

@@ -1056,9 +1056,16 @@ switch ($Phase) {
       # The card's worktree is the one on branch $TaskId (git allows one per branch). Its path is not compared: git
       # stores the long form of a path given with 8.3 short names (C:\Users\RUNNER~1\...), so the strings can differ.
       $lwMine = @($lwLines | Where-Object { $_.StartsWith('[LIVE-WORK-OVERLAP] worktree=') -and $_.Contains(" branch=$TaskId uncommitted=") })
+      $lwPair = "no-worktree-on-branch-$TaskId"
+      if ($lwMine.Count -and $lwMine[0] -match 'uncommitted=(\d+) newest=(\S+)') {
+        $lwUnc = $Matches[1]; $lwNewest = $Matches[2]
+        # A clean worktree with no commit off the base changes no path, so the probe prints newest=unknown; start then
+        # prints the time of its HEAD commit in the probe's UTC format, as the probe does for a deletion-only worktree.
+        if ($lwNewest -ceq 'unknown') { $lwCt = "$(& git -C $Wt log -1 --format=%ct HEAD 2>$null)".Trim(); if ($lwCt -match '^\d+$') { $lwNewest = [DateTimeOffset]::FromUnixTimeSeconds([long]$lwCt).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture) } }
+        $lwPair = "uncommitted=$lwUnc newest=$lwNewest"
+      }
       # One ASCII line first: PowerShell's error view wraps a long throw message, so the pair is printed whole here.
-      $lwPair = if ($lwMine.Count -and $lwMine[0] -match 'uncommitted=(\d+) newest=(\S+)') { "uncommitted=$($Matches[1]) newest=$($Matches[2])" } else { "no-worktree-on-branch-$TaskId" }
-      Write-Host "[START-WORKTREE-EXISTS] $Wt $lwPair"
+      Write-Host "[START-WORKTREE-EXISTS] $Wt $lwPair another session may hold this worktree: do not reset, checkout or clean it; ask the user (L218)"
       throw "worktree 已存在: $Wt ($lwPair)。它可能由另一会话持有：切勿 reset / checkout -- / clean 它，先问用户（L218）。恢复指引——若上次 ship 中断（已 commit、未合并/未推）→ 直接重跑 `-Phase ship` 续（ship 各闸幂等、可安全重入）；若要从头重来 → 先 `-Phase cleanup` 拆除再 start。" }
     & git -C $RepoRoot worktree add -b $TaskId $Wt $Base
     if ($LASTEXITCODE -ne 0) { throw 'git worktree add 失败' }
