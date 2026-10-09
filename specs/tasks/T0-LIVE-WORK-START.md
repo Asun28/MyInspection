@@ -115,10 +115,16 @@ mutants pass (always the HEAD time; local time instead of UTC), so (c) compares 
 **DoD.** `selftest.ps1 -Only 15` on `a96b5e23` passed in 1218 s with the `[15LW-OK]` line (R4's control run below),
 and the three teaching surfaces and the HANDOFF.md rule pass the DoD's text checks.
 
-**Tier-S (A5).** `selftest.ps1 -Parallel` from the card worktree at `a96b5e23` (the code this card ships) passed:
-5 shards exited 0, their union is all 17 gates, 1143 s wall. After it come only this record and a merge of
-origin/master `8d465d6a`, which changes only `T0-DIRTY-WORKTREE-HOOK`'s card. The candidate before R3 round 1
-(`283c7546`) had passed the same way in 1680 s.
+**Tier-S (A5).** The acceptance run is `selftest.ps1 -Parallel` on this PR's final head, the commit that adds this
+paragraph, launched from the card worktree with an empty `git status --porcelain` and no edit during or after it.
+Its launch HEAD, status and shard exits are posted on PR #452. A commit cannot carry the result of a run on itself,
+so this record names the run instead. Earlier full runs passed on `a96b5e23` (1143 s) and on `283c7546` (1680 s,
+before R3 round 1). Neither counts as acceptance: edits followed both, and this record was edited in the same
+worktree while the `a96b5e23` run was going, which DEVOPS-WORKFLOW §3.2 says voids a frozen-tree proof.
+
+**R3 round 2 (on `7b53d7b2`).** Codex blocked on one spec finding: the run cited for A5 was on `a96b5e23`, and two
+record commits and a merge of origin/master `8d465d6a` (which changes only `T0-DIRTY-WORKTREE-HOOK`'s card)
+followed it. The paragraph above now names the run on the final head.
 
 **R4.** Each mutant ran `selftest.ps1 -Only 15` in its own detached worktree of `a96b5e23`, at most 6 at once,
 beside an unmutated control copy, which passed with `[15LW-OK]`. A kill is a non-zero exit, no `[15LW-OK]`, and the
