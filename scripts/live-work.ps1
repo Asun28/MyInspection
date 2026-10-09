@@ -298,7 +298,8 @@ function Invoke-LiveWorkSelfCheck {
         'restore --staged --worktree src/app.txt', 'clean -fd', 'stash', 'stash push', 'switch -C lw-x', 'switch --force-create lw-x', 'switch -f T9-OTHER',
         'switch --discard-changes T9-OTHER', 'branch -D lw-x', 'branch -f lw-x', 'branch -M lw-x', 'update-ref refs/heads/lw-x HEAD',
         'reset "--hard"', '"reset" --hard', 'checkout -fq', 'switch -fq T9-OTHER', 'switch -Clw-y', 'stash -m list', 'restore --source HEAD src/app.txt',
-        'restore --pathspec-from-file=list.txt', 'update-ref --stdin')) {
+        'restore --pathspec-from-file=list.txt', 'update-ref --stdin', 'reset --har', 'checkout --forc', 'clean --f', 'switch --force T9-OTHER', 'branch --force lw-x',
+        'restore -SW src/app.txt', 'checkout --pathspec-from-file=list.txt', 'stash -- list', 'stash --pathspec-from-file list')) {
       Check "hook: git -C <dirty> $c asks" { & $asks (& $evt "git -C '$wtA' $c" $main) }
       Check "hook: git -C <clean> $c prints nothing" { & $quiet (& $evt "git -C '$wtC' $c" $main) }
     }
@@ -331,7 +332,7 @@ function Invoke-LiveWorkSelfCheck {
     foreach ($c in @('git -C <wt> restore --staged src/app.txt', 'git -C <wt> stash list', 'git -C <wt> stash show', 'git -C <wt> status', 'git commit -m "note: git reset --hard asks"', 'git commit -m "wip; git stash pop later"', 'echo git stash',
         'git -C <wt> stash "list"', 'git -C <wt> restore -Sq src/app.txt', 'git -C <wt> restore --source HEAD', 'git -C <wt> checkout --', 'git -C <wt> checkout T9-OTHER --', 'git -C <wt> checkout -bxf',
         'git -C <wt> branch -D', 'git -C <wt> switch -f', 'git -C <wt> switch -C', 'git -C <wt> update-ref', 'git -C <wt> worktree remove --force', 'git -C <wt> RESET --hard',
-        'git -C <wt> switch -c lw-z', 'git -C <wt> branch -d lw-x', 'git -C <wt> worktree add -f <wt> T9-OTHER')) {
+        'git -C <wt> switch -c lw-z', 'git -C <wt> branch -d lw-x', 'git -C <wt> worktree add -f <wt> T9-OTHER', 'git -C <wt> restore --conflict merge', 'git -C <wt> switch --force')) {
       Check "hook: $c on a dirty worktree prints nothing" { & $quiet (& $evt $c.Replace('<wt>', "'$wtA'") $wtA) }
     }
     Check 'hook: clean -fdx on a worktree whose only extra file is ignored asks' { & $asksAbout (& $evt "git -C '$wtC' clean -fdx" $main) 'wtC (branch detached): 0 uncommitted path(s) and 1 ignored path(s), newest change unknown' }

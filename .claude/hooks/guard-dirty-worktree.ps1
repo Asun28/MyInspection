@@ -12,9 +12,11 @@
   the other commands in the same tool call are still checked; its git calls share one 10 s deadline, after which
   every later command is left unasked too. Asks already found are printed either way, and the hook always exits 0.
   A git command is read as its words with quotes removed: the subcommand is matched case-sensitively, bundled short
-  options are split (-fq is -f -q), an option's value is neither a flag nor an operand (-b fix, -bfix, --source=x),
-  words after -- are operands, and a command missing an operand git requires (branch -D, switch -f, restore without
-  a path, checkout -- without one) prints nothing.
+  options are split (-fq is -f -q), a long option in $arms may be abbreviated as git allows (--har), the value of an
+  option in $takes, spelled out, is neither a flag nor an operand (-b fix, -bfix, --source=x), words after -- are
+  operands, and a command missing an operand git requires (branch -D, switch -f, restore without a path, checkout --
+  without one) prints nothing. Shell escapes (\--hard, `--hard) are not undone, and a word after -- that starts
+  with - is split like options.
   The target worktree is the -C directory (a relative one joins the directory so far), else the directory of the last
   cd, Set-Location, Push-Location or pushd earlier in the same tool call (undone by Pop-Location or popd, and in Bash
   by the closing parenthesis of a ( ... ) subshell), else the event's cwd; for worktree remove it is the path being
@@ -34,7 +36,7 @@ try {
   $bash = [string]$evt.tool_name -ceq 'Bash'
   . (Join-Path $PSScriptRoot '../../scripts/live-work.ps1') -AsLibrary
   $script:LiveWorkDeadline = [DateTime]::UtcNow.AddSeconds(10)
-  $script:LiveWorkGitConfig = @('core.fsmonitor=false')   # a -c option outranks the repository's config files
+  $script:LiveWorkGitConfig = @('core.fsmonitor=')   # empty is off on every git; -c outranks the repository's config
 
   # A path as the shell resolves it from $From: quotes stripped, /c/... read as C:/... on Windows, a relative path
   # joined to $From.
@@ -44,23 +46,25 @@ try {
     if ([IO.Path]::IsPathRooted($p)) { return $p }
     return (Join-Path $From $p)
   }
-  function Has([string[]]$Set) { foreach ($x in $Set) { if ($flags.Contains($x)) { return $true } }; return $false }
+  # Whether a flag is one of $Set; a flag of three or more characters may abbreviate a long name in $Set (--har).
+  function Has([string[]]$Set) { foreach ($x in $Set) { foreach ($f in $flags) { if ($f -ceq $x -or ($f.Length -gt 2 -and $x.StartsWith($f, 'Ordinal'))) { return $true } } }; return $false }
 
   # Per subcommand, when its flags ($flags) and operands ($ops, $after of them after --) make it discard or move work.
   $arms = @{
     reset        = { Has '--hard', '--merge', '--keep' }
-    checkout     = { (Has '-f', '--force') -or $ops.Contains('.') -or $after }
+    checkout     = { (Has '-f', '--force', '--pathspec-from-file') -or $ops.Contains('.') -or $after }
     restore      = { ($ops.Count -or (Has '--pathspec-from-file')) -and (-not (Has '-S', '--staged') -or (Has '-W', '--worktree')) }
     clean        = { Has '-f', '--force' }
-    stash        = { -not $ops.Count -or $ops[0] -cnotin 'list', 'show' }
-    switch       = { (Has '-C', '--force-create') -or ($ops.Count -and (Has '-f', '--force', '--discard-changes')) }
+    stash        = { -not ($ops.Count - $after) -or $ops[0] -cnotin 'list', 'show' }
+    switch       = { (Has '-C') -or @($flags -clike '--force-*').Count -or ($ops.Count -and (Has '-f', '--force', '--discard-changes')) }
     branch       = { $ops.Count -and (Has '-f', '-D', '-M', '--force') }
     'update-ref' = { $ops.Count -or (Has '--stdin') }
     worktree     = { $ops.Count -ge 2 -and $ops[0] -ceq 'remove' -and (Has '-f', '--force') }
   }
   # Per subcommand, the options that take a value (matched case-sensitively).
-  $takes = @{ reset = '(?!)'; checkout = '^-[bB]$|^--orphan$'; restore = '^-s$|^--source$'; clean = '^-e$|^--exclude$'; stash = '^-m$|^--message$'
-    switch = '^-[cC]$|^--(?:create|force-create|orphan)$'; branch = '^-u$|^--set-upstream-to$'; 'update-ref' = '^-m$'; worktree = '(?!)' }
+  $takes = @{ reset = '^--pathspec-from-file$'; checkout = '^-[bB]$|^--(?:orphan|conflict|pathspec-from-file)$'; restore = '^-s$|^--(?:source|conflict|pathspec-from-file)$'
+    clean = '^-e$|^--exclude$'; stash = '^-m$|^--(?:message|pathspec-from-file)$'; switch = '^-[cC]$|^--(?:create|force-create|orphan|conflict)$'
+    branch = '^-u$|^--set-upstream-to$'; 'update-ref' = '^-m$'; worktree = '(?!)' }
   $arg = '"[^"]+"|''[^'']+''|\S+'
   # $masked is $cmd with the inside of every quoted string replaced by x, so both have the same length and the
   # separators and parentheses found in $masked are shell syntax.
