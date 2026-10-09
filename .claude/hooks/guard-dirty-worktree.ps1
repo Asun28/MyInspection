@@ -5,11 +5,16 @@
   count and its newest change time. For clean -x or -X, ignored files count too (user ruling 2026-10-09: _local/,
   progress.md and .secrets/ are ignored and in no repository); an ignored directory counts once and is not dated. It
   asks and never denies, so a session discarding its own work confirms once.
-  Git runs only for a command that matches, and every git call passes --no-optional-locks.
+  Git runs only for a command that matches, every git call passes --no-optional-locks, and core.fsmonitor is off for
+  them, so a repository's fsmonitor program does not run (its clean filters still can, as in any git status).
   Any other command, a target with no uncommitted changes (for clean -x or -X, no ignored files either) or unreadable
   input prints nothing. A command the hook cannot check (a git error or a path it cannot resolve) is left unasked and
   the other commands in the same tool call are still checked; its git calls share one 10 s deadline, after which
   every later command is left unasked too. Asks already found are printed either way, and the hook always exits 0.
+  A git command is read as its words with quotes removed: the subcommand is matched case-sensitively, bundled short
+  options are split (-fq is -f -q), an option's value is neither a flag nor an operand (-b fix, -bfix, --source=x),
+  words after -- are operands, and a command missing an operand git requires (branch -D, switch -f, restore without
+  a path, checkout -- without one) prints nothing.
   The target worktree is the -C directory (a relative one joins the directory so far), else the directory of the last
   cd, Set-Location, Push-Location or pushd earlier in the same tool call (undone by Pop-Location or popd, and in Bash
   by the closing parenthesis of a ( ... ) subshell), else the event's cwd; for worktree remove it is the path being
@@ -29,6 +34,7 @@ try {
   $bash = [string]$evt.tool_name -ceq 'Bash'
   . (Join-Path $PSScriptRoot '../../scripts/live-work.ps1') -AsLibrary
   $script:LiveWorkDeadline = [DateTime]::UtcNow.AddSeconds(10)
+  $script:LiveWorkGitConfig = @('core.fsmonitor=false')   # a -c option outranks the repository's config files
 
   # A path as the shell resolves it from $From: quotes stripped, /c/... read as C:/... on Windows, a relative path
   # joined to $From.
@@ -38,19 +44,23 @@ try {
     if ([IO.Path]::IsPathRooted($p)) { return $p }
     return (Join-Path $From $p)
   }
+  function Has([string[]]$Set) { foreach ($x in $Set) { if ($flags.Contains($x)) { return $true } }; return $false }
 
-  # Per subcommand, the arguments that make it discard or move work (matched case-sensitively).
+  # Per subcommand, when its flags ($flags) and operands ($ops, $after of them after --) make it discard or move work.
   $arms = @{
-    reset        = '(?:^|\s)--(?:hard|merge|keep)(?:\s|$)'
-    checkout     = '(?:^|\s)(?:-f|--force|--|\.)(?:\s|$)'
-    restore      = '^(?!.*(?:^|\s)(?:--staged|-S)(?:\s|$))|(?:^|\s)(?:--worktree|-W)(?:\s|$)'
-    clean        = '(?:^|\s)(?:-[a-zA-Z]*f[a-zA-Z]*|--force)(?:\s|$)'
-    stash        = '^(?!\s*(?:list|show)(?:\s|$))'
-    switch       = '(?:^|\s)(?:-C|-f|--force|--force-create|--discard-changes)(?:\s|$)'
-    branch       = '(?:^|\s)(?:-[a-zA-Z]*[fDM][a-zA-Z]*|--force)(?:\s|$)'
-    'update-ref' = '^'
-    worktree     = '^\s*remove\b.*\s(?:-f|--force)(?:\s|$)'
+    reset        = { Has '--hard', '--merge', '--keep' }
+    checkout     = { (Has '-f', '--force') -or $ops.Contains('.') -or $after }
+    restore      = { ($ops.Count -or (Has '--pathspec-from-file')) -and (-not (Has '-S', '--staged') -or (Has '-W', '--worktree')) }
+    clean        = { Has '-f', '--force' }
+    stash        = { -not $ops.Count -or $ops[0] -cnotin 'list', 'show' }
+    switch       = { (Has '-C', '--force-create') -or ($ops.Count -and (Has '-f', '--force', '--discard-changes')) }
+    branch       = { $ops.Count -and (Has '-f', '-D', '-M', '--force') }
+    'update-ref' = { $ops.Count -or (Has '--stdin') }
+    worktree     = { $ops.Count -ge 2 -and $ops[0] -ceq 'remove' -and (Has '-f', '--force') }
   }
+  # Per subcommand, the options that take a value (matched case-sensitively).
+  $takes = @{ reset = '(?!)'; checkout = '^-[bB]$|^--orphan$'; restore = '^-s$|^--source$'; clean = '^-e$|^--exclude$'; stash = '^-m$|^--message$'
+    switch = '^-[cC]$|^--(?:create|force-create|orphan)$'; branch = '^-u$|^--set-upstream-to$'; 'update-ref' = '^-m$'; worktree = '(?!)' }
   $arg = '"[^"]+"|''[^'']+''|\S+'
   # $masked is $cmd with the inside of every quoted string replaced by x, so both have the same length and the
   # separators and parentheses found in $masked are shell syntax.
@@ -74,22 +84,38 @@ try {
         $dir = Resolve-DirtyTarget $dir $Matches.d
       } elseif ($s -match '^(?:Pop-Location|popd)\b') {
         if ($pushed.Count) { $dir = $pushed.Pop() }
-      } elseif ($s -match "^(?:&\s*)?git(?:\.exe)?(?<opts>(?:\s+-[Cc]\s+(?:$arg))*)\s+(?<sub>reset|checkout|restore|clean|stash|switch|branch|update-ref|worktree)(?<rest>(?:\s.*)?)$") {
-        $sub = $Matches.sub.ToLowerInvariant(); $rest = $Matches.rest; $opts = $Matches.opts
-        if ($rest -cmatch $arms[$sub]) {
-          $target = $dir
-          foreach ($m in [regex]::Matches($opts, "-C\s+(?<d>$arg)")) { $target = Resolve-DirtyTarget $target $m.Groups['d'].Value }
-          if ($sub -eq 'worktree' -and $rest -match "remove\s+(?:(?:-f|--force)\s+)*(?<p>""[^""]+""|'[^']+'|[^\s-]\S*)") { $target = Resolve-DirtyTarget $target $Matches.p }
-          $top = if (Test-Path -LiteralPath $target -PathType Container) { Invoke-LiveWorkGitRaw $target @('rev-parse', '--show-toplevel') }
-          if ($top -and $top.Code -eq 0 -and $top.Lines.Count) {
-            $wt = $top.Lines[0]
-            $unc = @(Get-LiveWorkUncommitted $wt)
-            $ign = @(if ($sub -eq 'clean' -and $rest -cmatch '(?:^|\s)-[a-zA-Z]*[xX][a-zA-Z]*(?:\s|$)') { Invoke-LiveWorkGit $wt @('ls-files', '--others', '--ignored', '--exclude-standard', '--directory') | Where-Object { $_ } })
-            if ($unc.Count -or $ign.Count) {
-              $branch = @(Invoke-LiveWorkGit $wt @('branch', '--show-current')) -join ''; if (-not $branch) { $branch = 'detached' }
-              $held = "$($unc.Count) uncommitted path(s)" + $(if ($ign.Count) { " and $($ign.Count) ignored path(s)" })
-              # Get-LiveWorkNewest dates files only, so an ignored directory (listed as dir/) is not dated.
-              $asks.Add("git $sub would discard or move work in $wt (branch $branch): $held, newest change $(Format-LiveWorkTime (Get-LiveWorkNewest $wt (@($unc) + @($ign)))).")
+      } else {
+        # The segment's words with quotes removed, then git's -C and -c options and its subcommand.
+        $w = @([regex]::Matches(($s -replace '^&\s*'), '(?:"[^"]*"|''[^'']*''|[^\s"'']+)+') | ForEach-Object { $_.Value -replace '"([^"]*)"|''([^'']*)''', '$1$2' })
+        $i = 1; $cs = @(); while ($i + 1 -lt $w.Count -and $w[$i] -cin '-C', '-c') { if ($w[$i] -ceq '-C') { $cs += $w[$i + 1] }; $i += 2 }
+        $sub = if ($w.Count -gt $i -and $w[0] -match '^git(?:\.exe)?$' -and $w[$i] -cin $arms.Keys) { $w[$i] }
+        if ($sub) {
+          # Bundled short options split; one that takes a value keeps the rest of its word as that value.
+          $t = @(foreach ($a in @($w | Select-Object -Skip ($i + 1))) {
+              if ($a -cnotmatch '^-[^-]') { $a; continue }
+              for ($k = 1; $k -lt $a.Length; $k++) { $o = "-$($a[$k])"; if ($k + 1 -lt $a.Length -and $o -cmatch $takes[$sub]) { "$o=$($a.Substring($k + 1))"; break }; $o } })
+          # An option's value (after = or the next word) is dropped; one with no value is not counted.
+          $flags = [System.Collections.Generic.List[string]]::new(); $ops = [System.Collections.Generic.List[string]]::new(); $dd = $false; $after = 0
+          for ($k = 0; $k -lt $t.Count; $k++) {
+            if ($dd -or $t[$k] -notmatch '^-.') { $ops.Add($t[$k]); $after += [int]$dd }
+            elseif ($t[$k] -ceq '--') { $dd = $true }
+            else { $o = ($t[$k] -split '=', 2)[0]; if ($o -cnotmatch $takes[$sub] -or $t[$k].Contains('=') -or (++$k) -lt $t.Count) { $flags.Add($o) } }
+          }
+          if (& $arms[$sub]) {
+            $target = $dir
+            foreach ($c in $cs) { $target = Resolve-DirtyTarget $target $c }
+            if ($sub -ceq 'worktree') { $target = Resolve-DirtyTarget $target $ops[1] }
+            $top = if (Test-Path -LiteralPath $target -PathType Container) { Invoke-LiveWorkGitRaw $target @('rev-parse', '--show-toplevel') }
+            if ($top -and $top.Code -eq 0 -and $top.Lines.Count) {
+              $wt = $top.Lines[0]
+              $unc = @(Get-LiveWorkUncommitted $wt)
+              $ign = @(if ($sub -ceq 'clean' -and (Has '-x', '-X')) { Invoke-LiveWorkGit $wt @('ls-files', '--others', '--ignored', '--exclude-standard', '--directory') | Where-Object { $_ } })
+              if ($unc.Count -or $ign.Count) {
+                $branch = @(Invoke-LiveWorkGit $wt @('branch', '--show-current')) -join ''; if (-not $branch) { $branch = 'detached' }
+                $held = "$($unc.Count) uncommitted path(s)" + $(if ($ign.Count) { " and $($ign.Count) ignored path(s)" })
+                # Get-LiveWorkNewest dates files only, so an ignored directory (listed as dir/) is not dated.
+                $asks.Add("git $sub would discard or move work in $wt (branch $branch): $held, newest change $(Format-LiveWorkTime (Get-LiveWorkNewest $wt (@($unc) + @($ign)))).")
+              }
             }
           }
         }

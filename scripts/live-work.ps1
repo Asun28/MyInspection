@@ -42,13 +42,14 @@ $ErrorActionPreference = 'Stop'
 
 # Every git call runs until this UTC deadline at most and is killed when it passes it; a library caller that sets
 # none gets no deadline. --no-optional-locks: git status would otherwise refresh and rewrite the probed index.
-$script:LiveWorkDeadline = [DateTime]::MaxValue
+# $script:LiveWorkGitConfig adds name=value -c options a library caller wants on every call.
+$script:LiveWorkDeadline = [DateTime]::MaxValue; $script:LiveWorkGitConfig = @()
 function Invoke-LiveWorkGitRaw([string]$Dir, [string[]]$GitArgs) {
   $what = "git $($GitArgs -join ' ') in $Dir"
   $ms = ($script:LiveWorkDeadline - [DateTime]::UtcNow).TotalMilliseconds
   if ($ms -le 0) { throw "[LIVE-WORK-PROBE-FAIL] the time budget ran out before $what" }
   $psi = [Diagnostics.ProcessStartInfo]::new('git')
-  foreach ($a in @('--no-optional-locks', '-C', $Dir, '-c', 'core.quotepath=false') + $GitArgs) { $psi.ArgumentList.Add($a) }
+  foreach ($a in @('--no-optional-locks', '-C', $Dir, '-c', 'core.quotepath=false') + @($script:LiveWorkGitConfig | ForEach-Object { '-c', $_ }) + $GitArgs) { $psi.ArgumentList.Add($a) }
   $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
   $psi.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
   $p = [Diagnostics.Process]::Start($psi)
@@ -295,12 +296,16 @@ function Invoke-LiveWorkSelfCheck {
     $quiet ={ param($r) $r.Code -eq 0 -and $r.Out.Count -eq 0 }
     foreach ($c in @('reset --hard', 'reset --merge', 'reset --keep', 'checkout -f', 'checkout -- src/app.txt', 'checkout .', 'restore src/app.txt',
         'restore --staged --worktree src/app.txt', 'clean -fd', 'stash', 'stash push', 'switch -C lw-x', 'switch --force-create lw-x', 'switch -f T9-OTHER',
-        'switch --discard-changes T9-OTHER', 'branch -D lw-x', 'branch -f lw-x', 'branch -M lw-x', 'update-ref refs/heads/lw-x HEAD')) {
+        'switch --discard-changes T9-OTHER', 'branch -D lw-x', 'branch -f lw-x', 'branch -M lw-x', 'update-ref refs/heads/lw-x HEAD',
+        'reset "--hard"', '"reset" --hard', 'checkout -fq', 'switch -fq T9-OTHER', 'switch -Clw-y', 'stash -m list', 'restore --source HEAD src/app.txt',
+        'restore --pathspec-from-file=list.txt', 'update-ref --stdin')) {
       Check "hook: git -C <dirty> $c asks" { & $asks (& $evt "git -C '$wtA' $c" $main) }
       Check "hook: git -C <clean> $c prints nothing" { & $quiet (& $evt "git -C '$wtC' $c" $main) }
     }
     Check 'hook: git worktree remove --force <dirty> asks' { & $asks (& $evt "git worktree remove --force '$wtA'" $main) }
     Check 'hook: git worktree remove --force <clean> prints nothing' { & $quiet (& $evt "git worktree remove --force '$wtC'" $main) }
+    Check 'hook: git worktree remove -ff <dirty> asks' { & $asks (& $evt "git worktree remove -ff '$wtA'" $main) }
+    Check 'hook: git worktree remove --force -- <dirty> asks about the path after --' { & $asks (& $evt "git worktree remove --force -- '$wtA'" $wtC) }
     Check 'hook: a -c option is not a directory (dirty asks)' { & $asks (& $evt "git -C '$wtA' -c core.quotepath=false reset --hard" $main) }
     Check 'hook: a -c option is not a directory (clean prints nothing)' { & $quiet (& $evt "git -c core.quotepath=false -C '$wtC' reset --hard" $main) }
     Check 'hook: & git.exe is git' { & $asks (& $evt "& git.exe -C '$wtA' reset --hard" $main) }
@@ -323,12 +328,24 @@ function Invoke-LiveWorkSelfCheck {
       $nd = @([char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "$($_):\") })[0]
       Check 'hook: a command it cannot check leaves the earlier ask in place' { & $asks (& $evt "git -C '$wtA' reset --hard; cd ${nd}:\nope; git -C sub reset --hard" $wtC) }
     }
-    foreach ($c in @('git -C <wt> restore --staged src/app.txt', 'git -C <wt> stash list', 'git -C <wt> stash show', 'git -C <wt> status', 'git commit -m "note: git reset --hard asks"', 'git commit -m "wip; git stash pop later"', 'echo git stash')) {
+    foreach ($c in @('git -C <wt> restore --staged src/app.txt', 'git -C <wt> stash list', 'git -C <wt> stash show', 'git -C <wt> status', 'git commit -m "note: git reset --hard asks"', 'git commit -m "wip; git stash pop later"', 'echo git stash',
+        'git -C <wt> stash "list"', 'git -C <wt> restore -Sq src/app.txt', 'git -C <wt> restore --source HEAD', 'git -C <wt> checkout --', 'git -C <wt> checkout T9-OTHER --', 'git -C <wt> checkout -bxf',
+        'git -C <wt> branch -D', 'git -C <wt> switch -f', 'git -C <wt> switch -C', 'git -C <wt> update-ref', 'git -C <wt> worktree remove --force', 'git -C <wt> RESET --hard',
+        'git -C <wt> switch -c lw-z', 'git -C <wt> branch -d lw-x', 'git -C <wt> worktree add -f <wt> T9-OTHER')) {
       Check "hook: $c on a dirty worktree prints nothing" { & $quiet (& $evt $c.Replace('<wt>', "'$wtA'") $wtA) }
     }
     Check 'hook: clean -fdx on a worktree whose only extra file is ignored asks' { & $asksAbout (& $evt "git -C '$wtC' clean -fdx" $main) 'wtC (branch detached): 0 uncommitted path(s) and 1 ignored path(s), newest change unknown' }
     Check 'hook: clean -fX counts ignored files too' { & $asksAbout (& $evt "git -C '$wtC' clean -fX" $main) 'wtC (branch detached): 0 uncommitted path(s) and 1 ignored path(s), newest change unknown' }
     Check 'hook: clean -fd (no -x) there prints nothing' { & $quiet (& $evt "git -C '$wtC' clean -fd" $main) }
+    $mark = Join-Path $root 'fsmonitor-ran'; $fsm = Join-Path $root 'mark-fsmonitor.sh'; [IO.File]::WriteAllText($fsm, "#!/bin/sh`necho ran > '$($mark.Replace('\', '/'))'`n"); if (-not $IsWindows) { & chmod +x $fsm }
+    & $g $wtA config --worktree core.fsmonitor $fsm.Replace('\', '/'); $fm = & $evt "git -C '$wtA' reset --hard" $main; & $g $wtA config --worktree --unset core.fsmonitor
+    Check 'hook: a repository''s core.fsmonitor program does not run (dirty still asks)' { (& $asks $fm) -and -not (Test-Path -LiteralPath $mark) }
+    # wtS's src/app.txt keeps its size but not its time, so git status reads it through a clean filter that sleeps past
+    # the hook's 10 s deadline (the sleep may outlive the killed git on Windows, as above).
+    $wtS = Join-Path $root 'wtS'; & $g $main worktree add -q --detach $wtS origin/master; $attr = Join-Path $root 'slow.attributes'; [IO.File]::WriteAllText($attr, "src/app.txt filter=slow`n")
+    & $g $wtS config --worktree core.attributesFile $attr.Replace('\', '/'); & $g $wtS config --worktree filter.slow.clean 'sleep 14; cat'; Set-Content (Join-Path $wtS 'src/app.txt') 'ppa' -Encoding utf8
+    $dl = & $evt "git -C '$wtA' reset --hard; git -C '$wtS' reset --hard; git -C '$wtA' clean -fd" $main
+    Check 'hook: past the deadline the slow command and every later one are left unasked, and the ask found before it is printed' { (& $asks $dl) -and -not $dl.Out[0].Contains('wtS') -and -not $dl.Out[0].Contains('git clean') }
     Check 'hook: unreadable input prints nothing' { & $quiet (& $ask 'not json') }  } catch { $keep = $true; $fails.Add("fixture: $($_.Exception.Message) (fixture kept at $root)") }
   finally { if (-not $keep) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue } }
   if ($fails.Count) {
