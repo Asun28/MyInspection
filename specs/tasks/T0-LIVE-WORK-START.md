@@ -115,9 +115,10 @@ mutants pass (always the HEAD time; local time instead of UTC), so (c) compares 
 **DoD.** `selftest.ps1 -Only 15` on `a96b5e23` passed in 1218 s with the `[15LW-OK]` line (R4's control run below),
 and the three teaching surfaces and the HANDOFF.md rule pass the DoD's text checks.
 
-**Tier-S (A5).** `selftest.ps1 -Parallel` from the card worktree at `a96b5e23` (the code this card ships; only this
-record changes after it) passed: 5 shards exited 0, their union is all 17 gates, 1143 s wall. The candidate before
-R3 round 1 (`283c7546`) had passed the same way in 1680 s.
+**Tier-S (A5).** `selftest.ps1 -Parallel` from the card worktree at `a96b5e23` (the code this card ships) passed:
+5 shards exited 0, their union is all 17 gates, 1143 s wall. After it come only this record and a merge of
+origin/master `8d465d6a`, which changes only `T0-DIRTY-WORKTREE-HOOK`'s card. The candidate before R3 round 1
+(`283c7546`) had passed the same way in 1680 s.
 
 **R4.** Each mutant ran `selftest.ps1 -Only 15` in its own detached worktree of `a96b5e23`, at most 6 at once,
 beside an unmutated control copy, which passed with `[15LW-OK]`. A kill is a non-zero exit, no `[15LW-OK]`, and the
