@@ -12,8 +12,9 @@
   the other commands in the same tool call are still checked; its git calls share one 10 s deadline, after which
   every later command is left unasked too. Asks already found are printed either way, and the hook always exits 0.
   A git command is read as its words with quotes removed: the subcommand is matched case-sensitively, bundled short
-  options are split (-fq is -f -q), a long option in $arms may be abbreviated as git allows (--har), the value of an
-  option in $takes, spelled out, is neither a flag nor an operand (-b fix, -bfix, --source=x), words after -- are
+  options are split (-fq is -f -q), a flag of three or more characters that begins a long name in $arms counts as it
+  (--har; also where git rejects it as ambiguous), the value of an option in $takes, spelled out, is neither a flag nor
+  an operand (-b fix, -bfix, --source=x; any other option's value is an operand), words after -- are
   operands, and a command missing an operand git requires (branch -D, switch -f, restore without a path, checkout --
   without one) prints nothing. Shell escapes (\--hard, `--hard) are not undone, and a word after -- that starts
   with - is split like options.
@@ -61,10 +62,9 @@ try {
     'update-ref' = { $ops.Count -or (Has '--stdin') }
     worktree     = { $ops.Count -ge 2 -and $ops[0] -ceq 'remove' -and (Has '-f', '--force') }
   }
-  # Per subcommand, the options that take a value (matched case-sensitively).
-  $takes = @{ reset = '^--pathspec-from-file$'; checkout = '^-[bB]$|^--(?:orphan|conflict|pathspec-from-file)$'; restore = '^-s$|^--(?:source|conflict|pathspec-from-file)$'
-    clean = '^-e$|^--exclude$'; stash = '^-m$|^--(?:message|pathspec-from-file)$'; switch = '^-[cC]$|^--(?:create|force-create|orphan|conflict)$'
-    branch = '^-u$|^--set-upstream-to$'; 'update-ref' = '^-m$'; worktree = '(?!)' }
+  # Per subcommand, the options taking a value whose value would otherwise change the answer (matched case-sensitively).
+  $takes = @{ reset = '(?!)'; checkout = '^-[bB]$'; restore = '^-s$|^--(?:source|conflict)$'; clean = '^-e$'; stash = '^-m$|^--(?:message|pathspec-from-file)$'
+    switch = '^-[cC]$'; branch = '(?!)'; 'update-ref' = '(?!)'; worktree = '(?!)' }
   $arg = '"[^"]+"|''[^'']+''|\S+'
   # $masked is $cmd with the inside of every quoted string replaced by x, so both have the same length and the
   # separators and parentheses found in $masked are shell syntax.
