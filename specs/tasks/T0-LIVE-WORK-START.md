@@ -69,3 +69,84 @@ on PR #447. The incident behind it is in `T0-LIVE-WORK-GUARD`'s "What happened".
 `T0-MAIN-CHECKOUT-READONLY` also edits CLAUDE.md's execution boundary; whichever ships second merges
 origin/master before ship and keeps both lines. `T0-DIRTY-WORKTREE-HOOK` ships after this card and adds the
 hook to the execution-boundary line this card writes.
+
+## Implementation record (2026-10-07)
+
+Delivered through the AIDLC loop (goal `g-20260925112601-012c7e`, revision 1), after `T0-LIVE-WORK-GUARD` merged
+(#447). The `task.ps1` start check, the gate 15 `-TakeOver` edits and the three rule lines come from the combined
+candidate of PR #447 (`00a0e56d`), applied with `git apply --3way` onto `246d8aa1`. Changes on top of it:
+
+- The existing-worktree refusal first prints one ASCII line, `[START-WORKTREE-EXISTS] <worktree> uncommitted=<n>`
+  `newest=<ISO-8601>` (amended by #449), then throws as before. The pair needs its own line: PowerShell's error
+  view wraps a long `throw` message, and in gate 15 it split the pair across two lines. The card's worktree is
+  found by its branch in the probe's overlap lines, not by its path: git stores the long form of a path given with
+  8.3 short names, so on a runner whose TEMP is `C:\Users\RUNNER~1\...` the two strings differ.
+- CLAUDE.md's execution-boundary line no longer names the dirty-worktree hook; `T0-DIRTY-WORKTREE-HOOK` adds it.
+  It says instead that a probe failure stops start even with `-TakeOver`.
+- Gate 15 gains the 15lw block (A2), placed last in the `$e2e` fixture before its cleanup. It prints `[15LW-OK]`
+  only when all its cases hold, and each case fails under its own ASCII sentinel (`[15LW-STOP]`,
+  `[15LW-TAKEOVER]`, `[15LW-EXISTING-CLEAN]`, `[15LW-EXISTING]`, `[15LW-UNKNOWN]`, `[15LW-OTHER-EXIT]`,
+  `[15LW-HELP]`; the last four cases and the exact line come from R3 round 1, below).
+
+**Start probes from the main checkout.** `task.ps1` runs `live-work.ps1 -TaskId <id> -RepoPath <main checkout>`,
+and the probe always includes the main checkout, so an uncommitted edit there to one of the card's paths also
+stops start. That is intended: the main checkout is shared by every session.
+
+**R3 round 1 (PR #452, on `15a8bb51`).** Codex blocked on two spec findings, both #6 (tests missing):
+
+1. A clean existing card worktree printed `newest=unknown`: with no uncommitted and no unmerged path the probe has
+   no time to give, and 15lw(c) only tested a dirty worktree with the partial pattern `newest=\d{4}-`. When the
+   probe says `unknown`, start now prints the worktree's HEAD commit time in the probe's UTC format, as the probe
+   does for a deletion-only worktree. If that `git log` fails, the line keeps `newest=unknown`; start still refuses.
+2. 15lw did not check the overlap lines, a probe exit other than 0, 2 and 3, the do-not-reset text, or the
+   `-TakeOver` help. Now (a) and (b) each require exactly one `[LIVE-WORK-OVERLAP]` line for the fixture worktree
+   that holds `README.md`. (c) matches the whole `[START-WORKTREE-EXISTS]` line, which now ends with the ASCII
+   clause `another session may hold this worktree: do not reset, checkout or clean it; ask the user (L218)`, with the
+   exact expected time: clean (`uncommitted=0`, the HEAD commit time read with `%cI`) and dirty (`uncommitted=1`,
+   the edited file's write time). (e) swaps the fixture's `live-work.ps1` for one that exits 5, requires
+   `[START-LIVE-WORK-UNKNOWN] live-work.ps1 exited 5` and no worktree with and without `-TakeOver`, then restores
+   the file byte for byte. (f) requires exactly one `.PARAMETER TakeOver <text>` line in `task.ps1`'s help block.
+   That block cannot be read with `Get-Help`: every `.PARAMETER` there keeps its text on the same line, so
+   `Get-Help task.ps1 -Parameter TakeOver` finds no parameter, for this and every other parameter. (f) reads the line.
+
+A fresh-context review of the fix found nothing blocking. It showed that checking only the time's shape let two
+mutants pass (always the HEAD time; local time instead of UTC), so (c) compares the exact time (M11, M12 below).
+
+**DoD.** `selftest.ps1 -Only 15` on `a96b5e23` passed in 1218 s with the `[15LW-OK]` line (R4's control run below),
+and the three teaching surfaces and the HANDOFF.md rule pass the DoD's text checks.
+
+**Tier-S (A5).** The acceptance run is `selftest.ps1 -Parallel` on this PR's final head, the commit that adds this
+paragraph, launched from the card worktree with an empty `git status --porcelain` and no edit during or after it.
+Its launch HEAD, status and shard exits are posted on PR #452. A commit cannot carry the result of a run on itself,
+so this record names the run instead. Earlier full runs passed on `a96b5e23` (1143 s) and on `283c7546` (1680 s,
+before R3 round 1). Neither counts as acceptance: edits followed both, and this record was edited in the same
+worktree while the `a96b5e23` run was going, which DEVOPS-WORKFLOW §3.2 says voids a frozen-tree proof.
+
+**R3 round 2 (on `7b53d7b2`).** Codex blocked on one spec finding: the run cited for A5 was on `a96b5e23`, and two
+record commits and a merge of origin/master `8d465d6a` (which changes only `T0-DIRTY-WORKTREE-HOOK`'s card)
+followed it. The paragraph above now names the run on the final head.
+
+**R4.** Each mutant ran `selftest.ps1 -Only 15` in its own detached worktree of `a96b5e23`, at most 6 at once,
+beside an unmutated control copy, which passed with `[15LW-OK]`. A kill is a non-zero exit, no `[15LW-OK]`, and the
+mutant's own sentinel in the output; re-encoding the unmutated file must give back its bytes. 12 of 12 killed on
+`scripts/task.ps1` at `a96b5e23` (SHA-256 `3095FC11…CD24C`; `selftest.ps1` `8325D141…7D58E`). M12 is visible
+only where local time differs from UTC; this machine is UTC+13. Earlier batches: the first (on `2a127f35`) let M5
+survive, because 15lw(c) matched `uncommitted=1` in the overlap line that start prints before it refuses. Anchoring
+the case on the refusal then made the second batch's control fail, which is how the wrapped `throw` message above
+was found. The third (`9566e125`) and fourth (`92063c73`, after a fresh-context review found the path comparison
+above and a 15lw(a) assertion the start's own step header satisfied) killed M1-M5 with a passing control.
+
+| id | single-statement change in `scripts/task.ps1` | killed by |
+|---|---|---|
+| M1 | the start stop `if ($liveWork -eq 3 -and -not $TakeOver)` -> `if ($false)` | `[15LW-STOP]` |
+| M2 | `[switch]$TakeOver` -> `[switch]$TakeOver = $true` (-TakeOver by default) | `[15LW-STOP]` |
+| M3 | `elseif ($liveWork -ne 0)` -> `... -and -not $TakeOver` (-TakeOver past exit 2) | `[15LW-UNKNOWN]` |
+| M4 | `$liveWork = $LASTEXITCODE` -> exit 2 mapped to 0 | `[15LW-UNKNOWN]` |
+| M5 | `if ($lwMine.Count -and $lwMine[0] -match …) {` -> `if ($false) {` (no pair) | `[15LW-EXISTING]` |
+| M6 | the probe lines `$lwLines \| ForEach-Object { Write-Host … }` -> `$null = $lwLines` | `[15LW-STOP]` |
+| M7 | `elseif ($liveWork -ne 0)` -> `elseif ($liveWork -eq 2)` (other exit codes pass) | `[15LW-OTHER-EXIT]` |
+| M8 | the do-not-reset clause dropped from the `[START-WORKTREE-EXISTS]` line | `[15LW-EXISTING]` |
+| M9 | the `.PARAMETER TakeOver` help line loses its keyword | `[15LW-HELP]` |
+| M10 | `if ($lwNewest -ceq 'unknown') {` -> `if ($false) {` (no HEAD-time fallback) | `[15LW-EXISTING-CLEAN]` |
+| M11 | `if ($lwNewest -ceq 'unknown') {` -> `if ($true) {` (always the HEAD time) | `[15LW-EXISTING]` |
+| M12 | `.UtcDateTime.ToString(` -> `.LocalDateTime.ToString(` | `[15LW-EXISTING-CLEAN]` |
