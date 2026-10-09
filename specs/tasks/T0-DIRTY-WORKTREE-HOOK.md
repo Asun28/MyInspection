@@ -146,6 +146,17 @@ draft with a passing control (L360). Every hygiene item maps to a row below.
 | M42 | quoted text not masked | 2 | a ) inside quotes does not close the subshell |
 | M43 | `popd` dropped | 1 | popd moves it back |
 
+**DoD and A3.** After `T0-LIVE-WORK-START` merged (PR #452, `827ca3d2`), origin/master was merged in and the A3
+clause was appended to CLAUDE.md's L218 execution-boundary line. The DoD printed `[DOD-PASS]` there and again after
+origin/master `7392ae6e` (that card's R5, #454) was merged in. The hook and `live-work.ps1` are byte-identical to the
+R4 run above (SHA-256 `54E221CB…ED9C`, `260716C4…FBBB`).
+
+**Tier-S (A4).** The card's computed tier is S, so the acceptance run is `selftest.ps1 -TaskId T0-DIRTY-WORKTREE-HOOK`
+(the full suite) from the card worktree's own copy (L344) on this PR's final head, the commit that adds this
+paragraph, launched with an empty `git status --porcelain` and no edit during or after it. Its launch HEAD, status and
+result line are posted on the PR. A commit cannot carry the result of a run on itself, so this record names the run
+instead.
+
 **[FOLLOW-UP]** (outside A1, which defines both the commands and the target):
 - A command run from a clean worktree that moves a branch checked out in another, dirty worktree
   (`git update-ref refs/heads/<that branch> …`, `git branch -f <that branch> …`) prints nothing, because the target
