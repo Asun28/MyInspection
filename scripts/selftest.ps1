@@ -956,7 +956,8 @@ function New-ShipFixtureCard([string]$Root, [string]$Id, [string]$Title, [string
     Set-Content (Join-Path $Root "specs/tasks/$Id.md") -Encoding utf8
   & git -C $Root add specs/tasks/$Id.md *> $null
   & git -C $Root commit -q -m "fixture card $Id" *> $null
-  & pwsh -NoProfile -File (Join-Path $Root 'scripts/task.ps1') -TaskId $Id -Phase start *> $null
+  # -TakeOver: 15r starts several cards in one fixture repo (see the gate 15 note, T0-LIVE-WORK-GUARD).
+  & pwsh -NoProfile -File (Join-Path $Root 'scripts/task.ps1') -TaskId $Id -Phase start -TakeOver *> $null
   return (Join-Path $Root "wt/$Id")
 }
 
@@ -9045,7 +9046,10 @@ exit $LASTEXITCODE
         $cbId = 'T0-BUDGET'
         Write-CbCard $e2e $cbId '5'
         Publish-CbCard $cbId 'register the seeded card-budget card on the base branch'
-        & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId $cbId -Phase start *> $null
+        # T0-LIVE-WORK-GUARD: gate 15 starts several fixture cards that all declare README.md while its earlier
+        # steps leave README.md edits in other fixture worktrees, which task.ps1 start reads as another session's
+        # work ([START-LIVE-WORK]). The starts in 15a and 15b' stay plain; every later start in this $e2e fixture passes -TakeOver.
+        & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId $cbId -Phase start -TakeOver *> $null
         $cbWt = Join-Path $e2e "wt/$cbId"
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path $cbWt)) {
           Fail "闸15w 前置：seeded budget card $cbId 的 -Phase start 未建出 worktree（$cbWt）——ship 侧预算闸无法被驱动，本段四例全部落空。"
@@ -9080,7 +9084,7 @@ exit $LASTEXITCODE
             $cbNone = 'T0-BUDGETNONE'
             Write-CbCard $e2e $cbNone ''
             Publish-CbCard $cbNone 'register a card that declares no budget at all'
-            & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId $cbNone -Phase start *> $null
+            & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId $cbNone -Phase start -TakeOver *> $null
             $cbWtNone = Join-Path $e2e "wt/$cbNone"
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path $cbWtNone)) { Fail "闸15w4 前置：无预算卡 $cbNone 的 -Phase start 未建出 worktree（$cbWtNone）。" }
             else {
@@ -9104,7 +9108,7 @@ exit $LASTEXITCODE
       @('---', "id: $hazId", 'title: seeded red-phase preflight hazard', 'status: todo',
         'dod_command: "pwsh -NoProfile -File scripts/check-cards.ps1"', 'allow_paths:', '  - README.md', '---') -join "`n" |
         Set-Content $hazCard -Encoding utf8
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId $hazId -Phase start *> $null
+      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId $hazId -Phase start -TakeOver *> $null
       $hazWt = Join-Path $e2e "wt/$hazId"
       if ($LASTEXITCODE -ne 0 -or -not (Test-Path $hazWt)) { Fail "闸15g9 前置：合法卡 $hazId -Phase start 未建出 worktree——无法测 red 相前置闸。" }
       else {
@@ -9147,7 +9151,7 @@ exit $LASTEXITCODE
 
       # h3 正路径（无回归）：重建干净 worktree（h2 已删 worktree+分支）→ 无 -Force cleanup 须成功（exit 0、worktree 拆除）。
       #   证守卫不误伤日常正路径——每次 merge 后对干净树 cleanup 都走这条，守卫误拒即等于破坏收尾链。
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start *> $null
+      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start -TakeOver *> $null
       if (-not (Test-Path $wtDir)) { Fail '闸15h3：重建 worktree 失败（task start 未产出 worktree）——无法验证 cleanup 正路径。' }
       else {
         & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase cleanup *> $null
@@ -9166,7 +9170,7 @@ exit $LASTEXITCODE
       #   (a) 正路径：ship -Local 成功铸凭据（tip 绑定）→ 干净 cleanup 须删分支**并注销凭据**（单次性）；
       #   (b) tip 前移：ship 铸凭据后分支又添新提交 → cleanup（无 -Force）须**保留**分支（旧凭据不授权删新状态，R3 #17）。
       $tokFile = Join-Path (Join-Path (Join-Path $e2e '.git') 'scaffold-merged') 'T0-SMOKE'
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start *> $null
+      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start -TakeOver *> $null
       Set-Content (Join-Path $wtDir 'README.md') 'h4a probe' -Encoding utf8
       & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed *> $null
       if ($LASTEXITCODE -ne 0) { Fail '闸15h4(a)：夹具 ship -Local 未过（无法铸凭据）——前置搭建失败。' }
@@ -9181,7 +9185,7 @@ exit $LASTEXITCODE
         elseif (Test-Path $tokFile) { Fail '闸15h4(a)：分支已删但凭据未注销（单次性失效——残留凭据可再授权一次同名分支删除，R3 #9）。' }
         else { Write-Host '  15h4(a) 凭据正路径 OK（tip 匹配 → 删分支 + 注销凭据）' -ForegroundColor Green }
       }
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start *> $null
+      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start -TakeOver *> $null
       Set-Content (Join-Path $wtDir 'README.md') 'h4b probe' -Encoding utf8
       & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase ship -Local -SkipRed *> $null
       if ($LASTEXITCODE -ne 0) { Fail '闸15h4(b)：夹具第二次 ship -Local 未过——前置搭建失败。' }
@@ -9227,7 +9231,7 @@ exit $LASTEXITCODE
       if (-not $hadOrigin15h4) { & git -C $e2e remote add origin (Join-Path $e2e 'fake-origin.git') 2>$null }
       $oldPath15h4 = $env:Path
       # (d) MERGED + headRefOid 匹配 → CAS 删除
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start *> $null
+      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start -TakeOver *> $null
       $h4dTip = "$(& git -C $e2e rev-parse T0-SMOKE 2>$null)".Trim()
       Set-Content (Join-Path $ghStub15h4 'gh.ps1') "Write-Output '{""state"":""MERGED"",""headRefOid"":""$h4dTip""}'" -Encoding ascii
       $env:Path = "$ghStub15h4$([IO.Path]::PathSeparator)$oldPath15h4"
@@ -9240,7 +9244,7 @@ exit $LASTEXITCODE
       elseif ($h4dBranchAlive) { Fail '闸15h4(d)：gh 报 MERGED 且 headRefOid==分支 tip，但分支未被删除——在线补验正路径回归（-NoAutoMerge/他机合并收尾链破坏）。' }
       else { Write-Host '  15h4(d) 在线补验匹配删除 OK（stub gh：MERGED + headRefOid==tip → CAS 删）' -ForegroundColor Green }
       # (e) MERGED 但 headRefOid 不匹配 → 保留
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start *> $null
+      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start -TakeOver *> $null
       Set-Content (Join-Path $ghStub15h4 'gh.ps1') "Write-Output '{""state"":""MERGED"",""headRefOid"":""0000000000000000000000000000000000000000""}'" -Encoding ascii
       $env:Path = "$ghStub15h4$([IO.Path]::PathSeparator)$oldPath15h4"
       & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase cleanup *> $null
@@ -9312,7 +9316,7 @@ exit $LASTEXITCODE
       $cardDiag15h5 = 'T0-SMOKE.md'
       # Mint a worktree, a branch and a merge credential; returns $true when the setup really happened.
       function Initialize-CardlessFixture15h5 ([string]$Probe) {
-        & pwsh -NoProfile -File $task15h5 -TaskId T0-SMOKE -Phase start *> $null
+        & pwsh -NoProfile -File $task15h5 -TaskId T0-SMOKE -Phase start -TakeOver *> $null
         if (-not (Test-Path $wtDir)) { Fail "[15H5-SETUP] 闸15h5($Probe)：-Phase start 未产出 worktree——前置搭建失败，不是对无卡路径的裁决。"; return $false }
         Set-Content (Join-Path $wtDir 'README.md') "15h5 $Probe probe" -Encoding utf8
         & pwsh -NoProfile -File $task15h5 -TaskId T0-SMOKE -Phase ship -Local -SkipRed *> $null
@@ -9382,7 +9386,7 @@ exit $LASTEXITCODE
       $h5cOk = $true
       Restore-CardlessFixture15h5
       # (c1) red and ship, WITH a worktree in place, so neither can refuse for want of one.
-      & pwsh -NoProfile -File $task15h5 -TaskId T0-SMOKE -Phase start *> $null
+      & pwsh -NoProfile -File $task15h5 -TaskId T0-SMOKE -Phase start -TakeOver *> $null
       if (-not (Test-Path $wtDir)) { Fail '[15H5-SETUP] 闸15h5(c)：-Phase start 未产出 worktree——无法在「worktree 在场」的前提下追问 red / ship。'; $h5cOk = $false }
       else {
         $h5cBaseBefore = "$(& git -C $e2e rev-parse master 2>$null)".Trim()
@@ -9399,7 +9403,7 @@ exit $LASTEXITCODE
       # (c2) start on a clean slate: it BUILDS the worktree, so the assertion is that it built nothing.
       Restore-CardlessFixture15h5
       Remove-Item $cardHot15h5 -Force
-      $h5c2Out = & pwsh -NoProfile -File $task15h5 -TaskId T0-SMOKE -Phase start 2>&1 | Out-String
+      $h5c2Out = & pwsh -NoProfile -File $task15h5 -TaskId T0-SMOKE -Phase start -TakeOver 2>&1 | Out-String
       $h5c2Exit = $LASTEXITCODE
       if ($h5c2Exit -eq 0) { Fail '[15H5-GUARD-EXIT] 闸15h5(c)：缺卡时 -Phase start 退出 0——start 读卡字段，缺卡是真错误。'; $h5cOk = $false }
       elseif (Test-Path $wtDir) { Fail '[15H5-GUARD-SIDEEFFECT] 闸15h5(c)：-Phase start 因缺卡拒绝了，却已经建出 worktree——拒绝须发生在任何副作用之前。'; $h5cOk = $false }
@@ -9415,7 +9419,7 @@ exit $LASTEXITCODE
       #       不补这一步，未加守卫时 task.ps1 会先在「任务卡不存在」处抛，走不到 base==TaskId 那条链。
       #   (b) -SkipRed——历史参数（RED 证据闸已随 T68 拆除，现为兼容 no-op；保留传参不影响行为）。
       #   哨兵取 ASCII `L86`（同 TD50-BADID 手法，免中文断言在异构控制台产假 FAIL · L17）。
-      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start *> $null
+      & pwsh -NoProfile -File (Join-Path $e2e 'scripts/task.ps1') -TaskId T0-SMOKE -Phase start -TakeOver *> $null
       if (-not (Test-Path $wtDir)) { Fail '闸15m：重建 worktree 失败（task start 未产出 worktree）——无法验证 base==TaskId 守卫。' }
       else {
         # (a) 把卡片提交到分支上（$e2e 的仓级 user.email/name 已配，worktree 提交继承之）。
@@ -9455,6 +9459,73 @@ exit $LASTEXITCODE
           }
         }
       }
+    }
+    # 15lw. task.ps1 start against work another session holds (T0-LIVE-WORK-START A1, A2), with the real task.ps1 and
+    #   live-work.ps1 in this fixture: (a) a start whose card declares a path another fixture worktree has
+    #   uncommitted stops with [START-LIVE-WORK], prints that worktree's [LIVE-WORK-OVERLAP] line and builds nothing;
+    #   (b) the same start with -TakeOver prints the same line and builds the worktree; (c) a start with -TakeOver of
+    #   a card whose worktree exists refuses with the whole [START-WORKTREE-EXISTS] line (uncommitted=<n>, newest=<UTC
+    #   time>, do not reset it), clean (uncommitted=0, its HEAD commit time) and with an edit (uncommitted=1, the
+    #   edit's write time, edit kept); (d) a start whose
+    #   probe fails (a registered worktree whose directory is gone) stops with [START-LIVE-WORK-UNKNOWN], -TakeOver or
+    #   not; (e) so does a probe that exits 5, a code other than 0, 2 and 3; (f) task.ps1's help block has a
+    #   .PARAMETER TakeOver line (Get-Help cannot parse that block, so the line is read). Prints [15LW-OK] only when
+    #   all of these hold.
+    if (-not $fail) {
+      $lwTask = Join-Path $e2e 'scripts/task.ps1'; $lwOk = $true
+      $lwId = 'T0-LWSTART'; $lwWt = Join-Path $e2e "wt/$lwId"; $lwGoneId = 'T0-LWGONE'; $lwGoneWt = Join-Path $e2e "wt/$lwGoneId"
+      $lwOther = Join-Path $e2e 'wt/lw-other'; $lwGone = Join-Path $e2e 'wt/lw-gone'
+      foreach ($c in @(@($lwId, 'README.md'), @($lwGoneId, 'docs/lwgone.md'))) {
+        @('---', "id: $($c[0])", 'title: live-work start seed', 'status: todo', 'dod_command: "pwsh -NoProfile -Command exit 0"', 'allow_paths:', "  - $($c[1])", '---') -join "`n" |
+          Set-Content (Join-Path $e2e "specs/tasks/$($c[0]).md") -Encoding utf8
+      }
+      & git -C $e2e add -- "specs/tasks/$lwId.md" "specs/tasks/$lwGoneId.md" *> $null
+      & git -C $e2e commit -q -m 'register the live-work start seeds' *> $null
+      & git -C $e2e worktree add -q -b lw-other $lwOther master *> $null
+      Set-Content (Join-Path $lwOther 'README.md') 'another session edits README.md (15lw)' -Encoding utf8
+      # The overlap line the probe prints for lw-other; start must print it whether it stops or takes over.
+      $lwOverlap = { param($o) @($o -split "`r?`n" | Where-Object { $_.Trim().StartsWith('[LIVE-WORK-OVERLAP] worktree=') -and $_.Contains(' branch=lw-other uncommitted=1 ') -and $_.TrimEnd().EndsWith(' paths=README.md') }).Count -eq 1 }
+      $lwA = & pwsh -NoProfile -File $lwTask -TaskId $lwId -Phase start 2>&1 | Out-String; $lwAExit = $LASTEXITCODE
+      if ($lwAExit -eq 0 -or $lwA -notmatch '\[START-LIVE-WORK\] another worktree' -or -not (& $lwOverlap $lwA) -or (Test-Path $lwWt)) { Fail "[15LW-STOP] 闸15lw(a)：另一 worktree 持有 README.md 的未提交改动时，不带 -TakeOver 的 start 须非零退出、打印 [START-LIVE-WORK] 与 lw-other 的 [LIVE-WORK-OVERLAP] 行且不建 worktree（exit=$lwAExit，worktree 存在=$(Test-Path $lwWt)）。"; $lwOk = $false }
+      $lwB = & pwsh -NoProfile -File $lwTask -TaskId $lwId -Phase start -TakeOver 2>&1 | Out-String; $lwBExit = $LASTEXITCODE
+      if ($lwBExit -ne 0 -or -not (& $lwOverlap $lwB) -or -not (Test-Path $lwWt)) { Fail "[15LW-TAKEOVER] 闸15lw(b)：同一 start 带 -TakeOver 须打印同一条 [LIVE-WORK-OVERLAP] 行、退出 0 并建出 worktree（exit=$lwBExit）。"; $lwOk = $false }
+      else {
+        # The whole line start prints for an existing worktree (one line: the error view wraps a long throw message),
+        # with the exact newest time: the HEAD commit when the worktree is clean, else the edited file's write time.
+        $lwUtc = { param($t) $t.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture) }
+        $lwExists = { param($o, $n, $t) @($o -split "`r?`n" | Where-Object { $_ -cmatch "^\[START-WORKTREE-EXISTS\] .*[\\/]$lwId uncommitted=$n newest=$t another session may hold this worktree: do not reset, checkout or clean it; ask the user \(L218\)$" }).Count -eq 1 }
+        $lwHeadAt = & $lwUtc ([DateTimeOffset]::Parse("$(& git -C $lwWt log -1 --format=%cI HEAD)".Trim(), [Globalization.CultureInfo]::InvariantCulture).UtcDateTime)
+        $lwC0 = & pwsh -NoProfile -File $lwTask -TaskId $lwId -Phase start -TakeOver 2>&1 | Out-String; $lwC0Exit = $LASTEXITCODE
+        if ($lwC0Exit -eq 0 -or -not (& $lwExists $lwC0 0 $lwHeadAt)) { Fail "[15LW-EXISTING-CLEAN] 闸15lw(c)：worktree 已存在且无未提交改动时，start -TakeOver 须拒绝并打印整行 [START-WORKTREE-EXISTS] <worktree> uncommitted=0 newest=$lwHeadAt（HEAD 提交时间）another session may hold this worktree...（exit=$lwC0Exit）。"; $lwOk = $false }
+        Set-Content (Join-Path $lwWt 'README.md') 'held by this card (15lw)' -Encoding utf8
+        $lwEditAt = & $lwUtc (Get-Item -LiteralPath (Join-Path $lwWt 'README.md')).LastWriteTimeUtc
+        $lwC = & pwsh -NoProfile -File $lwTask -TaskId $lwId -Phase start -TakeOver 2>&1 | Out-String; $lwCExit = $LASTEXITCODE
+        $lwKept = (Get-Content (Join-Path $lwWt 'README.md') -Raw) -match 'held by this card'
+        if ($lwCExit -eq 0 -or -not (& $lwExists $lwC 1 $lwEditAt) -or -not $lwKept) { Fail "[15LW-EXISTING] 闸15lw(c)：worktree 已存在且有 1 个未提交改动时，start -TakeOver 须拒绝、打印整行 [START-WORKTREE-EXISTS] <worktree> uncommitted=1 newest=$lwEditAt（改动文件的写入时间）another session may hold this worktree... 并保留改动（exit=$lwCExit，改动保留=$lwKept）。"; $lwOk = $false }
+      }
+      & git -C $e2e worktree add -q -b lw-gone $lwGone master *> $null
+      Remove-Item -LiteralPath $lwGone -Recurse -Force -ErrorAction SilentlyContinue
+      foreach ($lwFlag in @($false, $true)) {
+        $lwArgs = @('-NoProfile', '-File', $lwTask, '-TaskId', $lwGoneId, '-Phase', 'start') + @(if ($lwFlag) { '-TakeOver' })
+        $lwD = & pwsh @lwArgs 2>&1 | Out-String; $lwDExit = $LASTEXITCODE
+        if ($lwDExit -eq 0 -or $lwD -notmatch '\[START-LIVE-WORK-UNKNOWN\]' -or (Test-Path $lwGoneWt)) { Fail "[15LW-UNKNOWN] 闸15lw(d)：探针失败（登记的 worktree 目录已不存在）时 start 须非零退出、打印 [START-LIVE-WORK-UNKNOWN] 且不建 worktree，-TakeOver=$lwFlag（exit=$lwDExit）。"; $lwOk = $false }
+      }
+      # (e) The fixture's live-work.ps1 is swapped for one line that exits 5, then restored byte for byte.
+      $lwProbe = Join-Path $e2e 'scripts/live-work.ps1'; $lwProbeBytes = [IO.File]::ReadAllBytes($lwProbe)
+      try {
+        [IO.File]::WriteAllText($lwProbe, "exit 5`n")
+        foreach ($lwFlag in @($false, $true)) {
+          $lwArgs = @('-NoProfile', '-File', $lwTask, '-TaskId', $lwGoneId, '-Phase', 'start') + @(if ($lwFlag) { '-TakeOver' })
+          $lwE = & pwsh @lwArgs 2>&1 | Out-String; $lwEExit = $LASTEXITCODE
+          if ($lwEExit -eq 0 -or $lwE -notmatch '\[START-LIVE-WORK-UNKNOWN\] live-work\.ps1 exited 5' -or (Test-Path $lwGoneWt)) { Fail "[15LW-OTHER-EXIT] 闸15lw(e)：探针以 0/2/3 之外的码（5）退出时 start 须非零退出、打印 [START-LIVE-WORK-UNKNOWN] live-work.ps1 exited 5 且不建 worktree，-TakeOver=$lwFlag（exit=$lwEExit）。"; $lwOk = $false }
+        }
+      } finally { [IO.File]::WriteAllBytes($lwProbe, $lwProbeBytes) }
+      $lwHelp = @(((Get-Content -Raw -LiteralPath $lwTask) -replace '(?s)^.*?<#(.*?)#>.*$', '$1') -split "`r?`n" | Where-Object { $_ -cmatch '^\.PARAMETER TakeOver\s+\S' })
+      if ($lwHelp.Count -ne 1) { Fail "[15LW-HELP] 闸15lw(f)：task.ps1 的帮助块须恰有一行 .PARAMETER TakeOver <说明>（实有 $($lwHelp.Count) 行）。"; $lwOk = $false }
+      & git -C $e2e worktree prune *> $null
+      foreach ($w in @($lwOther, $lwWt)) { & git -C $e2e worktree remove --force $w *> $null }
+      & git -C $e2e branch -D lw-other lw-gone $lwId *> $null
+      if ($lwOk) { Write-Host '  15lw start vs live work OK: overlap stops and -TakeOver continues, both printing the overlap line; an existing worktree is refused with the whole uncommitted=<n> newest=<UTC> line, clean and with an edit (kept); a probe failure or exit 5 stops even with -TakeOver; -TakeOver has a help line [15LW-OK]' -ForegroundColor Green }
     }
   } finally {
     Set-Location $RepoRoot

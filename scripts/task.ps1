@@ -22,6 +22,7 @@
 .PARAMETER Base    基线分支（默认=仓库当前分支,自动探测 main/master,可显式覆盖）
 .PARAMETER NoAutoMerge  ship 时在合并前暂停；晚些时候按输出的 [SHIP-MANUAL-RESUME] 命令重新进入完整 ship
 .PARAMETER Force  cleanup 阶段：worktree 有未提交改动时仍强制拆除（确认丢弃；缺省有脏改动即拒，防不可逆数据丢失）
+.PARAMETER TakeOver  start 阶段：live-work.ps1 报出另一 worktree / 分支持有本卡路径或名字时仍继续（[START-LIVE-WORK]）；只在用户明确同意接手后使用（L218）
 .EXAMPLE
   # 所有相位命令都从**主检出**根目录跑（L86）。cd 进 worktree 只为编辑文件，别在里面跑这份脚本——
   # worktree 自带的副本会把 $RepoRoot 派生成 worktree 本身，被 fail-closed 守卫拒（哨兵 L86-WT）。
@@ -56,7 +57,8 @@ param(
   [switch]$NoAutoMerge,
   [switch]$Local,      # 本地完成：按 ReviewGate/card policy 完成 R3 后本地合并，不 push/PR/gh；本仓 required 配置仍强制评审
   [switch]$SkipRed,    # compat no-op since T68 (the RED-evidence gate is gone); kept so documented commands and fixtures still bind
-  [switch]$Force       # cleanup：确认丢弃 worktree 内未提交改动后再拆除（TD47 脏树守卫的显式覆盖；缺省=有脏改动即拒）
+  [switch]$Force,      # cleanup：确认丢弃 worktree 内未提交改动后再拆除（TD47 脏树守卫的显式覆盖；缺省=有脏改动即拒）
+  [switch]$TakeOver    # start：另一会话的 worktree / 分支持有本卡路径或名字时仍继续（T0-LIVE-WORK-START）；仅在用户同意接手后
 )
 
 Set-StrictMode -Version Latest
@@ -1035,12 +1037,36 @@ switch ($Phase) {
     & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'check-cards.ps1') -TaskId $TaskId
     if ($LASTEXITCODE -ne 0) { throw "任务卡校验未过：先修正 specs\tasks\$TaskId.md 再 start。" }
 
+    # T0-LIVE-WORK-START (L218): another session's worktree or branch may already hold this card's paths or name.
+    # Stop before creating anything; -TakeOver continues only on the user's say-so. The probe only reads.
+    Step '[START-LIVE-WORK] 其他 worktree / 分支是否持有本卡的路径或名字（live-work.ps1）'
+    $lwLines = @(& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'live-work.ps1') -TaskId $TaskId -RepoPath $RepoRoot -Base ($Base -replace '^origin/', '') 2>&1 | ForEach-Object { "$_" })
+    $liveWork = $LASTEXITCODE
+    $lwLines | ForEach-Object { Write-Host "  $_" }
+    if ($liveWork -eq 3 -and -not $TakeOver) { throw "[START-LIVE-WORK] another worktree or branch holds work on $TaskId's paths or name (the [LIVE-WORK-OVERLAP] lines above). Ask the user which session owns it (L218); rerun with -TakeOver only once the user says to take it over." }
+    if ($liveWork -eq 3) { Write-Warning '[START-LIVE-WORK] -TakeOver: continuing although the lines above show work another session may hold.' }
+    elseif ($liveWork -ne 0) { throw "[START-LIVE-WORK-UNKNOWN] live-work.ps1 exited $liveWork, so start cannot tell whether another session holds this card; it stops rather than guess." }
+
     Step "R1 建 worktree $Wt（分支 $TaskId ← $Base）"
     # try/catch 给出可操作错误：默认 worktree 根落在 <系统盘>\wt；若该盘/路径不可写，
     # 指向 _config.ps1 WorktreeRoot 而非裸抛 DriveNotFoundException（30-lens C02）。
     try { New-Item -ItemType Directory -Force $WtRoot -ErrorAction Stop | Out-Null }
     catch { throw "无法创建 worktree 根目录 '$WtRoot'：$($_.Exception.Message)。请在 scripts\_config.ps1 设 WorktreeRoot 为一个可写的浅路径（如 C:\wt 或 ~/.wt）后重试。" }
-    if (Test-Path $Wt) { throw "worktree 已存在: $Wt。恢复指引——若上次 ship 中断（已 commit、未合并/未推）→ 直接重跑 `-Phase ship` 续（ship 各闸幂等、可安全重入）；若要从头重来 → 先 `-Phase cleanup` 拆除再 start。" }
+    if (Test-Path $Wt) {
+      # The card's worktree is the one on branch $TaskId (git allows one per branch). Its path is not compared: git
+      # stores the long form of a path given with 8.3 short names (C:\Users\RUNNER~1\...), so the strings can differ.
+      $lwMine = @($lwLines | Where-Object { $_.StartsWith('[LIVE-WORK-OVERLAP] worktree=') -and $_.Contains(" branch=$TaskId uncommitted=") })
+      $lwPair = "no-worktree-on-branch-$TaskId"
+      if ($lwMine.Count -and $lwMine[0] -match 'uncommitted=(\d+) newest=(\S+)') {
+        $lwUnc = $Matches[1]; $lwNewest = $Matches[2]
+        # A clean worktree with no commit off the base changes no path, so the probe prints newest=unknown; start then
+        # prints the time of its HEAD commit in the probe's UTC format, as the probe does for a deletion-only worktree.
+        if ($lwNewest -ceq 'unknown') { $lwCt = "$(& git -C $Wt log -1 --format=%ct HEAD 2>$null)".Trim(); if ($lwCt -match '^\d+$') { $lwNewest = [DateTimeOffset]::FromUnixTimeSeconds([long]$lwCt).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture) } }
+        $lwPair = "uncommitted=$lwUnc newest=$lwNewest"
+      }
+      # One ASCII line first: PowerShell's error view wraps a long throw message, so the pair is printed whole here.
+      Write-Host "[START-WORKTREE-EXISTS] $Wt $lwPair another session may hold this worktree: do not reset, checkout or clean it; ask the user (L218)"
+      throw "worktree 已存在: $Wt ($lwPair)。它可能由另一会话持有：切勿 reset / checkout -- / clean 它，先问用户（L218）。恢复指引——若上次 ship 中断（已 commit、未合并/未推）→ 直接重跑 `-Phase ship` 续（ship 各闸幂等、可安全重入）；若要从头重来 → 先 `-Phase cleanup` 拆除再 start。" }
     & git -C $RepoRoot worktree add -b $TaskId $Wt $Base
     if ($LASTEXITCODE -ne 0) { throw 'git worktree add 失败' }
 

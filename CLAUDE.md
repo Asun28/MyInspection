@@ -823,6 +823,7 @@ carded，仅余一次 post-merge core 重放，稳定后才可置 paid。
 - **完成与词义（防自评漂移）**：「完成」**只有一个定义 = 机检闸通过**（DoD / verify / selftest），自评「看起来好了」不算数；「清理/重构」= 行为不变且闸门前后皆绿；执行中偏离计划 → 取保守选项、记录缘由后继续；maker 与 checker（如 R3 评审）同一争点**两轮互不认可即停**、排队人裁，别无限迭代讨好评审。
 - **先停下确认（难逆或范围变更）**：删远端分支/仓库（例外：`post-merge.ps1 prune` 删唯一 PR 已 MERGED 且远端 tip 仍等于该 PR head 的分支，带 lease；用户 2026-09-25 裁定）、改仓库可见性（private→public）、改 GitHub 规则集、
   卡片 `allow_paths` 之外的批量删除、动 `FrozenPaths` 冻结物（走版本评审）；**新增运行时依赖**（先提案用途/许可/更简替代，过许可闸再落 lock）；**单次提交超大 diff**（约 >200 行）而任务未明示该规模。
+- **别的会话持有的工作（L218）**：开工、续接、拆卡或改卡前跑 `scripts/live-work.ps1 -TaskId <id>`，reset、clean 或删除 worktree 前跑 `scripts/live-work.ps1`；报出另一会话 48 小时内的改动就停下问用户由哪个会话持有，不接手、不重置、不拆它。`task.ps1 -Phase start` 遇重叠即停（`-TakeOver` 只在用户同意后用；探针失败时不放行）。
 - **反模式抑制（未经请求不做）**：不做防御性备份（`*.bak`/backup 分支/副本文件）；不重开用户已定的决策；
   任务外重构/清理见通用编码纪律 3/4。可逆且属原任务的动作直接做，别停下要许可。
 - **无 R3 直接合并的范围（用户 2026-09-25 裁定）**：post-merge.ps1 r5 开的 R5 文档同步 PR 只能改本卡卡片、本卡的 docs/TASK-BOARD.md 行、CLAUDE.md「当前阶段」节内的新增行；post-merge.ps1 retire 开的退役 PR（用户 2026-09-26 裁定）只能把指名卡片的 status 改为 merged 并在其后加一行 superseded_by、在该卡末尾追加一节、改该卡的 docs/TASK-BOARD.md 行；越界即 [POST-MERGE-SCOPE]，不推送。
