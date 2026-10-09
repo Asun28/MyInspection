@@ -1,7 +1,7 @@
 ---
 id: T0-LIVE-WORK-START
 title: Stop task.ps1 start from overrunning work another session holds, and tell every session to check live work first
-status: todo
+status: merged
 depends_on: [T0-LIVE-WORK-GUARD]
 parallelizable_with: []
 allow_paths:
@@ -150,3 +150,20 @@ above and a 15lw(a) assertion the start's own step header satisfied) killed M1-M
 | M10 | `if ($lwNewest -ceq 'unknown') {` -> `if ($false) {` (no HEAD-time fallback) | `[15LW-EXISTING-CLEAN]` |
 | M11 | `if ($lwNewest -ceq 'unknown') {` -> `if ($true) {` (always the HEAD time) | `[15LW-EXISTING]` |
 | M12 | `.UtcDateTime.ToString(` -> `.LocalDateTime.ToString(` | `[15LW-EXISTING-CLEAN]` |
+
+## R5 (2026-10-09)
+
+Merged by PR #452 (squash `827ca3d2`, reviewed head `ee233c8f`, CI `37893001840` attempt 2). Codex R3 round 3
+passed both axes with zero findings; the user authorized that round after round 2 reached ReviewRoundCap=2. Round 1
+blocked on two spec findings and round 2 on the Tier-S evidence, both fixed as recorded above. CI attempt 1 failed
+in the license gate for a reason outside this diff (TD176: the only Gradle Actions cache, saved on 2026-09-07, had
+passed Gradle's 30-day cleanup, which deleted the POMs the scanner reads). With the user's approval the cache was
+deleted and CI rerun; the resumed ship reviewed the same head again and Codex passed it again with zero findings.
+
+**doc_sync.** This R5 sets the status, the TASK-BOARD row and the CLAUDE.md current-stage entry. L218 enforced_by:
+deferred to the lessons PR after T0-DIRTY-WORKTREE-HOOK (agreed with session myinspection-86), which fills it once
+with this start check and that card's hook.
+
+**Known limits, not fixed here.** If `git log` fails on an existing card worktree that is clean, the
+`[START-WORKTREE-EXISTS]` line keeps `newest=unknown`; start still refuses. `task.ps1`'s comment help cannot be read
+with `Get-Help` for any parameter, because every `.PARAMETER` keeps its text on the same line.
