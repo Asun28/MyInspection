@@ -1,7 +1,7 @@
 ---
 id: T0-DIRTY-WORKTREE-HOOK
 title: Ask the user before a git command discards or moves work in a worktree that has uncommitted changes
-status: todo
+status: merged
 depends_on: [T0-LIVE-WORK-START]
 parallelizable_with: []
 allow_paths:
@@ -208,3 +208,20 @@ instead.
   for untracked or modified files, and A1 asks only with `--force`.
 - Other commands that discard work but are not in A1's list: `checkout <path>` without `--`, `merge --abort`,
   `rebase --abort`, `cherry-pick --abort`.
+
+## R5 (2026-10-12)
+
+Merged by PR #455 (squash `2bb0bb27`, reviewed head `3330ff56`, CI `38237964531` attempt 1). Codex R3 round 3
+passed both axes with zero findings. Rounds 1 (`19ecca2e`) and 2 (`7a3acdff`, at ReviewRoundCap=2) blocked on how
+many git and shell spellings the hook must read; on 2026-10-12 the user ruled to state the reading rule in A1 (card
+PRs #456 and #457) and the round counter was reset, as recorded above. An `arbitration:` entry could not have
+merged it: with ReviewGate='required' the blocking R3 leg throws on any non-zero review exit before reading one.
+
+**hygiene.** The R4 table in the implementation record (94 of 94 killed on `d5289958`, control 173 cases) is this
+card's R5 hygiene note; every hygiene item maps to a row.
+
+**doc_sync.** This R5 sets the status, the TASK-BOARD row and the CLAUDE.md current-stage entry. L218 enforced_by is
+filled once by the lessons PR that follows, with T0-LIVE-WORK-START's start check and this hook.
+
+**Known limits, not fixed here.** A repository's clean filters still run under the hook's `git status`
+(T0-LIVE-WORK-GIT-FILTERS). The [FOLLOW-UP] list in the implementation record stands.
