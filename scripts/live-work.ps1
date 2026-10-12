@@ -299,7 +299,8 @@ function Invoke-LiveWorkSelfCheck {
         'switch --discard-changes T9-OTHER', 'branch -D lw-x', 'branch -f lw-x', 'branch -M lw-x', 'update-ref refs/heads/lw-x HEAD',
         'reset "--hard"', '"reset" --hard', 'checkout -fq', 'switch -fq T9-OTHER', 'switch -Clw-y', 'stash -m list', 'restore --source HEAD src/app.txt',
         'restore --pathspec-from-file=list.txt', 'update-ref --stdin', 'reset --har', 'checkout --forc', 'clean --f', 'switch --force T9-OTHER', 'branch --force lw-x',
-        'restore -SW src/app.txt', 'checkout --pathspec-from-file=list.txt', 'stash -- list', 'stash --pathspec-from-file list', 'stash --message list', 'reset --h')) {
+        'restore -SW src/app.txt', 'checkout --pathspec-from-file=list.txt', 'stash -- list', 'stash --pathspec-from-file list', 'stash --message list', 'reset --h',
+        'stash -m -wh', 'stash --message -wh', 'clean -e -xn -f', 'clean --exclude -n -f', 'clean -e -- -fd', 'stash -- -h')) {
       Check "hook: git -C <dirty> $c asks" { & $asks (& $evt "git -C '$wtA' $c" $main) }
       Check "hook: git -C <clean> $c prints nothing" { & $quiet (& $evt "git -C '$wtC' $c" $main) }
     }

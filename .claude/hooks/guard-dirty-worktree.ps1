@@ -14,11 +14,12 @@
   A git command is read as its words with quotes removed: the subcommand is matched case-sensitively, bundled short
   options are split (-fq is -f -q), a flag of three or more characters that begins a long name in $arms counts as it
   (--har; also where git rejects it as ambiguous), the value of an option in $takes, spelled out, is neither a flag nor
-  an operand (-b fix, -bfix, --source=x; any other option's value is an operand), every word after -- is an
-  operand, and a command missing an operand git requires (branch -D, switch -f, restore without a path, checkout --
-  without one) prints nothing, as do clean -n or --dry-run and any command with -h or --help before -- (git prints
-  its usage; only spelled out, as git reset --h is a hard reset). Shell escapes (\--hard, `--hard), other
-  abbreviations, other options' values and commands git rejects are outside what the hook reads (the card's A1).
+  an operand, also when it starts with - or is -- (-b fix, -bfix, --source=x, stash -m -wh; any other option's value
+  is read as an operand or, when it starts with -, as options), every word after -- is an operand, and a command
+  without the operand its discard needs (branch -D, switch -f, restore without a path, checkout -- without one)
+  prints nothing, as do clean -n or --dry-run and any command with -h or --help before -- (git prints its usage; only
+  spelled out, as git reset --h is a hard reset). Shell escapes (\--hard, `--hard), other abbreviations, other
+  options' values and commands git rejects are outside what the hook reads (the card's A1).
   The target worktree is the -C directory (a relative one joins the directory so far), else the directory of the last
   cd, Set-Location, Push-Location or pushd earlier in the same tool call (undone by Pop-Location or popd, and in Bash
   by the closing parenthesis of a ( ... ) subshell), else the event's cwd; for worktree remove it is the path being
@@ -64,7 +65,7 @@ try {
     worktree     = { $ops.Count -ge 2 -and $ops[0] -ceq 'remove' -and (Has '-f', '--force') }
   }
   # Per subcommand, the options taking a value whose value would otherwise change the answer (matched case-sensitively).
-  $takes = @{ reset = '(?!)'; checkout = '^-[bB]$'; restore = '^-s$|^--(?:source|conflict)$'; clean = '^-e$'; stash = '^-m$|^--(?:message|pathspec-from-file)$'
+  $takes = @{ reset = '(?!)'; checkout = '^-[bB]$'; restore = '^-s$|^--(?:source|conflict)$'; clean = '^-e$|^--exclude$'; stash = '^-m$|^--(?:message|pathspec-from-file)$'
     switch = '^-[cC]$'; branch = '(?!)'; 'update-ref' = '(?!)'; worktree = '(?!)' }
   $arg = '"[^"]+"|''[^'']+''|\S+'
   # $masked is $cmd with the inside of every quoted string replaced by x, so both have the same length and the
@@ -95,10 +96,11 @@ try {
         $i = 1; $cs = @(); while ($i + 1 -lt $w.Count -and $w[$i] -cin '-C', '-c') { if ($w[$i] -ceq '-C') { $cs += $w[$i + 1] }; $i += 2 }
         $sub = if ($w.Count -gt $i -and $w[0] -match '^git(?:\.exe)?$' -and $w[$i] -cin $arms.Keys) { $w[$i] }
         if ($sub) {
-          # Bundled short options split; one that takes a value keeps the rest of its word as that value.
-          $dd = $false; $t = @(foreach ($a in @($w | Select-Object -Skip ($i + 1))) {
-              if ($dd -or $a -cnotmatch '^-[^-]') { $dd = $dd -or $a -ceq '--'; $a; continue }
-              for ($k = 1; $k -lt $a.Length; $k++) { $o = "-$($a[$k])"; if ($k + 1 -lt $a.Length -and $o -cmatch $takes[$sub]) { "$o=$($a.Substring($k + 1))"; break }; $o } })
+          # Bundled short options split; one that takes a value keeps the rest of its word, else the next word whole ($v; -wh, --).
+          $dd = $false; $v = $false; $t = @(foreach ($a in @($w | Select-Object -Skip ($i + 1))) {
+              if ($v) { $v = $false; $a; continue }
+              if ($dd -or $a -cnotmatch '^-[^-]') { $dd = $dd -or $a -ceq '--'; $v = -not $dd -and $a -cmatch $takes[$sub]; $a; continue }
+              for ($k = 1; $k -lt $a.Length; $k++) { $o = "-$($a[$k])"; if ($o -cmatch $takes[$sub]) { if ($k + 1 -lt $a.Length) { "$o=$($a.Substring($k + 1))" } else { $o; $v = $true }; break }; $o } })
           # An option's value (after = or the next word) is dropped; one with no value is not counted.
           $flags = [System.Collections.Generic.List[string]]::new(); $ops = [System.Collections.Generic.List[string]]::new(); $dd = $false; $after = 0
           for ($k = 0; $k -lt $t.Count; $k++) {
