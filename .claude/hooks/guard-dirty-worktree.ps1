@@ -14,10 +14,11 @@
   A git command is read as its words with quotes removed: the subcommand is matched case-sensitively, bundled short
   options are split (-fq is -f -q), a flag of three or more characters that begins a long name in $arms counts as it
   (--har; also where git rejects it as ambiguous), the value of an option in $takes, spelled out, is neither a flag nor
-  an operand (-b fix, -bfix, --source=x; any other option's value is an operand), words after -- are
-  operands, and a command missing an operand git requires (branch -D, switch -f, restore without a path, checkout --
-  without one) prints nothing. Shell escapes (\--hard, `--hard) are not undone, and a word after -- that starts
-  with - is split like options.
+  an operand (-b fix, -bfix, --source=x; any other option's value is an operand), every word after -- is an
+  operand, and a command missing an operand git requires (branch -D, switch -f, restore without a path, checkout --
+  without one) prints nothing, as do clean -n or --dry-run and any command with -h or --help before -- (git prints
+  its usage; only spelled out, as git reset --h is a hard reset). Shell escapes (\--hard, `--hard), other
+  abbreviations, other options' values and commands git rejects are outside what the hook reads (the card's A1).
   The target worktree is the -C directory (a relative one joins the directory so far), else the directory of the last
   cd, Set-Location, Push-Location or pushd earlier in the same tool call (undone by Pop-Location or popd, and in Bash
   by the closing parenthesis of a ( ... ) subshell), else the event's cwd; for worktree remove it is the path being
@@ -55,7 +56,7 @@ try {
     reset        = { Has '--hard', '--merge', '--keep' }
     checkout     = { (Has '-f', '--force', '--pathspec-from-file') -or $ops.Contains('.') -or $after }
     restore      = { ($ops.Count -or (Has '--pathspec-from-file')) -and (-not (Has '-S', '--staged') -or (Has '-W', '--worktree')) }
-    clean        = { Has '-f', '--force' }
+    clean        = { (Has '-f', '--force') -and -not (Has '-n', '--dry-run') }
     stash        = { -not ($ops.Count - $after) -or $ops[0] -cnotin 'list', 'show' }
     switch       = { (Has '-C') -or @($flags -clike '--force-*').Count -or ($ops.Count -and (Has '-f', '--force', '--discard-changes')) }
     branch       = { $ops.Count -and (Has '-f', '-D', '-M', '--force') }
@@ -95,8 +96,8 @@ try {
         $sub = if ($w.Count -gt $i -and $w[0] -match '^git(?:\.exe)?$' -and $w[$i] -cin $arms.Keys) { $w[$i] }
         if ($sub) {
           # Bundled short options split; one that takes a value keeps the rest of its word as that value.
-          $t = @(foreach ($a in @($w | Select-Object -Skip ($i + 1))) {
-              if ($a -cnotmatch '^-[^-]') { $a; continue }
+          $dd = $false; $t = @(foreach ($a in @($w | Select-Object -Skip ($i + 1))) {
+              if ($dd -or $a -cnotmatch '^-[^-]') { $dd = $dd -or $a -ceq '--'; $a; continue }
               for ($k = 1; $k -lt $a.Length; $k++) { $o = "-$($a[$k])"; if ($k + 1 -lt $a.Length -and $o -cmatch $takes[$sub]) { "$o=$($a.Substring($k + 1))"; break }; $o } })
           # An option's value (after = or the next word) is dropped; one with no value is not counted.
           $flags = [System.Collections.Generic.List[string]]::new(); $ops = [System.Collections.Generic.List[string]]::new(); $dd = $false; $after = 0
@@ -105,7 +106,8 @@ try {
             elseif ($t[$k] -ceq '--') { $dd = $true }
             else { $o = ($t[$k] -split '=', 2)[0]; if ($o -cnotmatch $takes[$sub] -or $t[$k].Contains('=') -or (++$k) -lt $t.Count) { $flags.Add($o) } }
           }
-          if (& $arms[$sub]) {
+          # -h or --help makes git print its usage; only spelled out, as git reset --h is a hard reset.
+          if (-not ($flags.Contains('-h') -or $flags.Contains('--help')) -and (& $arms[$sub])) {
             $target = $dir
             foreach ($c in $cs) { $target = Resolve-DirtyTarget $target $c }
             if ($sub -ceq 'worktree') { $target = Resolve-DirtyTarget $target $ops[1] }

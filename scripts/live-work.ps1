@@ -299,7 +299,7 @@ function Invoke-LiveWorkSelfCheck {
         'switch --discard-changes T9-OTHER', 'branch -D lw-x', 'branch -f lw-x', 'branch -M lw-x', 'update-ref refs/heads/lw-x HEAD',
         'reset "--hard"', '"reset" --hard', 'checkout -fq', 'switch -fq T9-OTHER', 'switch -Clw-y', 'stash -m list', 'restore --source HEAD src/app.txt',
         'restore --pathspec-from-file=list.txt', 'update-ref --stdin', 'reset --har', 'checkout --forc', 'clean --f', 'switch --force T9-OTHER', 'branch --force lw-x',
-        'restore -SW src/app.txt', 'checkout --pathspec-from-file=list.txt', 'stash -- list', 'stash --pathspec-from-file list', 'stash --message list')) {
+        'restore -SW src/app.txt', 'checkout --pathspec-from-file=list.txt', 'stash -- list', 'stash --pathspec-from-file list', 'stash --message list', 'reset --h')) {
       Check "hook: git -C <dirty> $c asks" { & $asks (& $evt "git -C '$wtA' $c" $main) }
       Check "hook: git -C <clean> $c prints nothing" { & $quiet (& $evt "git -C '$wtC' $c" $main) }
     }
@@ -307,6 +307,8 @@ function Invoke-LiveWorkSelfCheck {
     Check 'hook: git worktree remove --force <clean> prints nothing' { & $quiet (& $evt "git worktree remove --force '$wtC'" $main) }
     Check 'hook: git worktree remove -ff <dirty> asks' { & $asks (& $evt "git worktree remove -ff '$wtA'" $main) }
     Check 'hook: git worktree remove --force -- <dirty> asks about the path after --' { & $asks (& $evt "git worktree remove --force -- '$wtA'" $wtC) }
+    $wtD = Join-Path $root '-wtD'; & $g $main worktree add -q --detach $wtD origin/master; Set-Content (Join-Path $wtD 'src/app.txt') 'dash' -Encoding utf8
+    Check 'hook: a word after -- that starts with - stays whole (worktree remove --force -- -wtD asks)' { & $asksAbout (& $evt 'git worktree remove --force -- -wtD' $root) '-wtD (branch detached): 1 uncommitted path(s)' }
     Check 'hook: a -c option is not a directory (dirty asks)' { & $asks (& $evt "git -C '$wtA' -c core.quotepath=false reset --hard" $main) }
     Check 'hook: a -c option is not a directory (clean prints nothing)' { & $quiet (& $evt "git -c core.quotepath=false -C '$wtC' reset --hard" $main) }
     Check 'hook: & git.exe is git' { & $asks (& $evt "& git.exe -C '$wtA' reset --hard" $main) }
@@ -333,7 +335,8 @@ function Invoke-LiveWorkSelfCheck {
         'git -C <wt> stash "list"', 'git -C <wt> restore -Sq src/app.txt', 'git -C <wt> restore --source HEAD', 'git -C <wt> checkout --', 'git -C <wt> checkout T9-OTHER --', 'git -C <wt> checkout -bxf',
         'git -C <wt> branch -D', 'git -C <wt> switch -f', 'git -C <wt> switch -C', 'git -C <wt> update-ref', 'git -C <wt> worktree remove --force', 'git -C <wt> RESET --hard',
         'git -C <wt> switch -c lw-z', 'git -C <wt> branch -d lw-x', 'git -C <wt> worktree add -f <wt> T9-OTHER', 'git -C <wt> restore --conflict merge', 'git -C <wt> switch --force',
-        'git -C <wt> checkout -Bxf', 'git -C <wt> clean -exf', 'git -C <wt> restore -s HEAD', 'git -C <wt> switch -f -c lw-z')) {
+        'git -C <wt> checkout -Bxf', 'git -C <wt> clean -exf', 'git -C <wt> restore -s HEAD', 'git -C <wt> switch -f -c lw-z',
+        'git -C <wt> clean -nfd', 'git -C <wt> clean -f --dry-run', 'git -C <wt> reset --hard -h', 'git -C <wt> clean -fh', 'git -C <wt> stash --help')) {
       Check "hook: $c on a dirty worktree prints nothing" { & $quiet (& $evt $c.Replace('<wt>', "'$wtA'") $wtA) }
     }
     Check 'hook: clean -fdx on a worktree whose only extra file is ignored asks' { & $asksAbout (& $evt "git -C '$wtC' clean -fdx" $main) 'wtC (branch detached): 0 uncommitted path(s) and 1 ignored path(s), newest change unknown' }
