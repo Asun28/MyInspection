@@ -73,3 +73,138 @@ the rounds are reset and R3 judges the amended card.
 (`claude -p --permission-mode bypassPermissions`, a project hook that always answers `ask`) was told to run
 `echo askprobe > marker.txt`. The hook fired, the command did not run (no `marker.txt`), and the model received
 the reason. The same run with `deny` behaved the same. So `ask` is not approved silently in bypass mode.
+
+## Implementation record (2026-10-09)
+
+Delivered through the AIDLC loop (goal `g-20260925112601-012c7e`) by a second session while `T0-LIVE-WORK-START`
+shipped from the first (user ruling 2026-10-09). The hook starts from the combined candidate of PR #447
+(`00a0e56d:.claude/hooks/guard-dirty-worktree.ps1`). Changes on top of it, most from two fresh-context reviews
+before ship:
+
+- **Git must start its segment.** The candidate matched `git` anywhere after a space, so a commit whose message
+  mentions `git reset --hard`, or `echo git stash`, asked about a dirty cwd. The match is now anchored at the start
+  of a segment (optionally after PowerShell's `&`).
+- **Quoted text is masked** before the command is split at `;`, `|`, `&&`, `||` and newlines and before its
+  parentheses are counted, so `git commit -m "wip; git stash pop later"` does not ask and a `)` inside quotes does
+  not close a subshell.
+- **Directory changes follow the shell more closely.** `pushd` joins cd, Set-Location and Push-Location;
+  Pop-Location and popd undo a push; in Bash the closing parenthesis of a `( ... )` subshell undoes a cd made inside
+  it, while PowerShell parentheses keep the location change. A directory change that does not start its segment
+  (`if (...) { Set-Location x }` on one line) is not seen, and the header says so.
+- **One unreadable command does not cancel the others.** Each segment is checked in its own try/catch, so a git
+  error or an unresolvable path leaves only that command unasked. The library's `$ErrorActionPreference = 'Stop'`
+  had made a missing drive in a later segment discard an ask already found. Once the shared deadline passes, every
+  later command is unasked too (A1 as worded by #453).
+- **Git deadline.** Dot-sourced with `-AsLibrary`, the probe sets no deadline, so the hook sets one shared 10 s
+  deadline for its git calls; settings.json gives the hook a 15 s timeout.
+- **clean -x and -X count ignored files** (A1 amended by #451, user ruling 2026-10-09), listed with
+  `git ls-files --others --ignored --exclude-standard --directory`. An ignored directory counts once and is not
+  dated: its own last-write time does not change when a file inside it does, so it would make live work look stale.
+- `switch --force-create` (the long form of `-C`) joins the switch arm. A Git Bash path `/c/...` is read as `C:/...`
+  on Windows, so an absolute path from the Bash tool resolves.
+
+**Self-check.** 153 hook cases join the probe's 20. Each pipes event JSON into the real hook; an ask must be exactly
+one line of JSON (stderr is merged in) with `hookEventName` PreToolUse, `permissionDecision` ask, and a reason
+naming `wtA (branch T9-OTHER): 1 uncommitted path(s), newest change 20…` and the other-session sentence; "prints
+nothing" means no line at all; every case requires exit 0. A git error comes from a fixture worktree whose index is
+garbage. The deadline case gives worktree wtS a clean filter that sleeps past the 10 s deadline; the fsmonitor case
+points wtA's `core.fsmonitor` at a script that would write a marker file.
+
+**R3 round 1 (on `19ecca2e`).** Codex blocked on two spec findings and one standards finding. (1) The arms matched
+the raw text, so `git reset "--hard"`, `git "reset" --hard`, `checkout -fq`, `switch -fq`, `worktree remove -ff` and
+`worktree remove --force -- <path>` did not ask, while `stash "list"`, `restore -Sq`, `checkout --`, commands missing
+an operand git requires and `git RESET` did. The hook now reads a git command as words, as its header describes. (2)
+The deadline had no case; see the slow clean filter above. (3) `git status` ran a repository's `core.fsmonitor`
+program; the hook now passes `-c core.fsmonitor=` through the library's new `$script:LiveWorkGitConfig` (empty by
+default, so the probe is unchanged). Clean filters can still run, as in any git status. Two fresh-context reviews of
+the fix added abbreviated long options (`--har`), `stash -- list`, `checkout --pathspec-from-file` and a case for every
+`--force`, `-W` and `$takes` entry.
+
+**R3 round 2 (on `7a3acdff`) and the ruling.** Codex blocked again, at the round cap, on the same question: spellings
+the hook does not read the way git does (escaped words, abbreviated value options, a dash-led path after `--`) and
+asks about commands git rejects or that only preview. The user ruled on 2026-10-12 to state the reading rule in A1
+rather than grow a git grammar (card PRs #456 and #457; "Ruling 2026-10-12" above). The hook now prints nothing for
+`clean -n` or `--dry-run` and for `-h` or `--help` before `--` (spelled out only: `git reset --h` is a hard reset),
+keeps every word after `--` whole, and keeps a listed option's separate value whole; `clean --exclude` joins the
+listed value options. The last change came from a fresh-context review of the first fix, which had split the value
+in `git stash -m -wh` so that its `-h` read as help: the hook asked nothing while git stashes, a fail-open the
+`7a3acdff` hook did not have. The clean-filter finding moved to `T0-LIVE-WORK-GIT-FILTERS`, and the round counter is
+reset for the amended card.
+
+**R4.** `c3-mutate.ps1` (scratchpad) ran each single-statement mutant of the hook against `live-work.ps1 -SelfCheck`
+in its own copy of `scripts/` and the hook, eight at a time, beside an unmutated control, on commit `d5289958`
+(hook SHA-256 `E3923A24…2658`, `live-work.ps1` `BEA3F42F…A07B`; later commits change only this card). A mutant
+counts as killed only when its search string hit exactly once, the mutated file parses, and the self-check exits 1
+with `[LIVE-WORK-SELF-CHECK-FAIL]` and at least one named failing case. The control passed (173 cases), 94 of 94
+declared mutants ran and were killed, and both source files were unchanged after the batch. Earlier batches: 43 of
+43 on `14cf56d9`, 80 of 80 on `9b67d600`. Every hygiene item maps to a row below; a row with several ids lists each
+one's count and first failing case in order.
+
+| id | single-statement change in the hook | cases failed | first failing case |
+|---|---|---|---|
+| M01 | the dirty test -> `$true` (hygiene: drop the dirty-worktree test) | 51 | git -C <clean> reset --hard prints nothing |
+| M02–M10 | each arm -> `{ $false }`: reset, checkout, restore, clean, stash, switch, branch, update-ref, worktree | 24 / 6 / 5 / 7 / 9 / 7 / 4 / 2 / 4 | git -C <dirty> reset --hard asks / git -C <dirty> checkout -f asks / git -C <dirty> restore src/app.txt asks / git -C <dirty> clean -fd asks / git -C <dirty> stash asks / git -C <dirty> switch -C lw-x asks / git -C <dirty> branch -D lw-x asks / git -C <dirty> update-ref refs/heads/lw-x HEAD asks / git worktree remove --force <dirty> asks |
+| M11 | stash arm -> `$true` (hygiene: drop the stash list/show exclusion) | 3 | git -C <wt> stash list on a dirty worktree prints nothing |
+| M12 | restore's --staged exclusion dropped (hygiene: drop the restore --staged exclusion) | 2 | git -C <wt> restore --staged src/app.txt on a dirty worktree prints nothing |
+| M13–M16 | cd, Set-Location, Push-Location, pushd each dropped from the directory changes | 4 / 3 / 1 / 1 | cd moves the target / a relative -C joins the directory a Set-Location moved to / Push-Location moves the target / pushd moves the target |
+| M17, M18, M22 | a relative -C used as given; joined to the event cwd; -C ignored | 2 / 1 / 102 | a relative -C joins the event cwd / a relative -C joins the directory a Set-Location moved to / git -C <dirty> reset --hard asks |
+| M19 | the outer catch prints an ask (hygiene: ask on unreadable input) | 1 | unreadable input prints nothing |
+| M20 | the /c/... mapping off | 1 | a Git Bash /c/... path is read as C:/... |
+| M21 | worktree remove keeps the -C/cwd target | 5 | git worktree remove --force <dirty> asks |
+| M23–M25 | final `exit 1`; branch always detached; the per-segment catch rethrows | 153 / 65 / 3 | git -C <dirty> reset --hard asks / git -C <dirty> reset --hard asks / a git error in one command leaves the later ones checked |
+| M26, M27 | Pop-Location/popd and a closing `)` pop without restoring | 2 / 1 | Pop-Location moves it back / the closing parenthesis of ( ... ) moves it back |
+| M28, M29 | leading `(` / trailing `)` not stripped | 3 / 2 | a cd inside ( ... ) moves the target inside it / a cd inside ( ... ) moves the target inside it |
+| M30, M31 | the `&` prefix / `.exe` not allowed | 1 / 1 | & git.exe is git / & git.exe is git |
+| M32 | -C read case-insensitively (a -c value read as a directory) | 1 | a -c option is not a directory (dirty asks) |
+| M33 | `-Path`/`-LiteralPath` not skipped | 1 | Set-Location -LiteralPath moves the target |
+| M34 | `--` not read as the end of options | 4 | git -C <dirty> checkout -- src/app.txt asks |
+| M35, M71 | `--force-*` / `-C` dropped from the switch arm | 1 / 2 | git -C <dirty> switch --force-create lw-x asks / git -C <dirty> switch -C lw-x asks |
+| M36, M64 | `-f` / `--force` dropped from switch's operand clause | 2 / 1 | git -C <dirty> switch -f T9-OTHER asks / git -C <dirty> switch --force T9-OTHER asks |
+| M37, M65 | `-M` / `--force` dropped from the branch arm | 1 / 1 | git -C <dirty> branch -M lw-x asks / git -C <dirty> branch --force lw-x asks |
+| M62, M63, M66, M67 | `--force` dropped from checkout / clean; `-W` from restore; `--pathspec-from-file` from checkout | 1 / 1 / 1 / 1 | git -C <dirty> checkout --forc asks / git -C <dirty> clean --f asks / git -C <dirty> restore -SW src/app.txt asks / git -C <dirty> checkout --pathspec-from-file=list.txt asks |
+| M38 | the ignored-file count never taken (hygiene: drop the ignored-file count) | 2 | clean -fdx on a worktree whose only extra file is ignored asks |
+| M39 | `-X` no longer counts ignored files | 1 | clean -fX counts ignored files too |
+| M40 | PowerShell parentheses treated as a subshell | 1 | in PowerShell ( ... ) keeps the location change |
+| M41 | quoted text not masked | 2 | a ) inside quotes does not close the subshell |
+| M42 | `popd` dropped | 1 | popd moves it back |
+| M43 | quotes not removed from words | 3 | git -C <dirty> reset "--hard" asks |
+| M44 | bundled short options not split | 9 | git -C <dirty> clean -fd asks |
+| M45 | splitting continues past an option that takes a value | 6 | git -C <dirty> stash -m -wh asks |
+| M46 | a separate value kept as an operand, and a valueless value option counted | 10 | git -C <dirty> stash -m list asks |
+| M47 | `--opt=value` not split at `=` | 3 | git -C <dirty> switch -Clw-y asks |
+| M48, M60 | subcommand / flags compared case-insensitively | 1 / 3 | git -C <wt> RESET --hard on a dirty worktree prints nothing / git -C <wt> switch -c lw-z on a dirty worktree prints nothing |
+| M49–M52 | the operand check dropped: branch, switch, update-ref, restore | 1 / 3 / 1 / 3 | git -C <wt> branch -D on a dirty worktree prints nothing / git -C <wt> switch -f on a dirty worktree prints nothing / git -C <wt> update-ref on a dirty worktree prints nothing / git -C <wt> restore --source HEAD on a dirty worktree prints nothing |
+| M53, M54 | checkout: `--` alone asks / `.` no longer asks | 2 / 1 | git -C <wt> checkout -- on a dirty worktree prints nothing / git -C <dirty> checkout . asks |
+| M55 | `core.fsmonitor` left on | 1 | a repository's core.fsmonitor program does not run (dirty still asks) |
+| M56 | no deadline | 1 | past the deadline the slow command and every later one are left unasked, and the ask found before it is printed |
+| M57, M58 | update-ref `--stdin` / restore `--pathspec-from-file` not asked | 1 / 1 | git -C <dirty> update-ref --stdin asks / git -C <dirty> restore --pathspec-from-file=list.txt asks |
+| M59 | the worktree arm ignores its subcommand | 1 | git -C <wt> worktree add -f <wt> T9-OTHER on a dirty worktree prints nothing |
+| M61 | long-option abbreviations not accepted | 4 | git -C <dirty> reset --har asks |
+| M68 | stash reads operands after `--` | 1 | git -C <dirty> stash -- list asks |
+| M81, M82, M88 | `-n` / `--dry-run` / the whole dry-run exclusion dropped from clean (hygiene: drop the clean -n/--dry-run exclusion) | 1 / 1 / 2 | git -C <wt> clean -nfd on a dirty worktree prints nothing / git -C <wt> clean -f --dry-run on a dirty worktree prints nothing / git -C <wt> clean -nfd on a dirty worktree prints nothing |
+| M83, M84, M89 | `-h` / `--help` / the whole help exclusion dropped (hygiene: drop the -h/--help exclusion) | 2 / 1 / 3 | git -C <wt> reset --hard -h on a dirty worktree prints nothing / git -C <wt> stash --help on a dirty worktree prints nothing / git -C <wt> reset --hard -h on a dirty worktree prints nothing |
+| M85 | help counted when abbreviated, through `Has` (hygiene: let -h count when abbreviated) | 1 | git -C <dirty> reset --h asks |
+| M86, M87 | words after `--` split as bundles again / `--` never noticed while splitting (hygiene: split option-like words after -- as options) | 1 / 1 | a word after -- that starts with - stays whole (worktree remove --force -- -wtD asks) / a word after -- that starts with - stays whole (worktree remove --force -- -wtD asks) |
+| M91–M93 | a listed option's separate value split again: no pass-through / a long option does not mark it / a short option does not mark it (hygiene: split a listed option's separate value as options) | 4 / 1 / 3 | git -C <dirty> stash -m -wh asks / git -C <dirty> stash --message -wh asks / git -C <dirty> stash -m -wh asks |
+| M94 | help read from every word, not only from options | 1 | git -C <dirty> stash -- -h asks |
+| M90 | `--exclude` dropped from clean's value options | 1 | git -C <dirty> clean --exclude -n -f asks |
+| M69, M70, M72, M73, M74, M75, M76, M77, M78, M79, M80 | one entry dropped from `$takes`: restore --conflict, stash --pathspec-from-file, checkout -B, checkout -b, clean -e, restore -s, restore --source, stash -m, stash --message, switch -c, switch -C | 1 / 1 / 1 / 1 / 3 / 1 / 1 / 2 / 2 / 1 / 1 | git -C <wt> restore --conflict merge on a dirty worktree prints nothing / git -C <dirty> stash --pathspec-from-file list asks / git -C <wt> checkout -Bxf on a dirty worktree prints nothing / git -C <wt> checkout -bxf on a dirty worktree prints nothing / git -C <dirty> clean -e -xn -f asks / git -C <wt> restore -s HEAD on a dirty worktree prints nothing / git -C <wt> restore --source HEAD on a dirty worktree prints nothing / git -C <dirty> stash -m list asks / git -C <dirty> stash --message list asks / git -C <wt> switch -f -c lw-z on a dirty worktree prints nothing / git -C <wt> switch -C on a dirty worktree prints nothing |
+
+**DoD and A3.** After `T0-LIVE-WORK-START` merged (PR #452, `827ca3d2`), origin/master was merged in and the A3
+clause was appended to CLAUDE.md's L218 execution-boundary line. The DoD printed `[DOD-PASS]` there and again after
+origin/master `7392ae6e` (that card's R5, #454) was merged in, and again after the card PRs #456 and #457.
+
+**Tier-S (A4).** The card's computed tier is S, so the acceptance run is `selftest.ps1 -TaskId T0-DIRTY-WORKTREE-HOOK`
+(the full suite) from the card worktree's own copy (L344) on this PR's final head, the commit that records
+the R4 run above on the final hook, launched with an empty `git status --porcelain` and no edit during or after it. Its launch HEAD, status and
+result line are posted on the PR. A commit cannot carry the result of a run on itself, so this record names the run
+instead.
+
+**[FOLLOW-UP]** (outside A1, which defines both the commands and the target):
+- A command run from a clean worktree that moves a branch checked out in another, dirty worktree
+  (`git update-ref refs/heads/<that branch> …`, `git branch -f <that branch> …`) prints nothing, because the target
+  is the -C, cd or cwd worktree. That is the cross-session shape of the incident in `T0-LIVE-WORK-GUARD`.
+- A plain `git worktree remove <wt>` (no `--force`) deletes a worktree that holds only ignored files; git refuses only
+  for untracked or modified files, and A1 asks only with `--force`.
+- Other commands that discard work but are not in A1's list: `checkout <path>` without `--`, `merge --abort`,
+  `rebase --abort`, `cherry-pick --abort`.
