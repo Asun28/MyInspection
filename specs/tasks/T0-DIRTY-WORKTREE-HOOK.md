@@ -103,7 +103,7 @@ before ship:
 - `switch --force-create` (the long form of `-C`) joins the switch arm. A Git Bash path `/c/...` is read as `C:/...`
   on Windows, so an absolute path from the Bash tool resolves.
 
-**Self-check.** 133 hook cases join the probe's 20. Each pipes event JSON into the real hook; an ask must be exactly
+**Self-check.** 153 hook cases join the probe's 20. Each pipes event JSON into the real hook; an ask must be exactly
 one line of JSON (stderr is merged in) with `hookEventName` PreToolUse, `permissionDecision` ask, and a reason
 naming `wtA (branch T9-OTHER): 1 uncommitted path(s), newest change 20…` and the other-session sentence; "prints
 nothing" means no line at all; every case requires exit 0. A git error comes from a fixture worktree whose index is
@@ -119,6 +119,17 @@ program; the hook now passes `-c core.fsmonitor=` through the library's new `$sc
 default, so the probe is unchanged). Clean filters can still run, as in any git status. Two fresh-context reviews of
 the fix added abbreviated long options (`--har`), `stash -- list`, `checkout --pathspec-from-file` and a case for every
 `--force`, `-W` and `$takes` entry.
+
+**R3 round 2 (on `7a3acdff`) and the ruling.** Codex blocked again, at the round cap, on the same question: spellings
+the hook does not read the way git does (escaped words, abbreviated value options, a dash-led path after `--`) and
+asks about commands git rejects or that only preview. The user ruled on 2026-10-12 to state the reading rule in A1
+rather than grow a git grammar (card PRs #456 and #457; "Ruling 2026-10-12" above). The hook now prints nothing for
+`clean -n` or `--dry-run` and for `-h` or `--help` before `--` (spelled out only: `git reset --h` is a hard reset),
+keeps every word after `--` whole, and keeps a listed option's separate value whole; `clean --exclude` joins the
+listed value options. The last change came from a fresh-context review of the first fix, which had split the value
+in `git stash -m -wh` so that its `-h` read as help: the hook asked nothing while git stashes, a fail-open the
+`7a3acdff` hook did not have. The clean-filter finding moved to `T0-LIVE-WORK-GIT-FILTERS`, and the round counter is
+reset for the amended card.
 
 **R4.** `c3-mutate.ps1` (scratchpad) ran each single-statement mutant of the hook against `live-work.ps1 -SelfCheck`
 in its own copy of `scripts/` and the hook, five at a time, beside an unmutated control, on commit `9b67d600`
@@ -173,11 +184,11 @@ hygiene item maps to a row below; a row with several ids lists each one's count 
 
 **DoD and A3.** After `T0-LIVE-WORK-START` merged (PR #452, `827ca3d2`), origin/master was merged in and the A3
 clause was appended to CLAUDE.md's L218 execution-boundary line. The DoD printed `[DOD-PASS]` there and again after
-origin/master `7392ae6e` (that card's R5, #454) was merged in.
+origin/master `7392ae6e` (that card's R5, #454) was merged in, and again after the card PRs #456 and #457.
 
 **Tier-S (A4).** The card's computed tier is S, so the acceptance run is `selftest.ps1 -TaskId T0-DIRTY-WORKTREE-HOOK`
 (the full suite) from the card worktree's own copy (L344) on this PR's final head, the commit that records
-R3 round 1, launched with an empty `git status --porcelain` and no edit during or after it. Its launch HEAD, status and
+R3 round 2 and the ruling, launched with an empty `git status --porcelain` and no edit during or after it. Its launch HEAD, status and
 result line are posted on the PR. A commit cannot carry the result of a run on itself, so this record names the run
 instead.
 
