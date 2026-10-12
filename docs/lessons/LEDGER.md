@@ -775,7 +775,7 @@
 - refs: 本会话 T11→T12/T14/T15/T16/T18 谱系（PR #102 及其拆卡，TD83/T14 是本条判据的原始证据）；关联 L97（R3 逐轮单点外溢）、L101（不同点：L101 讲首轮评审前必须先有卡，本条讲评审**过程中**新发现该修/该回退还是该拆）
 
 ## L114
-- date: 2026-07-12 ｜ tags: git,ship,concurrency,scope-gate,red-evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
+- date: 2026-07-12 ｜ tags: git,ship,concurrency,scope-gate,red-evidence ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 7
 - symptom: ship 范围闸把大量本卡未改的文件（其他已合并卡的产物/文档）报成越界：origin/master 在本卡 worktree 分支好之后被其他并发会话的真实 PR 合并推进了多次，ship 的范围/评审基线解析到 origin/master，diff 的 merge-base 落在旧共同祖先上，中间所有'本地曾经领先但从未推送'的提交（含另一会话半途合并又撤销的卡）全部混入本卡 diff。
 - root_cause: 多会话共享同一主检出时，本地 master 与 origin/master 会各自独立前移又不同步（他人 gh pr merge --squash 只更新 origin、不回写本地；本地又有会话直接在共享 master 上 commit/revert，即 L112 场景）——本卡的 worktree 分支是从这条已经该会话专属又混乱的本地 master 分出的，其真实 fork point 相对 origin 早已过期。
 - rule: **预防（首选，成本最低）**：多会话共享主检出、本地 master 又脏（他会话未提交改动）又与 origin/master 发散（本地有未推送提交、且缺 origin 新提交）时，`-Phase start` 直接把 worktree 基在 origin 最新 tip——`pwsh -File scripts\task.ps1 -TaskId <id> -Phase start -Base origin/master`（ship 亦传 `-Base origin/master`）——分支从 origin/master 分出，PR diff 天然只含本卡改动、不含本地未推送的中间提交，范围闸/评审基线自始干净；R5 的 doc_sync/lesson 提交同理，在**从 origin/master 新开的干净临时 worktree**（`git worktree add --detach <path> origin/master`）里编辑→只 add 目标文件→push HEAD:master→删该 worktree，全程不 `git add -A`、不 stash、不 rebase 脏主检出（守 L112）。T29-LICENSE-FRONTEND-DIR 实测：主检出 62 个他会话脏文件 + 本地 master 1 ahead/1 behind 时，`-Base origin/master` 全程零污染、PR #113 diff 恰为 3 个 allow_paths 文件、doc_sync 提交只动 2 文件。**补救（已中招时）**：ship 报出大片无关越界文件时，先 git fetch origin 比对 origin/master 与本地 master/本卡分支的 ahead/behind；若已真发散，不要在混乱的中间历史上做多提交 rebase（会牵连他人已合并又走开的分支，冲突面不可控）——改用 git checkout -B <branch> origin/master 把分支基点重置到 origin 最新 tip，再把本卡的最终文件内容重新落到这个干净分支上（内容已知时直接重写比逐条 cherry-pick/rebase 更快更可靠）；RED 证据的 sha 会随之失效，须 git stash 退回改动前状态、在新 HEAD 上重新跑 -Phase red、再 git stash pop 续接 GREEN，否则 ship 会因 RED sha 不等于 HEAD 而拒收。 **（复发 2026-08-23，T0-LESSONS-BUMP-PLANE / PR #129，两处各中一次）** ㊀ 本条讲的「基线要干净」还有一个**此前没写的后果**：R3 评审读的是 `branch-vs-origin/master`，所以分支只要落后 master 一个提交，评审就会把「master 领先的那个提交」读成「**本分支在撤销它**」，报出一串「删除了某某卡 / 回退了 TASK-BOARD」式的越界 finding——全是假象，却照样占掉一轮（本次 3 条 finding、白烧第 1 轮，合上 origin/master 后三条同时消失）。故**每次 ship 之前**都先 `git fetch origin master` 并把它合上来，不只是开卡时基一次：并行会话多时 master 每十几分钟就动一次。㊁ 本条明写的「不 `git add -A`」当天又被我违反一次：R5 doc_sync 在干净临时 worktree 里用了 `git add -A`，把刚写的 `.msg.tmp` 一并提交（未推送，`git rm --cached` + `--amend` 修掉）。规矩不变：**只 add 目标文件**，临时文件写到 worktree 之外或立刻删。
@@ -1143,7 +1143,7 @@
 - refs: 
 
 ## L165
-- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 12
+- date: 2026-07-25 ｜ tags: testing,vacuous,mutation,gates ｜ tier: must ｜ kind: pitfall ｜ severity: blocking ｜ recurrence: 14
 - symptom: 同一张卡里「断言看起来在测 X、实际没测 X」连出四次：①断言写在**整份 stdout** 上，而被测命令在判定前先打印改动清单，那条路径无论判定如何都在输出里 ②断言匹配**中文结论行**，父进程 stdout 被重定向时解码成乱码，六个 case 在别人机器上齐红而我连跑六次全绿 ③断言只数文档里**关键词出现次数**，而周围散文本就含那些词，把真正的可执行守卫整段删掉照样绿 ④不符用例传**全零 OID**，于是停在「解析不出提交」那一支，根本走不到它声称要测的身份比对那句。**第 2 次（T56 r17 批，2026-08-05）：变异分类器自己犯②**——gate 锚带一个「闸」字、红面正则锚「闸17t(」，批改派 schtasks 后 OEM 码页把中文打成 '?'，六枚真红被误判 NOT-OK；改纯 ASCII 锚时又差点掉进③（裸 '17t(tXX)' 会把 t16 半覆盖信息行误计红面），红面行判别改锚 'WARNING: ' 前缀（L149）才闭合。
 - root_cause: 断言落在了**比被测契约更宽的表面**上：整份输出 ⊃ 判定行、中文文案 ⊃ 稳定标识、关键词出现 ⊃ 可执行命令、任一非零 ⊃ 该守卫拦下。宽表面在被测契约还成立时当然绿，于是看不出问题；一旦契约被摘掉，宽表面仍可能因别的原因满足，断言就静默失效。人写断言时脑子里想的是契约，手上写的却是「输出里有没有这个字符串」。
 - rule: 断言面必须**恰好等于**被测契约，且用一枚只删该契约那一句的变异来证明：①只比对**判定行**（先按稳定标识切出那一行再匹配），不比对整份输出 ②机检一律认 **ASCII 哨兵**，本地化文案只给人读（编码链一变中文断言就假红/假绿）③文档契约锚到**可执行命令行形态**（行首 + 真实命令），不数关键词出现次数 ④「不符/失败」用例必须让被测那一句**真的被执行到**（如身份比对要传可解析但不同的 OID，全零 OID 只测到解析失败那支），并断言输出里有该句独有的证据（如 judged=/expect= 两个值）。**每道守卫配一枚单句删除变异**——它红了才算这条断言真的在测它。⑤**判据提取器（变异分类器/红面正则/日志 grep）也是机检，锚同样纯 ASCII**——连锚里带一个中文字都会在换执行环境（schtasks OEM 码页）时整批失配；行判别锚 'WARNING: ' 前缀（L149），别锚中文前缀，也别裸锚标签（信息行会误计）。
@@ -1391,7 +1391,7 @@
 - refs: 
 
 ## L196
-- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 14
+- date: 2026-08-04 ｜ tags: mutation,background,restore,session-kill ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 15
 - symptom: 后台变异批被会话结束硬杀在「植入后、还原前」，finally 不执行，review.ps1 跨会话停在 D28 收窄变异态；git 只显示 M、注释仍宣称全区间覆盖，与真修复混在同一 diff 里肉眼难辨（r11 强杀后已发生过一次，本次复发；第三次 2026-08-05：r14 批被前会话超上下文拆除杀在 D23 植入后 1 秒，任务报 exit 4，本条 rule 的「续接第一步核 SHA」当场抓到并从 .bak 还原——per-mut 日志让续跑只补缺失 10 枚，不必全批重来；第四/五次同日晚：r17 批两连遭会话侧外杀（D14/D17 植入后），每次同一套「核 SHA → .bak 还原 → -Only 续跑」恢复、单次损失一枚——机制已把事故成本从「整批作废」压到「一枚」。两连杀后加固：**长批改派 OS 计划任务（schtasks）脱离会话进程树跑，会话侧只留可弃 watcher 轮询完成标记**——会话怎么死都杀不到批）
 - root_cause: 硬杀（会话终止/进程树 kill）不执行 finally/trap；变异批把还原动作只挂在 finally 上，批死在植入与还原之间就留下变异态文件
 - rule: 还原动作不得只依赖 finally：批启动先核基线 SHA、不符即中止（既有守卫）；**每次会话续接第一步核被测文件 SHA==上批基线**，不符先从 .bak 还原再谈 diff/证据；判干净以 SHA256 为准（L178），别信 git status 或文件注释。**扩展（T5-BACKUP-FORMAT 两次实证）：变异批进行中勿并行跑独立交叉复核/评审**——复核者读到瞬态变异文件会产出自信的假阳性；交叉复核排在批完成+SHA 还原核验之后
@@ -1463,7 +1463,7 @@
 - refs: 
 
 ## L205
-- date: 2026-08-15 ｜ tags: review,task-loop,remediation,orchestration ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 5
+- date: 2026-08-15 ｜ tags: review,task-loop,remediation,orchestration ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 6
 - symptom: R3 多条 finding 的**修复轮**本身引入新缺陷：T0-TOOLCHAIN 第三轮修完 3 条，第四轮报 5 条，其中 4 条是**第三轮修复自己带进来的**（策略文档留占位表、递归发现漏掉卡片点名的 libs.versions.toml、许可闸新代码 -ErrorAction SilentlyContinue 变 fail-open、ci.yml 注释与新行为矛盾且断言了一件已不成立的事）。轮次于是不收敛，每轮都还有真缺陷可报。
 - root_cause: task-loop 的「R3 前置自检」(步骤 4.6) 明文只建议**首轮**做，之后「直接对着 R3 给的具体 reason 改」。但一次修 3–5 条 finding 的修复轮，diff 面积常大于首轮实现本身，且修复者处在「让评审者满意」的心态里、按条修不看整体——新代码不再被任何人当新代码审。评审者每轮只报当轮最刺眼的一处（L97），于是新引入的缺陷要到下一轮才浮出，形成轮次通胀。
 - rule: 把「本地对抗式自检」的触发条件从「首轮」改为「首轮 + 任何一次改了 3 条以上 finding 的修复轮」：修完先派 fresh-context 子代理（或换一个模型）只对**本轮修复 diff** 按 rubric 复核一遍，重点问三件事——新加的错误处理是不是 fail-open？卡片/文档里点名的目标是不是全都真被覆盖到（别只覆盖一部分就报成功）？改动文件自身的注释与文案还成立吗（L97）？再 ship。多花一次本地循环，换掉一轮 push+评审等待。
@@ -1571,7 +1571,7 @@
 - symptom: 两个会话同时在同一张卡的 worktree 里改码：A 会话按新 R3 verdict 开始修复，B 会话（早前驱动该卡、仍存活）正在跑变异批——A 读到的文件内容其实是 B 植入变异的中间态，A 的编辑随后又被 B 的变异还原（git checkout）静默抹掉；四个文件的 mtime 在同一分钟内交错
 - root_cause: 「每卡一棵 worktree」隔离的是卡与卡，隔不开同一张卡的两个会话；卡的所有权没有显式声明，谁都能续接。verdict/counter 等状态落在 worktree 里，两个会话都会对同一个 block 各自启动修复
 - rule: 动手改任何 worktree 前先核「是否已有活跃写者」：看目标文件 mtime 是否新于自己最后一次操作、git status 里是否有非本会话产生的 M；有迹象即停，问用户哪个会话持有这张卡。接手已有分支/worktree 的卡时，此检查是续接第一步（与 L196 的 SHA 核对同拍做）。被判出局的一方：残留编辑核实清零后完全撤手，不做任何「顺手帮忙」的写操作
-- enforced_by: 
+- enforced_by: scripts/task.ps1 -Phase start runs live-work.ps1 -TaskId before git worktree add and stops on an overlap ([START-LIVE-WORK]; T0-LIVE-WORK-START, PR #452); .claude/hooks/guard-dirty-worktree.ps1 asks before a git command that discards or moves work in a worktree with uncommitted changes (T0-DIRTY-WORKTREE-HOOK, PR #455); scripts/live-work.ps1 prints work other sessions hold at SessionStart (T0-LIVE-WORK-GUARD, PR #447)
 - refs: 2026-09-25 recurrence: a session moved the branch of C:/wt/T0-POST-MERGE-R5-GUARDS and ran git reset there while another session held uncommitted work in it (reflog 22:17:57-58 NZST); fix card specs/tasks/T0-LIVE-WORK-GUARD.md
 
 ## L219
@@ -1631,7 +1631,7 @@
 - refs: 
 
 ## L226
-- date: 2026-08-16 ｜ tags: powershell,encoding,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 6
+- date: 2026-08-16 ｜ tags: powershell,encoding,tooling ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 7
 - symptom: 把大文件拆开再拼回去（Get-Content -> 改中段 -> Set-Content）之后，评审/静检报「BOM 丢失」并新增 PSUseBOMForUnicodeEncodedFile 告警，git diff 却看不出这一行改了什么
 - root_cause: PowerShell 7 的 Set-Content -Encoding utf8 写的是 UTF-8 **无 BOM**；原文件带 BOM 时，拼装一次就把 BOM 静默抹掉了，属于与任务无关的夹带改动（rubric #7 可追溯性）
 - rule: 拼装/重写既有脚本文件前先记下原 BOM 状态（读前 3 字节 EF BB BF），写回用 -Encoding utf8BOM 或 [System.IO.File]::WriteAllText(path, text, (New-Object System.Text.UTF8Encoding($true)))；写完立刻复核前 3 字节。能用 Edit 做局部替换就别整文件拼装 **2026-08-23 裁断（recurrence 1→4，当日触发 3 次）**：仍**不进必须层**。本条规则纯机械可检（写回前后核前 3 字节），该落成守卫而不是占每轮上下文的铁律；Tier-1 名额有限（上限 10、master 现 9），且「写完立刻复核」的通用形态已由 L165 覆盖。当日 3 次触发集中在同一段整文件拼装作业里，属单次作业的密集暴露、非广谱复发。
@@ -1927,7 +1927,7 @@
 - refs: 
 
 ## L266
-- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 8
+- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 9
 - symptom: 卡片实现完再 ship 才发现 diff 顶破 R3 的 1000 行硬上限（review.ps1 fail-closed、只许收紧），于是在 ship 压力下反复压缩：先删注释、再打包表字面量、最后开始考虑删测试用例与把变异收据挪出 diff。
 - root_cause: 预算是在交付链末端才被度量的，而它约束的是交付链开头就定死的东西——卡片契约的体量。等到 R2 结束，产线代码与测试都已按完整契约写好，唯一的调节旋钮就只剩「删覆盖」。
 - rule: 在验收契约那一步（写 RED 之前）就用闸门自己的尺估一次体量：产线 + 测试 + R4 收据合计对着 1000 行报预算，超过约 800 行就在动手前提出拆卡。L246 管「用哪把尺量」，本条管「什么时候量」——量晚了，能改的就只剩覆盖率。
@@ -2319,7 +2319,7 @@
 - refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
 
 ## L309
-- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 16
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 17
 - symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
@@ -2757,5 +2757,85 @@
 - symptom: T0-POST-MERGE-CARD-DRIFT needed three Codex R3 rounds, all on dimension #6: round 1 found the audit and retire plumbing untested (only pure helpers were), round 2 found the dispatch arms and exit codes untested and the DoD checking 6 of 40 recorded mutants. Each round needed a base-card DoD PR, and the second a user-approved budget raise.
 - root_cause: The first round tested pure decisions only. The reviewer treats every branch reachable from the command line (dispatch arm, exit code, git or gh call, refusal before any side effect) and every recorded mutant as needing a test that fails when it breaks, and each fix round exposed the next untested layer.
 - rule: For a script subcommand that calls git or gh, build it into round 1: the dispatch as a function that returns the exit code; a SelfCheck whose git, gh and pwsh functions record every call over a temp repo with GIT_* removed; one case per subcommand and exit code that asserts the exact call list; and an R4 manifest (id | mutant | case) that the DoD checks row by row. Budget about twice the pure-logic estimate for it.
+- enforced_by: 
+- refs: 
+
+## L370
+- date: 2026-10-09 ｜ tags: tier-s,selftest,evidence,r3,frozen-tree ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: one R3 round plus a user ruling past the cap
+- symptom: R3 round 2 on T0-LIVE-WORK-START (PR #452) blocked: the Tier-S run cited for A5 was on a96b5e23, and two record commits and a merge of origin/master followed it; the record had also been edited in the same worktree while that run was going. A third round needed a user ruling at ReviewRoundCap.
+- root_cause: The reviewer reads only the diff, and a commit cannot carry the result of a run on itself, so a Tier-S line written after the run always describes an older head. DEVOPS-WORKFLOW 3.2 already says any post-launch edit voids a frozen-tree proof.
+- rule: Finish every record edit and any base merge first, then commit the paragraph that names the acceptance run (Tier-S on this final head, launched clean, no edit during or after), then launch selftest -Parallel from the clean worktree, record launch and end HEAD plus git status --porcelain, touch nothing until the PR merges, and post those facts as a PR comment. Never edit the worktree while a Tier-S run is going.
+- enforced_by: 
+- refs: PR #452 R3 round 2 verdict on 7b53d7b2; final head ee233c8f evidence comment; docs/DEVOPS-WORKFLOW.md 3.2
+
+## L371
+- date: 2026-10-09 ｜ tags: powershell,sentinel,error-view,selftest ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: one wasted R4 batch (about 20 min)
+- symptom: Gate 15 asserted an ASCII pair (uncommitted=<n> newest=<t>) inside a long throw message; captured with 2>&1 | Out-String, PowerShell's error view wrapped the message at about 120 columns and split the pair across two lines, so the R4 control run failed.
+- root_cause: The error view formats a terminating error for the console width even when output is redirected; Write-Host does not wrap.
+- rule: A field a test or another script reads by pattern goes on its own Write-Host line before the throw, not inside the throw message; assert on that whole line (anchored ^...$), never on text inside an error record.
+- enforced_by: 
+- refs: T0-LIVE-WORK-START implementation record ([START-WORKTREE-EXISTS] line); scratchpad R4 batch 2
+
+## L372
+- date: 2026-10-09 ｜ tags: git,worktree,windows,path,ci ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: task.ps1 found the card's existing worktree by comparing its computed path with the path in git worktree list / the probe output; on a windows-latest runner whose TEMP is C:\Users\RUNNER~1\... the two strings differ, so the refusal lost its uncommitted/newest pair. A fresh-context review caught it before ship.
+- root_cause: git stores and prints the long form of a path given with 8.3 short names, while the script's own path keeps the short form.
+- rule: Identify a worktree by its branch (git allows one worktree per branch), or compare long paths from GetFullPath on both sides; never compare a path you built with a path git printed as strings.
+- enforced_by: 
+- refs: T0-LIVE-WORK-START 92063c73; scripts/task.ps1 existing-worktree refusal
+
+## L373
+- date: 2026-10-09 ｜ tags: powershell,parser,string ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: A line like "count=$([regex]::Matches($t, [regex]::Escape('.Foo.ToString(')).Count)" failed to parse with '$(subexpression) is missing the closing )', in a script file and when sent through the PowerShell tool (shown as an Invoke-Expression error); hit three times in one session.
+- root_cause: Inside an expandable string the subexpression scanner miscounts a parenthesis that sits inside a single-quoted string literal.
+- rule: Compute the value into a variable first and interpolate the variable; never put a quoted string containing ( or ) inside $( ) in a double-quoted string.
+- enforced_by: 
+- refs: session 218e0dfc scratchpad lw2-precheck.ps1
+
+## L374
+- date: 2026-10-09 ｜ tags: ci,gradle,cache,license,github-actions ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: From about 2026-10-08 every PR that runs the license gate failed with mass [GRADLE-METADATA] (150 GAVs, no POM in cache) while card-only PRs, which skip that gate, stayed green; PR #452 CI attempt 1 failed this way after R3 had passed.
+- root_cause: The repo's only Gradle Actions cache was saved on master 2026-09-07 and its key (Gradle files hash) never changed, so it was never re-saved; once its entries passed 30 days, Gradle's own cleanup in the CI build deleted the POMs the scanner reads (TD176, the CI side of L329).
+- rule: When license-gated PRs all fail with [GRADLE-METADATA] and the Gradle files did not change, check gh cache list for a Gradle cache older than about 30 days; with the user's OK delete it (gh cache delete <id>) and rerun the run so it downloads fresh; the next master push saves a new cache. The durable fix is TD176.
+- enforced_by: 
+- refs: PR #452 run 37893001840 attempts 1-2; cache 7430654257; specs/tech-debt-tracker.md TD176; L329
+
+## L375
+- date: 2026-10-09 ｜ tags: hook,shell-parsing,git,r3,testing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: T0-DIRTY-WORKTREE-HOOK R3 round 1 blocked: the hook matched discarding git commands with regexes on the raw command text and its 70 cases used only canonical spellings, so git reset "--hard", checkout -fq, worktree remove --force -- <path> and later reset --har were not asked, while stash "list", restore -Sq and checkout -- were.
+- root_cause: git and the shell accept many spellings of one command (quotes, bundled short options, abbreviated long options, option values attached or separate, the -- delimiter, required operands), and tests written from the implementation only ever exercise the spelling the regex was written for.
+- rule: A guard that recognizes a CLI command parses it into argv first (quotes removed, short bundles split, values consumed per subcommand, -- honored, operands counted, case as the CLI treats it) and tests each guarded option in at least one non-canonical spelling plus the near-miss that must stay quiet; before review, list the CLI's accepted spellings for each guarded option and add a case per class.
+- enforced_by: 
+- refs: 
+
+## L376
+- date: 2026-10-12 ｜ tags: review,r3,arbitration,task.ps1 ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: A handoff offered "maker ruling (arbitration:) + follow-up card" as a way past an R3 block at the round cap; with ReviewGate=required that ruling can never merge the PR
+- root_cause: task.ps1 reads arbitration only in the advisory R3 leg (Get-ShipSpecAxisDecision after a non-zero exit when the card declares review_gate); the blocking leg (ReviewGate=required) throws on any non-zero review.ps1 exit before any arbitration is read
+- rule: Before offering the user a way past a gate, find the code line that reads that way in the current config (here task.ps1 blocking vs advisory R3 legs); under ReviewGate=required the only paths are a pass verdict (fix the diff or amend the base card, then ResetRounds) or a config change
+- enforced_by: 
+- refs: 
+
+## L377
+- date: 2026-10-12 ｜ tags: aidlc,deadline,time ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: An aidlc goal deadline set from the conversation header time (14:07 NZDT) left 42 minutes, because the real clock read 20:18 NZDT
+- root_cause: The time shown in the session context was hours stale; the deadline was computed from it instead of from the machine clock
+- rule: Read Get-Date (local and UTC) before writing any deadline, lease or timestamp; never compute one from a time quoted in the conversation
+- enforced_by: 
+- refs: 
+
+## L378
+- date: 2026-10-12 ｜ tags: guard,hook,fail-open,cli-parsing ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: Adding "-h/--help or clean -n prints nothing" to the ask-only dirty-worktree hook made git stash -m -wh and clean -e -xn -f ask nothing while git discards work; the hook before the change asked
+- root_cause: An exclusion that suppresses the ask is a fail-open path; the tokenizer split a value option's separate value (-wh, -xn) into short options, so the excluded flag was read from inside a value
+- rule: Treat every new exclusion in a guard as a fail-open path: list each way its token can appear without being that option (a value of a listed option, separate or attached, a word after --) and add a case for each before adding the exclusion; have a fresh-context review probe exactly those inputs against the real CLI
+- enforced_by: 
+- refs: 
+
+## L379
+- date: 2026-10-12 ｜ tags: powershell,arrays,scripted-edit ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: A scripted insert into a PowerShell array literal reported hits=1, yet the inserted text was missing after the write: in @('a', 'b' + "`n" + 'c') the element became 'b' alone and the rest were appended as extra elements
+- root_cause: The comma operator binds tighter than +, so 'a', 'b' + x is ('a', 'b') + x: array concatenation, not string concatenation inside one element
+- rule: Parenthesize every concatenated array element (@('a', ('b' + "`n" + 'c'))) and, after any scripted edit, check that the inserted marker text is present in the written file instead of trusting the replacement count (found by session 287837d7 on T0-DIRTY-WORKTREE-HOOK, 2026-10-09)
 - enforced_by: 
 - refs: 
