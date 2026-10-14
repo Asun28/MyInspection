@@ -1,6 +1,6 @@
 ---
 id: T0-SCRIPTS-ORPHAN-CLEANUP
-title: Delete the local scaffold code that nothing calls since PR #297, and the gate2 fixture nothing reads
+title: Delete the local scaffold code that nothing calls since PR 297, and the gate2 fixture nothing reads
 status: todo
 depends_on: []
 parallelizable_with: [T2-PHOTO-INVARIANT-CLEANUP]
@@ -14,7 +14,7 @@ allow_paths:
 sweep: "2026-10-14 audit on 01a2e801: an AST call graph over every tracked .ps1, then git grep -w for each removed name over scripts, .github, .claude and specs/tasks. scripts/_validation.ps1: its 21 functions are called only from inside the file; the one outside reference is selftest.ps1:1240-1243 (dot-source plus Test-ScaffoldValidationExamples in gate 1h). Invoke-SelftestTaskSelection calls Invoke-SelftestAll and New-SelftestSnapshot, which no tracked file defines. check-licenses.ps1:638 Add-GradleLicenseFinding and license-scanner-check.ps1:436 Get-WorkflowActiveStepIndices: definition only; Get-WorkflowActiveStepRecords keeps its callers at :383 and :761. scripts/fixtures/gate2/: no script names it; only archived T3-E2E-* cards and LEDGER L-entry refs, which stay as history. No doc teaches [SELFTEST-TASK-ROUTE] or [SELFTEST-NOT-APPLICABLE]."
 forbid:
   - Changing any function that stays, any gate's behaviour other than gate 1h no longer loading _validation.ps1, or any message a remaining check prints
-  - Deleting code that came from the upstream scaffold in PR #297 (reported upstream instead; see docs/SCAFFOLD-SYNC.md)
+  - Deleting code that came from the upstream scaffold in PR 297 (reported upstream instead; see docs/SCAFFOLD-SYNC.md)
   - Editing docs/LICENSE-POLICY.md; the check-licenses.ps1 change removes an uncalled function only, so its commit carries [doc-sync:none]
 non_goals:
   - The 13 unread Prereview* knobs (TD192) and the card checks check-cards.ps1 keeps off (TD193)
