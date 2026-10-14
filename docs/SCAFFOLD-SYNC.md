@@ -68,6 +68,13 @@ lines. The two ledgers number independently, so a cited id usually names a diffe
 `docs/lessons/LEDGER.md` (nine checked, all different). The adopted files stay unchanged; `docs/LESSONS.md` says
 how to tell the two apart and where to read the upstream entry.
 
+The 2026-10-14 unused-code audit (`docs/plans/PLAN-AUDIT-CLEANUP-20261014.md`) filed two defects in code adopted
+in PR #297. [#401](https://github.com/Asun28/claude-devops-scaffold/issues/401): nine adopted functions have no
+caller, and four `Upstream*` keys in `scripts/_config.ps1` are never read because their accessors read other key
+names. [#402](https://github.com/Asun28/claude-devops-scaffold/issues/402): gate 1h passes a core once any one of
+its self-checks runs, so four declared `Test-Scaffold*Examples` never run. The adopted files stay unchanged here;
+local code the same audit found unused is removed by `T0-SCRIPTS-ORPHAN-CLEANUP`.
+
 ## Direction 2 — deciding whether to take an upstream release
 
 ```powershell
