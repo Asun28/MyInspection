@@ -50,3 +50,7 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD + probe recipe（R5）
 - R3：Codex 配额耗尽（探针确认至 2026-09-25 10:56），经用户裁定由全新 Opus 5.5（high）经临时、未提交的 `ReviewCommand` 以 `review.ps1 -PostStatus` 评审。ship 自身的 R3 腿从 base 取评审包并调用 Codex，两次 `[R3-NO-OUTPUT]` 均经探针确认为配额，轮次随后清零。Opus 第 1 轮 block 两条（设备证据未绑定 `android/` tree；三处措辞过宽）；修复后全新上下文复核又发现 7 处文档问题，一并修复并在 tree `ca633498` 上重跑全部设备证据；第 2 轮 pass，两轴无 finding。
 - 作者：正文指定 GPT-6 Astra，实际由 Claude Opus 5.5 会话实现。
 - selftest：tier-1 的 `selftest -TaskId` 因 `android/` 产品路径在 GATE-MAP 中无路由而升级为全量 17 闸，在 worktree 副本上于 `a96c3ab1` 通过（2594 s）；之后分支吸收的 origin 提交只改脚本与文档、不改 `android/`，未对新 base 重跑全量 selftest。
+
+## Evidence preservation boundary (2026-10-04)
+
+The original human authorization applies only to this product's Opus R3 replacement. The original cleanup command and successful tool response are preserved; they expose no standalone native-exit field and retained only the last 15 output lines. Evidence3 has its own recorded launch and background completion exit 0; the earlier 265-test result is not its per-phase proof. Later byte seals are retrospective preservation, not original runtime seals. This closure reuses PR #351/#352 and the original device, review, CI and cleanup evidence without rerunning them.
