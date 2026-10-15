@@ -54,3 +54,32 @@ From the 2026-10-14 unused-code audit (plan: `docs/plans/PLAN-AUDIT-CLEANUP-2026
 
 `scripts/check-licenses.ps1` and `scripts/selftest.ps1` are TierSPaths, so the card is Tier S and needs the full
 selftest on the shipped candidate (A5).
+
+## Implementation record (2026-10-15)
+
+**Change.** `c0dc420a` deletes `scripts/_validation.ps1`, the gate 1h dot-source of it and the
+`Test-ScaffoldValidationExamples` call in `selftest.ps1`, `Add-GradleLicenseFinding` in `check-licenses.ps1`, the
+nested `Get-WorkflowActiveStepIndices` in `license-scanner-check.ps1`, and the two files under
+`scripts/fixtures/gate2/`: 579 lines removed, none added. Its message carries `[doc-sync:none]` because the
+`check-licenses.ps1` change removes an uncalled function, so `docs/LICENSE-POLICY.md` has nothing to follow. The
+branch then merged origin/master up to `ed75ead5` (`T2-PHOTO-INVARIANT-CLEANUP` and its R5 doc sync), which
+touches none of this card's paths.
+
+**DoD.** Passed in 224 s on `c0dc420a`, including `selftest.ps1 -Only 1`.
+
+**R4.** Each deleted unit was put back on its own and the DoD rerun; every restore made it exit 1 with the line
+for that deletion, and the file hashes matched `c0dc420a` again after the batch.
+
+| Restored unit | DoD line |
+|---|---|
+| `scripts/_validation.ps1` | `[DOD-FAIL] scripts/_validation.ps1 still exists` |
+| gate 1h dot-source and examples call (`selftest.ps1`) | `[DOD-FAIL] a removed name is still referenced` |
+| `Add-GradleLicenseFinding` (`check-licenses.ps1`) | `[DOD-FAIL] a removed name is still referenced` |
+| `Get-WorkflowActiveStepIndices` (`license-scanner-check.ps1`) | `[DOD-FAIL] a removed name is still referenced` |
+| `scripts/fixtures/gate2/android/gradlew` | `[DOD-FAIL] scripts/fixtures/gate2 still exists` |
+| `scripts/fixtures/gate2/android/gradlew.bat` | `[DOD-FAIL] scripts/fixtures/gate2 still exists` |
+
+**Tier-S (A5).** The acceptance run is the full selftest (all 17 gates) launched from this card's worktree on this
+PR's final head, the commit that adds this record, with an empty `git status --porcelain` and no edit during or
+after it. A commit cannot carry the result of a run on itself, so the R5 note gives that run's launch HEAD,
+command, duration and result.
