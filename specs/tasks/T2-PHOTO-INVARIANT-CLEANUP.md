@@ -1,7 +1,7 @@
 ---
 id: T2-PHOTO-INVARIANT-CLEANUP
 title: Keep PhotoOrphanCleanupReport's copy() as private as its constructor, and drop the import pipeline's always-true check
-status: todo
+status: merged
 depends_on: []
 parallelizable_with: [T0-SCRIPTS-ORPHAN-CLEANUP]
 allow_paths:
@@ -49,3 +49,19 @@ constructor's visibility. No tracked code calls `copy()` on this class.
 passes `{ newAssetPlan }` as the plan, so the lease lambda's `check(plan is PhotoIngestPlan.WriteNewAsset)` can
 never fail; the compiler reports it as always true. The camera pipeline's copy of the same line stays, because
 its plan is not narrowed first.
+
+## R5 (2026-10-15)
+
+Merged by PR #462 (squash `95876b26`, reviewed head `1169b405`, CI `38680376569` attempt 1). Codex R3 round 1
+passed both axes with zero findings.
+
+**hygiene.** R4 single-point mutant on `PhotoOrphanCleanupRunner.kt` (SHA-256
+`298B194CA5CF534A7E2A0935291126A9D22D9A97B2D063C65E8BF00A9E656181` at `1169b405`): removing
+`@ConsistentCopyVisibility` makes `copyIsAsPrivateAsTheConstructor` fail; the file was restored and its hash
+checked. A2 only deletes dead code, so the DoD's compiler-warning check is its proof.
+
+**doc_sync.** This R5 sets the status, the TASK-BOARD row and the CLAUDE.md current-stage entry.
+
+**Ship history.** Attempt 1 stopped at the license gate with `[GRADLE-METADATA]`: Gradle's 30-day cache cleanup had
+deleted POMs the scanner reads (TD176). Refreshing the four resolved graphs online first (L329) fixed it. Attempt 2
+was stopped during the DoD for low system memory. Attempt 3 passed every gate.
