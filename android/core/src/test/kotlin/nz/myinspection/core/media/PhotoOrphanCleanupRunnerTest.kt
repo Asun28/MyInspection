@@ -254,6 +254,17 @@ class PhotoOrphanCleanupRunnerTest {
     }
 
     @Test
+    fun copyIsAsPrivateAsTheConstructor() {
+        // from() is the only place a report is built, so decision always matches the two results; a public
+        // copy() would let a caller pair any decision with any results.
+        val publicCopies = PhotoOrphanCleanupReport::class.java.declaredMethods
+            .filter { it.name == "copy" || it.name == "copy\$default" }
+            .filter { java.lang.reflect.Modifier.isPublic(it.modifiers) }
+            .map { it.toGenericString() }
+        assertEquals(emptyList(), publicCopies)
+    }
+
+    @Test
     fun `report fails closed when a retryable primary retains an unknown suppressed cleanup error`() {
         val primary = IOException("marker filesystem unavailable")
         primary.addSuppressed(IllegalStateException("lease close contract violated"))

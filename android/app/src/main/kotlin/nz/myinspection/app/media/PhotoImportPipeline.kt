@@ -106,8 +106,7 @@ object PhotoImportPipeline {
                             // Import dedupe/DB semantics intentionally keep the source-byte hash computed above.
                             plan = { newAssetPlan },
                             shouldPublish = { true },
-                            publicationLease = { plan ->
-                                check(plan is PhotoIngestPlan.WriteNewAsset)
+                            publicationLease = {
                                 PhotoIngestPendingLease.acquire(targetFile, photoId, mediaRoot)
                             },
                             publish = { staged, planned ->

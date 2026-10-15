@@ -30,6 +30,7 @@ data class PhotoOrphanCleanupIssue(
 )
 
 /** Complete evidence from one pass; neither cleanup source is collapsed into the WorkManager decision. */
+@ConsistentCopyVisibility
 data class PhotoOrphanCleanupReport private constructor(
     val pending: CleanupResult,
     val softDelete: CleanupResult,
