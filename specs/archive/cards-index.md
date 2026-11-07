@@ -1,6 +1,6 @@
 # 已归档任务卡索引（merged cards · cold storage）
 
-> 一行一条已 `merged` 的卡，共 227 张；完整卡在 `specs/archive/tasks/<id>.md`。
+> 一行一条已 `merged` 的卡，共 229 张；完整卡在 `specs/archive/tasks/<id>.md`。
 > 由 `scripts/archive.ps1` 从 `specs/archive/tasks/` 投影生成，勿手工编辑。
 
 | id | 状态 | 标题 |
@@ -144,6 +144,7 @@
 | T0-TOOLCHAIN | merged | 本机 Android 工具链 + android/ Gradle 双模块骨架空编译绿 + verify/CI 收紧 |
 | T0-TRIAGE-EVIDENCE-CASE-REGISTER | merged | 登记 triage 裁决证据目录大小写语义修复卡 |
 | T0-TRIAGE-EVIDENCE-SCOPE-REGISTER | merged | 把 PR |
+| T1-APP-STORAGE-ANDROID | merged | Android app-private storage adapter and self-verifying device probe |
 | T1-APP-STORAGE-POLICY | merged | App-private storage routing over a verified path boundary |
 | T1-CANON-HASH | merged | canonical JSON 序列化 + SHA-256 + 黄金向量（★冻结点） |
 | T1-DATABASE-LIFECYCLE-AUTHORITY | merged | 数据库生命周期写权限：活跃/历史读取分流 + 基线与清理终态守卫 |
@@ -182,6 +183,7 @@
 | T3-E2E-TENANT-REDACTION | merged | Golden Evidence tenant report landlord/private sentinel 防泄露 |
 | T3-FINALIZE | merged | finalize 事务：完备性校验 → canonical 哈希落库 → 只读强制 + Supplement 哈希链 |
 | T3-PDF-ARTIFACT-PATHS | merged | Report artifact path derivation and anchored shape predicate |
+| T3-PDF-MEASUREMENT-BINDING | merged | Exact TextRun measurement snapshots and final caption provenance |
 | T3-PDF-PAGINATION-FIXTURES-REMOTE | merged | Publish the locally verified fixed-height pagination fixtures |
 | T3-PDF-PAGINATION-FIXTURES | merged | Fixed-height pagination fixtures before immutable measurement binding |
 | T3-PDF-RENDERER | merged | Pure JVM PDF render program, four export qualities, geometry and per-page sampling bounds |
