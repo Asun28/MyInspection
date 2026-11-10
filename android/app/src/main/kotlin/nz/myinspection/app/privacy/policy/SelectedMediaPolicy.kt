@@ -37,12 +37,8 @@ sealed interface MediaSelectionDecision {
 }
 
 object SelectedMediaPolicy {
-    private val allowedOrigins = setOf(MediaOrigin.SYSTEM_PHOTO_PICKER, MediaOrigin.SAF_OPEN_DOCUMENT)
-
-    fun evaluate(selection: MediaSelection): MediaSelectionDecision = when {
-        selection.origin !in allowedOrigins -> MediaSelectionDecision.Rejected(MediaSelectionRejection.ORIGIN_NOT_ALLOWED)
-        selection.itemCount != 1 -> MediaSelectionDecision.Rejected(MediaSelectionRejection.NOT_SINGLE_ITEM)
-        !selection.chosenByUser -> MediaSelectionDecision.Rejected(MediaSelectionRejection.NOT_USER_SELECTED)
-        else -> MediaSelectionDecision.Accepted(SelectedMediaCapability(selection.origin))
-    }
+    // Behavioural RED baseline stub: rejects every selection.
+    @Suppress("UNUSED_PARAMETER")
+    fun evaluate(selection: MediaSelection): MediaSelectionDecision =
+        MediaSelectionDecision.Rejected(MediaSelectionRejection.ORIGIN_NOT_ALLOWED)
 }

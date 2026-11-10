@@ -46,14 +46,8 @@ sealed interface ClipboardDecision {
 
 /** Clipboard writes only on the user's explicit "Copy notice" action. There is no read operation. */
 object ClipboardPolicy {
-    fun authorize(request: ClipboardRequest): ClipboardDecision = when (request) {
-        is ClipboardRequest.Read -> ClipboardDecision.Denied(ClipboardDenial.READ_NOT_SUPPORTED)
-        is ClipboardRequest.Write -> when {
-            request.trigger != ClipboardTrigger.EXPLICIT_COPY_NOTICE ->
-                ClipboardDecision.Denied(ClipboardDenial.TRIGGER_NOT_EXPLICIT)
-            request.payload != ClipboardPayload.NOTICE_BODY ->
-                ClipboardDecision.Denied(ClipboardDenial.PAYLOAD_NOT_NOTICE_BODY)
-            else -> ClipboardDecision.Allowed(ClipboardWriteCommand(request.text))
-        }
-    }
+    // Behavioural RED baseline stub: denies every request.
+    @Suppress("UNUSED_PARAMETER")
+    fun authorize(request: ClipboardRequest): ClipboardDecision =
+        ClipboardDecision.Denied(ClipboardDenial.READ_NOT_SUPPORTED)
 }
