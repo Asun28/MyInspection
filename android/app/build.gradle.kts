@@ -94,7 +94,15 @@ val requiredApplicationAttrs = mapOf(
     "android:allowBackup" to "false",
     "android:fullBackupContent" to "@xml/backup_rules",
     "android:dataExtractionRules" to "@xml/data_extraction_rules",
+    "android:usesCleartextTraffic" to "false",
 )
+// 全相册读取权限闸（T1-PRIVACY-MANIFEST-POLICY-GATE R1）：照片导入只走系统 Photo Picker/SAF 单项选择，
+// 合并清单任一 uses-permission 或 uses-permission-sdk-23 声明下列权限即失败（含 maxSdkVersion 限定的声明）。
+val forbiddenPermissions = setOf(
+    "android.permission.READ_MEDIA_IMAGES",
+    "android.permission.READ_EXTERNAL_STORAGE",
+)
+val permissionTags = setOf("uses-permission", "uses-permission-sdk-23")
 
 fun excludedDomains(scope: Element): Set<BackupExclude> =
     (0 until scope.childNodes.length)
@@ -162,6 +170,15 @@ androidComponents {
                 }
                 check(badAttrs.isEmpty()) {
                     "合并清单 <application> 属性值不符（期望 $requiredApplicationAttrs，未命中：$badAttrs）"
+                }
+
+                val declaredForbidden = (0 until manifestRoot.childNodes.length)
+                    .mapNotNull { manifestRoot.childNodes.item(it) as? Element }
+                    .filter { it.tagName in permissionTags }
+                    .map { it.getAttribute("android:name") }
+                    .filter { it in forbiddenPermissions }
+                check(declaredForbidden.isEmpty()) {
+                    "合并清单声明了禁用的读取权限（照片导入只走系统 Photo Picker/SAF）：$declaredForbidden"
                 }
 
                 val extractionRoot = dbf.newDocumentBuilder().parse(dataExtractionRules.asFile).documentElement
