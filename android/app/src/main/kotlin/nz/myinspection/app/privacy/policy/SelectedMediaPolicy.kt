@@ -37,8 +37,7 @@ sealed interface MediaSelectionDecision {
 }
 
 object SelectedMediaPolicy {
-    // Behavioural RED baseline stub: rejects every selection.
-    @Suppress("UNUSED_PARAMETER")
+    // Behavioural RED baseline stub: accepts every selection.
     fun evaluate(selection: MediaSelection): MediaSelectionDecision =
-        MediaSelectionDecision.Rejected(MediaSelectionRejection.ORIGIN_NOT_ALLOWED)
+        MediaSelectionDecision.Accepted(SelectedMediaCapability(selection.origin))
 }

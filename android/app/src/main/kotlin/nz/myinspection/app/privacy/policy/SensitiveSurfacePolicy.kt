@@ -17,7 +17,7 @@ enum class SurfaceProtection {
 
 /** ADR-0006 section 5: secure-window and recents protection only on the listed sensitive surfaces, never globally. */
 object SensitiveSurfacePolicy {
-    // Behavioural RED baseline stub: every surface ordinary.
+    // Behavioural RED baseline stub: every surface secure.
     @Suppress("UNUSED_PARAMETER")
-    fun protectionFor(surface: AppSurface): SurfaceProtection = SurfaceProtection.ORDINARY
+    fun protectionFor(surface: AppSurface): SurfaceProtection = SurfaceProtection.SECURE_WINDOW
 }
