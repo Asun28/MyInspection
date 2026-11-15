@@ -45,3 +45,21 @@ other gate.
 
 The files stay where aidlc put them: aidlc reads `aidlc.config.json` from the repository root and owns the
 `intent/`, `plans/` and `evals/` layout (CLAUDE.md section "AI-native SDLC (aidlc)").
+
+## Implementation record (2026-11-16)
+
+- Change: `$RootAllow` gains one line naming the seven entries; the trigger-layer row of
+  `docs/DELIVERY-CHAINS.md` gains the six skills in its brace list and one note; the CLAUDE.md root-file rule
+  names the four files and three directories. 3 insertions, 2 deletions outside this card.
+- RED: `task.ps1 -Phase red` on 0cb48b2c printed `[DOD-FAIL] selftest -Only 8,9 rc=1` and exited 1. (The first
+  RED on 2936ac20 exited 1 through a NativeCommandExitException before the DoD printed its own line; PR 469 made
+  the DoD set `$PSNativeCommandUseErrorActionPreference = $false` first.)
+- DoD: `[DOD-PASS]`, exit 0.
+- R4 (hygiene), each run with native-command errors raised as task.ps1 does: the runner first rewrote all three
+  files through its own byte path (SHA-256 unchanged) and saw the DoD pass. Base `scripts/selftest.ps1`: DoD exit 1,
+  `[DOD-FAIL] selftest -Only 8,9 rc=1`. Base `docs/DELIVERY-CHAINS.md`: DoD exit 1, same line. Base `CLAUDE.md`:
+  DoD exit 1, `[DOD-FAIL] the CLAUDE.md root-file rule does not name aidlc.config.json`. 3/3 killed; files restored
+  to SHA-256 `FF030CA5...BE6CDB9C` (selftest.ps1), `628430F5...E83D033D1` (DELIVERY-CHAINS.md), `9938938F...8396E64`
+  (CLAUDE.md).
+- Tier S: the full selftest runs from this worktree on the commit that adds this record; its result goes in the
+  R5 note (A4).

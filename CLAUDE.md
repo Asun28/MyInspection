@@ -20,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   用不到的骨架目录可删（删后从 `scripts/selftest.ps1` 的 `$RootAllow` 移除对应项）。
 - **任何新文档一律写进 `docs/`**（或 `specs/`），**不得**新建在根目录。新建后在「权威文档」索引登记。
 - 根目录**只允许**这些顶层文件：`README.md` `AGENTS.md` `CLAUDE.md` `LICENSE` `pyproject.toml`
-  `.gitignore` `.gitattributes` `uv.lock`（及上列目录与 `.github/` `.claude/`）。其余文件都属违规。
+  `.gitignore` `.gitattributes` `uv.lock`（及上列目录与 `.github/` `.claude/`），以及 aidlc init（PR #464）铺入的 `aidlc.config.json` `aidlc.ops.example.json` `bands.yaml` `REVIEW.md` 与目录 `intent/` `plans/` `evals/`。其余文件都属违规。
   （`AGENTS.md` 是给 Codex/OpenAI 系工具的薄指针，只指向 `CLAUDE.md`；agent 指令的真相源仍是 `CLAUDE.md`，勿双写。）
 - **三类「提示词 / 上下文」别混**：`prompts/`=应用运行时喂给 LLM 的模板（入库）；`context/`=给代理的领域知识（入库）；
   `CLAUDE.md`=给开发助手 Claude 的指令；`_local/models/`=私有模型系统提示 / 输出转储（不入库）。
