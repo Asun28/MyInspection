@@ -50,3 +50,21 @@ Move this repository's registered worktrees from `C:\wt\<name>` to `D:\wt\MyInsp
 `robocopy /E /MOVE` and then `git worktree repair <new path>`; `git worktree move` cannot cross drives on Windows.
 Run `scripts/live-work.ps1` first and leave any worktree with changes from the last 48 hours in place (L218).
 Directories under `C:\wt` that this repository does not register stay where they are.
+
+## Implementation record (2026-11-16)
+
+- Change: `scripts/_config.ps1` sets `WorktreeRoot = 'D:\wt\MyInspection'` with one comment line saying
+  `aidlc.config.json` must hold the same string; `aidlc.config.json` sets `"worktreeRoot": "D:\\wt\\MyInspection"`.
+  3 insertions, 2 deletions outside this card.
+- RED: `task.ps1 -Phase red` on 1455c072 printed `[DOD-FAIL] Get-ScaffoldWorktreeRoot returned 'C:\wt'` and exited 1.
+- DoD: `[DOD-PASS]`, exit 0.
+- R4 (hygiene): the runner first rewrote both files through its own byte path (SHA-256 unchanged) and saw the DoD
+  pass. M1 put back `WorktreeRoot = ''`: DoD exit 1, `[DOD-FAIL] Get-ScaffoldWorktreeRoot returned 'C:\wt'`.
+  M2 put back `"worktreeRoot": ""`: DoD exit 1, `[DOD-FAIL] aidlc.config.json worktreeRoot '' differs from
+  'D:\wt\MyInspection'`. 2/2 killed; both files restored to SHA-256 `1159885C...D2D9DA` (`_config.ps1`) and
+  `50D319A6...6BAE4A` (`aidlc.config.json`).
+- Tier S: the full selftest runs from this worktree on the commit that adds this record; its result goes in the
+  R5 note (A3).
+- Before this card merged, the 31 worktrees this repository registered under `C:\wt` were moved to
+  `D:\wt\MyInspection\<same name>` (robocopy /E /MOVE, then `git worktree repair`); all 31 report their old HEAD and
+  uncommitted files at the new path. C: free space went from 3.7 GB to 20.6 GB.
