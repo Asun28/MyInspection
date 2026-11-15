@@ -66,5 +66,6 @@ Directories under `C:\wt` that this repository does not register stay where they
 - Tier S: the full selftest runs from this worktree on the commit that adds this record; its result goes in the
   R5 note (A3).
 - Before this card merged, the 31 worktrees this repository registered under `C:\wt` were moved to
-  `D:\wt\MyInspection\<same name>` (robocopy /E /MOVE, then `git worktree repair`); all 31 report their old HEAD and
-  uncommitted files at the new path. C: free space went from 3.7 GB to 20.6 GB.
+  `D:\wt\MyInspection\<same name>` (robocopy /E /MOVE, then `git worktree repair`). All 31 are registered at the new
+  path with the HEAD `git worktree list` showed before the move; the uncommitted-file count was compared only for
+  `ci-diag-39c072e2` (2 before, 2 after). C: free space went from 3.7 GB to 20.6 GB.
