@@ -51,3 +51,18 @@ hunks for these three paths.
 
 `scripts/check-licenses.ps1` is a TierSPaths entry, so the card is Tier S and needs the full selftest on the
 shipped candidate (A3).
+
+## Implementation record (2026-11-16)
+
+- Change: the hunks of c0dc420a (`T0-SCRIPTS-ORPHAN-CLEANUP` branch) for this card's three paths, applied with
+  `git apply` on bd9db075: `Add-GradleLicenseFinding` (47 lines) and `Get-WorkflowActiveStepIndices` (5 lines)
+  removed, `scripts/fixtures/gate2/android/gradlew{,.bat}` (23 lines) deleted. 75 deletions outside this card.
+- RED: `task.ps1 -Phase red` on bd9db075 printed `[DOD-FAIL] scripts/fixtures/gate2 still exists` and exited 1.
+- DoD: `[DOD-PASS]`, exit 0.
+- R4 (hygiene): the runner first rewrote both scripts through its own byte path (SHA-256 unchanged) and saw the
+  DoD pass. Putting back check-licenses.ps1 from base: DoD exit 1, `[DOD-FAIL] a removed name is still
+  referenced`. Putting back license-scanner-check.ps1 from base: DoD exit 1, same line. Putting back the two
+  fixture files: DoD exit 1, `[DOD-FAIL] scripts/fixtures/gate2 still exists`. 3/3 killed; both scripts restored
+  to SHA-256 `249D256A...A1FEE2DD` (check-licenses.ps1) and `817817D5...1344CE76` (license-scanner-check.ps1).
+- Tier S: the full selftest runs from this worktree on the commit that adds this record; its result goes in the
+  R5 note (A3).
