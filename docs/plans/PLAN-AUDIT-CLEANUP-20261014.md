@@ -10,8 +10,8 @@ and the decisions taken under that delegation.
 | Finding | Origin | Becomes |
 |---|---|---|
 | `scripts/_validation.ps1` (502 lines): no function in it has a caller outside the file; only its own examples run, from selftest gate 1h | local, `T0-SELFTEST-RISK-ROUTING` (#273); #297 replaced `selftest -TaskId` with the upstream tier routing | `T0-SCRIPTS-ORPHAN-CLEANUP` |
-| `Add-GradleLicenseFinding` (`scripts/check-licenses.ps1`) and the nested `Get-WorkflowActiveStepIndices` (`scripts/license-scanner-check.ps1`): no caller | local (#20, `97a6e220`) | `T0-SCRIPTS-ORPHAN-CLEANUP` |
-| `scripts/fixtures/gate2/android/gradlew{,.bat}`: no script reads them; selftest writes its own stubs | local (`T3-E2E-*`) | `T0-SCRIPTS-ORPHAN-CLEANUP` |
+| `Add-GradleLicenseFinding` (`scripts/check-licenses.ps1`) and the nested `Get-WorkflowActiveStepIndices` (`scripts/license-scanner-check.ps1`): no caller | local (#20, `97a6e220`) | `T0-SCRIPTS-ORPHAN-FUNCS` (split 2026-11-16) |
+| `scripts/fixtures/gate2/android/gradlew{,.bat}`: no script reads them; selftest writes its own stubs | local (`T3-E2E-*`) | `T0-SCRIPTS-ORPHAN-FUNCS` (split 2026-11-16) |
 | `PhotoOrphanCleanupReport` has a private constructor but a public generated `copy()` | local | `T2-PHOTO-INVARIANT-CLEANUP` |
 | `PhotoImportPipeline.kt`: `check(plan is PhotoIngestPlan.WriteNewAsset)` that the compiler proves always true | local | `T2-PHOTO-INVARIANT-CLEANUP` |
 | `android.builtInKotlin=false` and `android.newDsl=false`: opt-outs AGP removes in 10.0; the build warns that the `org.jetbrains.kotlin.android` plugin is deprecated | local (`T0-TOOLCHAIN`) | `T0-AGP-BUILTIN-KOTLIN` |
@@ -31,7 +31,9 @@ steps in `ci.yml` that skip when `pyproject.toml` is absent (scaffold design), a
 
 1. Register the three cards, TD192, TD193 and this plan (docs-only PR, CI-gated). File the upstream issues
    first so the ledger entry can link them.
-2. `T0-SCRIPTS-ORPHAN-CLEANUP` (Tier S: full selftest on the shipped candidate).
+2. `T0-SCRIPTS-ORPHAN-CLEANUP` (Tier S: full selftest on the shipped candidate). On 2026-11-16 the user capped a
+   card at 200 changed lines; the two functions and the fixture moved to `T0-SCRIPTS-ORPHAN-FUNCS` (Tier S,
+   ships after it), and the whole-file deletion of `_validation.ps1` stays one card as a stated exception.
 3. `T2-PHOTO-INVARIANT-CLEANUP` (Tier 1). Disjoint paths from step 2, so its build work can overlap the
    step 2 selftest; it ships after step 2 because one R3 reviewer serves both.
 4. `T0-AGP-BUILTIN-KOTLIN` (Tier 1) after step 3, so the two Gradle-heavy cards never build at the same time.
