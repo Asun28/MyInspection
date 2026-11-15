@@ -61,5 +61,13 @@ The files stay where aidlc put them: aidlc reads `aidlc.config.json` from the re
   DoD exit 1, `[DOD-FAIL] the CLAUDE.md root-file rule does not name aidlc.config.json`. 3/3 killed; files restored
   to SHA-256 `FF030CA5...BE6CDB9C` (selftest.ps1), `628430F5...E83D033D1` (DELIVERY-CHAINS.md), `9938938F...8396E64`
   (CLAUDE.md).
-- Tier S: the full selftest runs from this worktree on the commit that adds this record; its result goes in the
-  R5 note (A4).
+- Tier S (A4): the acceptance run is `selftest.ps1 -Parallel` (all 17 gates) on this PR's final head, the commit
+  that adds this paragraph, launched from the card worktree with an empty `git status --porcelain` and no edit
+  during or after it. Its launch HEAD, status and per-shard `[GATE-RESULT-SUMMARY]` lines are posted on PR 470. A
+  commit cannot carry the result of a run on itself, so this record names the run instead. An earlier full run on
+  `f098c080` passed (`selftest: PASS`, all five shards `failed=none`, 2026-11-16 10:31 to 11:14 NZDT); it does not
+  count as acceptance because this commit followed it.
+
+**R3 round 1 (PR 470, on `f098c080`).** Codex blocked on one spec finding (#6): A4 asks for the full selftest on
+the shipped candidate, and the record deferred the result to the R5 note. The paragraph above now names the run on
+the final head.
