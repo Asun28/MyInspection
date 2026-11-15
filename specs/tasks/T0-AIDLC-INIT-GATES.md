@@ -26,7 +26,7 @@ dod_command: $PSNativeCommandUseErrorActionPreference = $false; $o = (& pwsh -No
 dod_exit: 0
 dod_assert: selftest gates 8 and 9 pass and the two-line CLAUDE.md root-file rule names all seven entries; prints [DOD-PASS]. On base it exits 1 because gate 8 reports the seven entries.
 review_gate: codex {verdict:pass}
-budget: 30
+budget: 45
 hygiene: R4, recorded in the R5 note - put back the base $RootAllow, the base trigger-layer row and the base CLAUDE.md rule one at a time; each must make the DoD exit 1.
 doc_sync: At R5 set status merged, update the TASK-BOARD row and add the CLAUDE.md current-stage entry.
 ---
