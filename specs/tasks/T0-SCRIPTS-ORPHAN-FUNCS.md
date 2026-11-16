@@ -75,3 +75,11 @@ shipped candidate (A3).
   exit=0 end=2026-11-17T12:42:06.0187084+13:00 headAfter=69b19802257010a3aa2cb7bbdc423feac651cb16 statusAfter=[]
   ```
   `git diff --stat 69b19802 HEAD` lists only this card.
+
+## Attempt evidence
+
+| Item | Proof | Result |
+|---|---|---|
+| A1 | `git diff origin/master HEAD` on the two scripts removes only `Add-GradleLicenseFinding` (47 lines) and `Get-WorkflowActiveStepIndices` (5 lines); R4 puts back each script and the DoD exits 1 | pass |
+| A2 | DoD: `scripts/fixtures/gate2` is absent and `git grep` over scripts, .github and .claude finds none of the three names; R4 puts back the fixture and the DoD exits 1 | pass |
+| A3 | DoD parses both scripts; the serial full selftest on C = `69b19802` (record above) ends `failed=none ran=17`, `selftest: PASS` | pass |
