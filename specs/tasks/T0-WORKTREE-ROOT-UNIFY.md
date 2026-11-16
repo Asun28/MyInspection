@@ -1,7 +1,7 @@
 ---
 id: T0-WORKTREE-ROOT-UNIFY
 title: Point task.ps1 and the aidlc loop at one worktree root, D:\wt\MyInspection
-status: todo
+status: merged
 depends_on: []
 parallelizable_with: []
 allow_paths:
@@ -83,3 +83,29 @@ Directories under `C:\wt` that this repository does not register stay where they
   `status=[]` is `git status --porcelain --untracked-files=all`; `git diff --stat f1e7a9e5 HEAD` lists only this card.
   An earlier run on C failed one 17post case on its 25 s wall-time bound (`T37-CIGATE/DEADLINE` git-fetch-hang) and
   passed every other gate.
+
+## R5 (2026-11-17)
+
+Merged by PR #478 (squash `4de391ee`, reviewed head `c518d4a4`, CI `43966420426` attempt 1). Codex R3 round 2
+passed both axes with zero findings.
+
+**hygiene.** R4 is in the implementation record above: each of the two empty values put back alone made the DoD
+exit 1; 2/2 killed.
+
+**Tier S.** The record carries the full `selftest.ps1 -Parallel` run on C = `f1e7a9e5` (A3 evidence form, PR #475);
+`git diff --stat f1e7a9e5 c518d4a4` lists only this card. The same lines are on PR 478 (comment 6930716180).
+
+**Worktree move (after-merge step, outside git history).** Done early, on 2026-11-16 at the user's request, because
+C: had 3.7 GB free: the 31 worktrees this repository registered under `C:\wt` were moved to
+`D:\wt\MyInspection\<same name>` with `robocopy /E /MOVE` and `git worktree repair`. All 31 are registered at the new
+path with the HEAD `git worktree list` showed before the move; the uncommitted-file count was compared only for
+`ci-diag-39c072e2` (2 before, 2 after). C: free space went from 3.7 GB to 20.6 GB. The main checkout carried the same
+two-line change uncommitted until this merge, so aidlc and `task.ps1` agreed on the root in the meantime.
+
+**doc_sync.** This R5 sets the status, the TASK-BOARD row and the CLAUDE.md current-stage entry.
+
+**Ship history.** The first full run on `80259d42` failed gates 2, 14 and 16 because master's CLAUDE.md cited a
+lesson id the ledger did not define yet (fixed by the lessons PR #477); one run on `f1e7a9e5` failed a 17post
+wall-time bound under load (L386). R3 round 1 (`529eca27`) blocked on dimension #14: the record reported the worktree
+move, which the card lists as a non-goal; the paragraph moved to this note. Card PRs: #466 (register), #474 (budget
+20 to 50), #475 (evidence form).
