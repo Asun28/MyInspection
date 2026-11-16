@@ -45,3 +45,42 @@ other gate.
 
 The files stay where aidlc put them: aidlc reads `aidlc.config.json` from the repository root and owns the
 `intent/`, `plans/` and `evals/` layout (CLAUDE.md section "AI-native SDLC (aidlc)").
+
+## Implementation record (2026-11-16)
+
+- Change: `$RootAllow` gains one line naming the seven entries; the trigger-layer row of
+  `docs/DELIVERY-CHAINS.md` gains the six skills in its brace list and one note; the CLAUDE.md root-file rule
+  names the four files and three directories. 3 insertions, 2 deletions outside this card.
+- RED: `task.ps1 -Phase red` on 0cb48b2c printed `[DOD-FAIL] selftest -Only 8,9 rc=1` and exited 1. (The first
+  RED on 2936ac20 exited 1 through a NativeCommandExitException before the DoD printed its own line; PR 469 made
+  the DoD set `$PSNativeCommandUseErrorActionPreference = $false` first.)
+- DoD: `[DOD-PASS]`, exit 0.
+- R4 (hygiene), each run with native-command errors raised as task.ps1 does: the runner first rewrote all three
+  files through its own byte path (SHA-256 unchanged) and saw the DoD pass. Base `scripts/selftest.ps1`: DoD exit 1,
+  `[DOD-FAIL] selftest -Only 8,9 rc=1`. Base `docs/DELIVERY-CHAINS.md`: DoD exit 1, same line. Base `CLAUDE.md`:
+  DoD exit 1, `[DOD-FAIL] the CLAUDE.md root-file rule does not name aidlc.config.json`. 3/3 killed; files restored
+  to SHA-256 `FF030CA5...BE6CDB9C` (selftest.ps1), `628430F5...E83D033D1` (DELIVERY-CHAINS.md), `9938938F...8396E64`
+  (CLAUDE.md).
+- Tier S (A4): `selftest.ps1 -Parallel` (all 17 gates, five shards) from the card worktree on `4fb89871`. Wrapper
+  head/exit lines and each shard's header and summary (summary cut after `wall=`; full shard logs omitted):
+  ```text
+  head=4fb89871415d1ef787c2dce5fb0087c69434e626 status=[] start=2026-11-16T11:39:25.4647639+13:00
+  ===== [SELFTEST-PARALLEL] 分片 light（-Only 1,2,3,4,5,6,7,8,9,10,11,12,13,14,16）exit=0 · 完整日志 =====
+  [GATE-RESULT-SUMMARY] failed=none ran=15 wall=1003s
+  ===== [SELFTEST-PARALLEL] 分片 e2e（-Only 15）exit=0 · 完整日志 =====
+  [GATE-RESULT-SUMMARY] failed=none ran=1 wall=1298s
+  ===== [SELFTEST-PARALLEL] 分片 seed-pre（-Only 17pre）exit=0 · 完整日志 =====
+  [GATE-RESULT-SUMMARY] failed=none ran=1 wall=820.3s
+  ===== [SELFTEST-PARALLEL] 分片 seed-post（-Only 17post）exit=0 · 完整日志 =====
+  [GATE-RESULT-SUMMARY] failed=none ran=1 wall=1941.5s
+  ===== [SELFTEST-PARALLEL] 分片 seed-b（-Only 17t,17ac）exit=0 · 完整日志 =====
+  [GATE-RESULT-SUMMARY] failed=none ran=1 wall=438.7s
+  selftest: PASS
+  exit=0 end=2026-11-16T12:12:18.2372687+13:00 headAfter=4fb89871415d1ef787c2dce5fb0087c69434e626 statusAfter=[]
+  ```
+  `status=[]` is `git status --porcelain --untracked-files=all`. The final head is `4fb89871` plus the commit adding
+  this block (`git diff --stat 4fb89871 HEAD` lists only this card); the same run on that head is posted on PR 470.
+
+**R3 rounds 1-2 (PR 470, `f098c080`, `4fb89871`).** Both blocked on #6, A4's run on the shipped candidate: round 1
+because the record deferred it to R5, round 2 because the record pointed at a PR comment the reviewer does not see
+(L227). The block above carries that run's output; the user authorized a third round on 2026-11-16.
