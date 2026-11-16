@@ -1,7 +1,7 @@
 ---
 id: T0-AIDLC-INIT-GATES
 title: Register the files aidlc init added in PR 464 so selftest gates 8 and 9 pass again
-status: todo
+status: merged
 depends_on: []
 parallelizable_with: []
 allow_paths:
@@ -84,3 +84,25 @@ The files stay where aidlc put them: aidlc reads `aidlc.config.json` from the re
 **R3 rounds 1-2 (PR 470, `f098c080`, `4fb89871`).** Both blocked on #6, A4's run on the shipped candidate: round 1
 because the record deferred it to R5, round 2 because the record pointed at a PR comment the reviewer does not see
 (L227). The block above carries that run's output; the user authorized a third round on 2026-11-16.
+
+## R5 (2026-11-16)
+
+Merged by PR #470 (squash `5ce832a2`, reviewed head `f5ef8c9d`, CI `43818265657` attempt 1). Codex R3 round 4
+passed both axes with zero findings; it ran `git diff --stat 4fb89871 HEAD` itself and saw only this card.
+
+**hygiene.** R4 is in the implementation record above: base `$RootAllow`, base trigger-layer row and base CLAUDE.md
+rule put back one at a time, each made the DoD exit 1; 3/3 killed.
+
+**Tier S.** Full `selftest.ps1 -Parallel` passed on `4fb89871` (output in the record) and on the final head
+`f5ef8c9d` (run 3, PR 470 comment 6909833391). Runs 1 and 2 on `f5ef8c9d` each failed one 17post case on a
+wall-time bound under load (74.96 s against 55 s; 60.19 s against 60 s) and passed every other gate (L386).
+`scaffold-selftest` dispatched on `f5ef8c9d` (run 43818263029) passed on both OSes.
+
+**doc_sync.** This R5 sets the status, the TASK-BOARD row and the CLAUDE.md current-stage entry.
+
+**Ship history.** R3 rounds 1-3 blocked on A4 alone: round 1 because the record deferred the run to R5, rounds 2
+and 3 because the exact-head run was only on the PR, which the reviewer does not see (L227), and a commit cannot
+carry the output of a run on itself. After round 2 the user authorized round 3; after round 3 the user ruled to
+state the evidence form in the cards (PR #475: a full run on commit C in the record, and `git diff --stat C HEAD`
+lists only the card), and round 4 passed. Card PRs on master: #469 (DoD sets
+`$PSNativeCommandUseErrorActionPreference = $false`), #471 (budget 30 to 45), #475.
