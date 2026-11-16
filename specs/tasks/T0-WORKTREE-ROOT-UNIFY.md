@@ -50,3 +50,36 @@ Move this repository's registered worktrees from `C:\wt\<name>` to `D:\wt\MyInsp
 `robocopy /E /MOVE` and then `git worktree repair <new path>`; `git worktree move` cannot cross drives on Windows.
 Run `scripts/live-work.ps1` first and leave any worktree with changes from the last 48 hours in place (L218).
 Directories under `C:\wt` that this repository does not register stay where they are.
+
+## Implementation record (2026-11-16)
+
+- Change: `scripts/_config.ps1` sets `WorktreeRoot = 'D:\wt\MyInspection'` with one comment line saying
+  `aidlc.config.json` must hold the same string; `aidlc.config.json` sets `"worktreeRoot": "D:\\wt\\MyInspection"`.
+  3 insertions, 2 deletions outside this card.
+- RED: `task.ps1 -Phase red` on 1455c072 printed `[DOD-FAIL] Get-ScaffoldWorktreeRoot returned 'C:\wt'` and exited 1.
+- DoD: `[DOD-PASS]`, exit 0.
+- R4 (hygiene): the runner first rewrote both files through its own byte path (SHA-256 unchanged) and saw the DoD
+  pass. M1 put back `WorktreeRoot = ''`: DoD exit 1, `[DOD-FAIL] Get-ScaffoldWorktreeRoot returned 'C:\wt'`.
+  M2 put back `"worktreeRoot": ""`: DoD exit 1, `[DOD-FAIL] aidlc.config.json worktreeRoot '' differs from
+  'D:\wt\MyInspection'`. 2/2 killed; both files restored to SHA-256 `1159885C...D2D9DA` (`_config.ps1`) and
+  `50D319A6...6BAE4A` (`aidlc.config.json`).
+- Tier S (A3): `selftest.ps1 -Parallel` (all 17 gates, five shards) from this worktree on C = `f1e7a9e5`, the
+  merge of origin/master `83a15e1e`. Wrapper lines and each shard's header and summary (summary cut after `wall=`):
+  ```text
+  head=f1e7a9e52cd8887178b2107aad0bbaa17e87e8f9 status=[] start=2026-11-17T10:23:09.4652514+13:00
+  ===== [SELFTEST-PARALLEL] 分片 light（-Only 1,2,3,4,5,6,7,8,9,10,11,12,13,14,16）exit=0 · 完整日志 =====
+  [GATE-RESULT-SUMMARY] failed=none ran=15 wall=1144.1s
+  ===== [SELFTEST-PARALLEL] 分片 e2e（-Only 15）exit=0 · 完整日志 =====
+  [GATE-RESULT-SUMMARY] failed=none ran=1 wall=1335.1s
+  ===== [SELFTEST-PARALLEL] 分片 seed-pre（-Only 17pre）exit=0 · 完整日志 =====
+  [GATE-RESULT-SUMMARY] failed=none ran=1 wall=1029.7s
+  ===== [SELFTEST-PARALLEL] 分片 seed-post（-Only 17post）exit=0 · 完整日志 =====
+  [GATE-RESULT-SUMMARY] failed=none ran=1 wall=1955.2s
+  ===== [SELFTEST-PARALLEL] 分片 seed-b（-Only 17t,17ac）exit=0 · 完整日志 =====
+  [GATE-RESULT-SUMMARY] failed=none ran=1 wall=664.9s
+  selftest: PASS
+  exit=0 end=2026-11-17T10:56:15.8946922+13:00 headAfter=f1e7a9e52cd8887178b2107aad0bbaa17e87e8f9 statusAfter=[]
+  ```
+  `status=[]` is `git status --porcelain --untracked-files=all`; `git diff --stat f1e7a9e5 HEAD` lists only this card.
+  An earlier run on C failed one 17post case on its 25 s wall-time bound (`T37-CIGATE/DEADLINE` git-fetch-hang) and
+  passed every other gate.
