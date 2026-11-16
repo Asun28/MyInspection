@@ -1,7 +1,7 @@
 ---
 id: T0-AGP-BUILTIN-KOTLIN
 title: Move :app to AGP's built-in Kotlin and new DSL, and drop the plugin aliases no module applies
-status: todo
+status: merged
 depends_on: [T2-PHOTO-INVARIANT-CLEANUP]
 parallelizable_with: []
 allow_paths:
@@ -64,3 +64,23 @@ Both cards build the whole Android project, so they never run at the same time.
 The catalog's header says later cards change only source directories, so that parallel cards do not collide on
 it. This card is a toolchain card like `T0-TOOLCHAIN`, runs alone, and removes two entries only; the user
 delegated the decision on 2026-10-14.
+
+## R5 (2026-11-16)
+
+Merged by PR #472 (squash `705a483d`, reviewed head `cfd41a5c`, CI `43780536500` attempt 1). Codex R3 round 1
+passed both axes with zero findings.
+
+**hygiene.** R4 was rerun on 2026-11-16 at the reviewed head `cfd41a5c`, because the 2026-10-15 run's per-mutant
+log went with that session's scratchpad. Each of the nine removed lines was put back alone at its base position
+and the DoD exited 1 at the matching text check: the three plugin lines in the two build files (`a build file
+still names a removed plugin`), the three `gradle.properties` settings (`an AGP opt-out is still set`), the two
+catalog aliases (`an unused plugin alias is still in the catalog`) and the old LICENSE-POLICY.md row
+(`LICENSE-POLICY.md still lists the kotlin-android plugin`). 9/9 killed. The runner first rewrote all five files
+through its own byte path with SHA-256 unchanged, and the worktree was clean after the last restore.
+
+**doc_sync.** This R5 sets the status, the TASK-BOARD row and the CLAUDE.md current-stage entry.
+
+**Ship history.** One attempt, about 16 minutes. Before it, the license gate failed with `[GRADLE-METADATA]` because
+Gradle's 30-day cache cleanup had deleted POMs; refreshing the four resolved graphs online fixed it (L329, TD176).
+The card worktree moved from `C:\wt` to `D:\wt\MyInspection` on 2026-11-16 before the ship
+(`T0-WORKTREE-ROOT-UNIFY`).
