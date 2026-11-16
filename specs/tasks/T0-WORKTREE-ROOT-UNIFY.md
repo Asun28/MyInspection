@@ -19,12 +19,12 @@ non_goals:
 acceptance:
   - "A1 scripts/_config.ps1 sets WorktreeRoot = 'D:\\wt\\MyInspection', so on Windows Get-ScaffoldWorktreeRoot returns D:\\wt\\MyInspection and task.ps1 -Phase start creates D:\\wt\\MyInspection\\<id>."
   - "A2 aidlc.config.json sets worktreeRoot to the same string, so aidlc's card probe expects the directory task.ps1 creates. On base aidlc expects C:\\wt\\MyInspection\\<id> while task.ps1 creates C:\\wt\\<id>, and aidlc card next stops every card with reason ownership."
-  - "A3 The full selftest (Tier S, all 17 gates) passes on the shipped candidate; gate 15 injects its own temporary root, and off Windows Get-ScaffoldWorktreeRoot still ignores a drive-shaped value (T218), so Linux CI keeps ~/.wt. The result is recorded in the R5 note."
+  - "A3 The full selftest (Tier S, all 17 gates) passes on the shipped candidate; gate 15 injects its own temporary root, and off Windows Get-ScaffoldWorktreeRoot still ignores a drive-shaped value (T218), so Linux CI keeps ~/.wt. Evidence form: the implementation record carries a full run on a commit C (launch and end HEAD, an empty git status --porcelain --untracked-files=all, each shard's exit and [GATE-RESULT-SUMMARY] failed=none, selftest: PASS), and git diff --stat C HEAD lists only this card; a commit cannot carry the output of a run on itself, and the reviewer reads only the diff (L227)."
 dod_command: $ps = pwsh -NoProfile -Command ". ./scripts/_config.ps1; Get-ScaffoldWorktreeRoot"; if ($LASTEXITCODE -ne 0 -or $ps -cne 'D:\wt\MyInspection') { Write-Host "[DOD-FAIL] Get-ScaffoldWorktreeRoot returned '$ps'"; exit 1 }; $aj = (Get-Content -Raw -LiteralPath aidlc.config.json | ConvertFrom-Json).worktreeRoot; if ($aj -cne $ps) { Write-Host "[DOD-FAIL] aidlc.config.json worktreeRoot '$aj' differs from '$ps'"; exit 1 }; Write-Host '[DOD-PASS]'; exit 0
 dod_exit: 0
 dod_assert: Get-ScaffoldWorktreeRoot returns D:\wt\MyInspection and aidlc.config.json worktreeRoot is the same string; prints [DOD-PASS]. On base it exits 1 at the first check because the accessor returns C:\wt.
 review_gate: codex {verdict:pass}
-budget: 20
+budget: 50
 hygiene: R4, recorded in the R5 note - put back each of the two empty values one at a time; each must make the DoD exit 1.
 doc_sync: At R5 set status merged, update the TASK-BOARD row and add the CLAUDE.md current-stage entry.
 ---
