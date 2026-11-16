@@ -20,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   用不到的骨架目录可删（删后从 `scripts/selftest.ps1` 的 `$RootAllow` 移除对应项）。
 - **任何新文档一律写进 `docs/`**（或 `specs/`），**不得**新建在根目录。新建后在「权威文档」索引登记。
 - 根目录**只允许**这些顶层文件：`README.md` `AGENTS.md` `CLAUDE.md` `LICENSE` `pyproject.toml`
-  `.gitignore` `.gitattributes` `uv.lock`（及上列目录与 `.github/` `.claude/`）。其余文件都属违规。
+  `.gitignore` `.gitattributes` `uv.lock`（及上列目录与 `.github/` `.claude/`），以及 aidlc init（PR #464）铺入的 `aidlc.config.json` `aidlc.ops.example.json` `bands.yaml` `REVIEW.md` 与目录 `intent/` `plans/` `evals/`。其余文件都属违规。
   （`AGENTS.md` 是给 Codex/OpenAI 系工具的薄指针，只指向 `CLAUDE.md`；agent 指令的真相源仍是 `CLAUDE.md`，勿双写。）
 - **三类「提示词 / 上下文」别混**：`prompts/`=应用运行时喂给 LLM 的模板（入库）；`context/`=给代理的领域知识（入库）；
   `CLAUDE.md`=给开发助手 Claude 的指令；`_local/models/`=私有模型系统提示 / 输出转储（不入库）。
@@ -68,6 +68,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > rule 只放**指针**（不复制命名表正文，免双源漂移）；只用项目级 `.claude/rules/`，别用用户级 `~/.claude/rules/`（其 paths 有 bug）。详见 `.claude/rules/README.md`。
 
 ## 当前阶段
+
+**2026-11-17 远端交付**：`T0-WORKTREE-ROOT-UNIFY` 经 [PR #478](https://github.com/Asun28/MyInspection/pull/478) 合并（`4de391ee`；reviewed head `c518d4a4`，CI `43966420426` attempt 1，Codex R3 第 2 轮 pass、零 finding）。`scripts/_config.ps1` 的 `WorktreeRoot` 与 `aidlc.config.json` 的 `worktreeRoot` 同为 `D:\wt\MyInspection`，`task.ps1` 与 aidlc 从此期望同一个 worktree 路径（此前 aidlc 期望 `C:\wt\MyInspection\<id>` 而 task.ps1 建 `C:\wt\<id>`，每张卡都停在 ownership）。合并后步骤已提前于 2026-11-16 应用户要求完成：本仓登记在 `C:\wt` 的 31 个 worktree 经 robocopy 与 `git worktree repair` 移到 `D:\wt\MyInspection`，C: 可用空间由 3.7 GB 升到 20.6 GB。R4 2/2。Tier-S 证据按 PR #475 的形态记在卡里（提交 C 上的全量运行，`git diff --stat C HEAD` 只列该卡）。R3 第 1 轮 block 一条：记录里写了卡片列为 non-goal 的 worktree 搬迁，移到 R5 说明后第 2 轮 pass。
+
+**2026-11-16 远端交付**：`T0-AIDLC-INIT-GATES` 经 [PR #470](https://github.com/Asun28/MyInspection/pull/470) 合并（`5ce832a2`；reviewed head `f5ef8c9d`，CI `43818265657` attempt 1，Codex R3 第 4 轮 pass、零 finding）。aidlc init（PR #464）铺入的 4 个顶层文件与 3 个目录登记进 selftest `$RootAllow` 与本文件根目录规则，6 个 aidlc skill 写进 `docs/DELIVERY-CHAINS.md` 触发层行，selftest 闸 8、9 恢复通过；#464 之后每晚 scaffold-selftest 只在这两闸失败，所有 Tier-S 卡的全量自检因此无法通过。R4 3/3。R3 前三轮都只 block A4：评审只读 diff（L227），而提交装不下对自身的运行结果；用户裁定后 PR #475 在四张 Tier-S 卡写明证据形态（记录带提交 C 上的全量运行，且 `git diff --stat C HEAD` 只列该卡），第 4 轮评审自行跑该 diff 后 pass。最终 head 上第 3 次全量自检通过，前两次各有一个 17post 时限用例在负载下超时（L386）。
+
+**2026-11-16 远端交付**：`T0-AGP-BUILTIN-KOTLIN` 经 [PR #472](https://github.com/Asun28/MyInspection/pull/472) 合并（`705a483d`；reviewed head `cfd41a5c`，CI `43780536500` attempt 1，Codex R3 第 1 轮 pass、零 finding），2026-10-14 未用代码审计目标（aidlc g-20261014091214-314b46）的第二张卡。`:app` 改用 AGP 9 内置 Kotlin 与新 DSL：`android/gradle.properties` 去掉 `android.builtInKotlin=false`、`android.newDsl=false` 与 `android.sync.suppressAgpWarnings`，构建文件与版本目录去掉 kotlin-android 插件，并删去没有模块应用的 android-library 别名；`docs/LICENSE-POLICY.md` 不再列 kotlin-android。DoD 全量离线重编（`--rerun-tasks --no-build-cache`）`:app:assembleDebug :app:check :core:check` 通过且不再打印 kotlin-android 弃用警告，dependencyInsight 核 `:app` 的 kotlin-stdlib 仍为 2.4.10。R4 9/9（逐行放回每个被删的设置、别名、插件行与许可表旧行，DoD 均以对应文本检查退出 1）。ship 前许可闸需在线预热四个依赖图（L329，TD176）。
 
 **2026-10-15 远端交付**：`T2-PHOTO-INVARIANT-CLEANUP` 经 [PR #462](https://github.com/Asun28/MyInspection/pull/462) 合并（`95876b26`；reviewed head `1169b405`，CI `38680376569` attempt 1，Codex R3 第 1 轮 pass、零 finding），修 2026-10-14 未用代码审计（aidlc 目标 g-20261014091214-314b46）找到的两处 Kotlin 问题。`PhotoOrphanCleanupReport` 加 `@ConsistentCopyVisibility`：生成的 `copy()` 与私有构造器同为 private，调用方无法再造出 decision 与两份清理结果不一致的报告；新测试经反射断言该类没有 public 的 `copy`/`copy$default`，去掉注解即失败（R4）。`PhotoImportPipeline` 的租约 lambda 去掉编译器已证明恒真的 `check(plan is WriteNewAsset)`。DoD 全量重编译后两条编译器警告都不再出现，而无关的 `PhotoJpegEncoder` 警告仍在，证明 DoD 读的警告行格式有效。ship 第 1 次停在许可闸（Gradle 30 天缓存清理删掉 POM，TD176；按 L329 在线预热后通过）。
 
