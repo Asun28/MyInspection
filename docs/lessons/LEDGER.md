@@ -1639,7 +1639,7 @@
 - refs: 
 
 ## L227
-- date: 2026-08-17 ｜ tags: review,pr,evidence,codex ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-08-17 ｜ tags: review,pr,evidence,codex ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: 卡片要求把独立第二模型复核记录/证据附进 PR（如 T2-PHRASELIB 的 deepseek-rescue 复核记录），写进 PR body 后 R3 仍以「未见证据」block——两轮均如此
 - root_cause: scripts/review.ps1 只把 git diff 喂给 codex 评审者（見 gh pr comment 用于回贴结果，全脚本无 gh pr view/--json body 读 PR 描述的调用），PR body/描述从未进入评审者的上下文；凡卡片要求「记录进 PR」的证据，只写 PR body 对 R3 不可见，等同没写
 - rule: 凡卡片/rubric 要求评审者能看到的证据（如独立复核记录），必须落进 diff 本身能读到的位置：改动文件的 KDoc/注释、或 commit message 正文（review.ps1 喂给评审者的是 diff，commit message 是否随 diff 一并喂入需按 review.ps1 实际实现核实，不确定时优先落文件内注释，最可靠）；PR body/描述只对人类可见，别指望它进 R3 评审上下文
@@ -1783,7 +1783,7 @@
 - refs: scripts/archive.ps1; specs/archive/cards-index.md
 
 ## L248
-- date: 2026-08-27 ｜ tags: powershell,task-loop,dod,fail-fast ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 2
+- date: 2026-08-27 ｜ tags: powershell,task-loop,dod,fail-fast ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: 任务卡 dod_command 直接运行一个预期非零的 native 命令，再准备读取 LASTEXITCODE 判断；手工终端可处理，但 task.ps1 ship 在判定语句前就抛 NativeCommandExitException，DoD 被误判失败。
 - root_cause: ship 为防多个 native 命令中途假绿，会在子 PowerShell 中设置 PSNativeCommandUseErrorActionPreference=true；因此预期非零的探测不能依赖同一脚本块后续的 LASTEXITCODE 分支。RED 相刻意设为 false，不代表 GREEN/ship DoD 也如此。
 - rule: 卡片 DoD 中每个 native 进程都必须在期望路径返回 0。若要证明不存在/应失败，先用成功返回的 dry-run 或导出结果，再用 PowerShell 内建断言检查；或用专用 helper 把预期失败归一成最终 0。不要直接调用预期非零的 native 命令后再读 LASTEXITCODE。
@@ -1927,7 +1927,7 @@
 - refs: 
 
 ## L266
-- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 9
+- date: 2026-09-01 ｜ tags: review,planning,diff-budget ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 10
 - symptom: 卡片实现完再 ship 才发现 diff 顶破 R3 的 1000 行硬上限（review.ps1 fail-closed、只许收紧），于是在 ship 压力下反复压缩：先删注释、再打包表字面量、最后开始考虑删测试用例与把变异收据挪出 diff。
 - root_cause: 预算是在交付链末端才被度量的，而它约束的是交付链开头就定死的东西——卡片契约的体量。等到 R2 结束，产线代码与测试都已按完整契约写好，唯一的调节旋钮就只剩「删覆盖」。
 - rule: 在验收契约那一步（写 RED 之前）就用闸门自己的尺估一次体量：产线 + 测试 + R4 收据合计对着 1000 行报预算，超过约 800 行就在动手前提出拆卡。L246 管「用哪把尺量」，本条管「什么时候量」——量晚了，能改的就只剩覆盖率。
@@ -2231,7 +2231,7 @@
 - refs: 
 
 ## L329
-- date: 2026-09-14 ｜ tags: gradle,licenses,cache,ship ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- date: 2026-09-14 ｜ tags: gradle,licenses,cache,ship ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3
 - symptom: ship stopped at the license gate with [GRADLE-METADATA] "no POM in cache" on 144 of 150 GAVs although verify (offline Gradle build) had just passed and the same gate was green on 2026-09-08. Gradle 30-day cache cleanup had deleted the POM files check-licenses.ps1 reads: builds take metadata from the binary store and touch only AAR/JAR, so the POMs downloaded on 08-15 aged out exactly on 09-14.
 - root_cause: The scanner depends on files Gradle considers garbage; nothing prewarms them and the failure text reads like a policy violation, not like an expired cache.
 - rule: When check-licenses reports mass [GRADLE-METADATA] on GAVs that resolved fine offline, prewarm before touching policy: gradlew --refresh-dependencies --no-daemon -q :app:dependencies --configuration debugRuntimeClasspath (then releaseRuntimeClasspath, then :core:dependencies --configuration runtimeClasspath, then testRuntimeClasspath) - ONE --configuration per invocation, Gradle keeps only the last one per project. Inject JAVA_HOME/ANDROID_HOME first (L208). Re-run check-licenses.ps1 alone before resuming ship. Tracked as TD176.
@@ -2319,7 +2319,7 @@
 - refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
 
 ## L309
-- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 17
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 18
 - symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
@@ -2537,7 +2537,7 @@
 - refs: 
 
 ## L336
-- date: 2026-09-23 ｜ tags: handoff,progress.md ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3
+- date: 2026-09-23 ｜ tags: handoff,progress.md ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 4
 - symptom: Replacing the HANDOFF block in progress.md with IndexOf overwrote the oldest of 13 historical blocks; it had to be restored from the SessionStart hook print.
 - root_cause: progress.md accumulates one HANDOFF block per session and handoff.ps1 check reads the last one; IndexOf finds the first.
 - rule: Edit only the last block (LastIndexOf of the START and END markers) and compare the block count before and after the write.
@@ -2761,12 +2761,12 @@
 - refs: 
 
 ## L370
-- date: 2026-10-09 ｜ tags: tier-s,selftest,evidence,r3,frozen-tree ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: one R3 round plus a user ruling past the cap
+- date: 2026-10-09 ｜ tags: tier-s,selftest,evidence,r3,frozen-tree ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 3 ｜ cost: one R3 round plus a user ruling past the cap
 - symptom: R3 round 2 on T0-LIVE-WORK-START (PR #452) blocked: the Tier-S run cited for A5 was on a96b5e23, and two record commits and a merge of origin/master followed it; the record had also been edited in the same worktree while that run was going. A third round needed a user ruling at ReviewRoundCap.
 - root_cause: The reviewer reads only the diff, and a commit cannot carry the result of a run on itself, so a Tier-S line written after the run always describes an older head. DEVOPS-WORKFLOW 3.2 already says any post-launch edit voids a frozen-tree proof.
-- rule: Finish every record edit and any base merge first, then commit the paragraph that names the acceptance run (Tier-S on this final head, launched clean, no edit during or after), then launch selftest -Parallel from the clean worktree, record launch and end HEAD plus git status --porcelain, touch nothing until the PR merges, and post those facts as a PR comment. Never edit the worktree while a Tier-S run is going.
+- rule: Before the first ship, the card's Tier-S acceptance line states an evidence form a diff can carry: the record holds a full run on commit C (launch and end HEAD, empty git status --porcelain --untracked-files=all, each shard's exit and [GATE-RESULT-SUMMARY] failed=none, selftest: PASS), and git diff --stat C HEAD lists only the card. Codex runs in the card worktree and checks that diff itself. Order: finish the code and any base merge, commit C, run selftest -Parallel on C with no edit during or after, then commit the evidence block alone; post the exact-head run on the PR as well. A record that only names a run, or defers it to R5, gets blocked, because the reviewer cannot see PR comments (L227). Never edit the worktree while a Tier-S run is going.
 - enforced_by: 
-- refs: PR #452 R3 round 2 verdict on 7b53d7b2; final head ee233c8f evidence comment; docs/DEVOPS-WORKFLOW.md 3.2
+- refs: PR #452 R3 round 2 verdict on 7b53d7b2; final head ee233c8f evidence comment; docs/DEVOPS-WORKFLOW.md 3.2; PR #470 R3 rounds 1-3 blocked on named or deferred runs, round 4 passed after PR #475 stated the evidence form (2026-11-16)
 
 ## L371
 - date: 2026-10-09 ｜ tags: powershell,sentinel,error-view,selftest ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: one wasted R4 batch (about 20 min)
@@ -2837,5 +2837,61 @@
 - symptom: A scripted insert into a PowerShell array literal reported hits=1, yet the inserted text was missing after the write: in @('a', 'b' + "`n" + 'c') the element became 'b' alone and the rest were appended as extra elements
 - root_cause: The comma operator binds tighter than +, so 'a', 'b' + x is ('a', 'b') + x: array concatenation, not string concatenation inside one element
 - rule: Parenthesize every concatenated array element (@('a', ('b' + "`n" + 'c'))) and, after any scripted edit, check that the inserted marker text is present in the written file instead of trusting the replacement count (found by session 287837d7 on T0-DIRTY-WORKTREE-HOOK, 2026-10-09)
+- enforced_by: 
+- refs: 
+
+## L380
+- date: 2026-10-15 ｜ tags: aidlc,cards,front-matter ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: aidlc card next refused a freshly registered card with [CARD-FM-COMMENT-CUT] for "PR #297" in its title, and a fix committed in a worktree did not change the refusal
+- root_cause: aidlc validates cards from the main checkout, not from the card branch, and reads " #" followed by digits inside an unquoted front-matter value as a YAML comment that cuts the value
+- rule: Write PR numbers in card front matter without the hash sign ("PR 297"), and land any card fix aidlc must see on master (PR and merge) before rerunning aidlc card next
+- enforced_by: 
+- refs: 
+
+## L381
+- date: 2026-10-15 ｜ tags: memory,gradle,r3,selftest ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: free memory fell from 3.4 GB to 1.7 GB during the R3 leg of a ship, with a Gradle JVM running in the card worktree although ship had finished its own DoD
+- root_cause: the Codex R3 reviewer reruns the card DoD itself, so a Gradle-heavy DoD runs locally again during R3
+- rule: Treat the R3 leg of a Gradle card ship as a Gradle job: start a full selftest or another Gradle build only after R3 reports, and check for java processes first
+- enforced_by: 
+- refs: 
+
+## L382
+- date: 2026-10-15 ｜ tags: post-merge,r5,prune,github ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: post-merge.ps1 r5 exited 1 with [POST-MERGE-PRUNE-FAIL] (delete rejected, stale info) right after [POST-MERGE-MERGED]
+- root_cause: the repository deletes a merged head branch by itself, so the lease delete of the r5 branch finds it already gone and git rejects the push
+- rule: After [POST-MERGE-MERGED], read a [POST-MERGE-PRUNE-FAIL] stale-info line by running git ls-remote --heads origin r5-<id>: empty output means the R5 is complete and nothing needs pruning
+- enforced_by: 
+- refs: 
+
+## L383
+- date: 2026-11-16 ｜ tags: worktree,aidlc,windows ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: aidlc card next stopped every card with reason ownership (worktree at C:\wt\<id>, expected C:\wt\MyInspection\<id>); git worktree move to another drive is not possible on Windows
+- root_cause: aidlc resolves an empty worktreeRoot to <SystemDrive>\wt\<repo name>, task.ps1 resolves an empty WorktreeRoot to <SystemDrive>\wt; git worktree move renames, and a rename cannot cross volumes
+- rule: Keep scripts/_config.ps1 WorktreeRoot and aidlc.config.json worktreeRoot the same non-empty string. To move a worktree to another drive: robocopy <src> <dst> /E /MOVE, then git -C <main checkout> worktree repair <dst>, then check git -C <dst> rev-parse HEAD against the pre-move git worktree list
+- enforced_by: 
+- refs: 
+
+## L384
+- date: 2026-11-16 ｜ tags: selftest,aidlc,ci ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: master full selftest failed gates 8 and 9 every night for 10 days after PR 464 (aidlc init) merged; found only when a Tier-S card full selftest went red
+- root_cause: PR CI runs verify and required only; the full selftest (gate 8.1 root allowlist, gate 9j skill index) runs on master pushes and nightly, so a PR adding top-level entries or skills merges green and breaks master
+- rule: Before merging a PR that adds top-level files or directories or .claude/skills entries, run pwsh scripts/selftest.ps1 -Only 8,9 on its head. When a Tier-S full selftest goes red, first check gh run list --workflow scaffold-selftest.yml for the same gates failing on master before blaming the card
+- enforced_by: 
+- refs: 
+
+## L385
+- date: 2026-11-16 ｜ tags: aidlc,ship ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: after card T0-AGP-BUILTIN-KOTLIN merged (PR 472) via task.ps1 -Phase ship, aidlc kept the card run in BUILD/SHIP; card close refused (no verified merge) and card report refused mergeVerified (loop-owned)
+- root_cause: aidlc sets mergeVerified only from the merge operation it records when its own card next SHIP directive runs the ship; a direct task.ps1 ship leaves no operation
+- rule: On a repo with aidlc shipPath scaffold, ship a goal card by following aidlc card next to its SHIP directive, not by calling task.ps1 -Phase ship directly; if already shipped directly, the registry status merged still satisfies the goal arc-verified check
+- enforced_by: 
+- refs: 
+
+## L386
+- date: 2026-11-16 ｜ tags: selftest,timing,load,tier-s ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- symptom: Two full selftest -Parallel runs on f5ef8c9d (2026-11-16) each failed one 17post case on a wall-time bound (T37-CIGATE/WORKFLOW-BINDING check-pending 74.96 s > 55 s; TD134-CIAPIFAIL/malformed 60.19 s > 60 s) while every other gate passed; the code was identical to a head that had passed, and the third run of the same command passed.
+- root_cause: Some 17post cases assert wall-clock bounds that include several pwsh launches; with five shards in parallel plus outside load (a ChatGPT process at one full core, Defender scanning fixture files) they cross the bound. The failure says nothing about the diff.
+- rule: Before a Tier-S full run, sample CPU (Get-Counter Process % Processor Time) and keep the machine idle during it. When the only failure is a 17post wall-time bound on code that matches a passing run, rerun the same command unchanged; post every run on the PR, failed ones included, and never edit the card between runs.
 - enforced_by: 
 - refs: 
