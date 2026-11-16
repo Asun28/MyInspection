@@ -83,7 +83,3 @@ Directories under `C:\wt` that this repository does not register stay where they
   `status=[]` is `git status --porcelain --untracked-files=all`; `git diff --stat f1e7a9e5 HEAD` lists only this card.
   An earlier run on C failed one 17post case on its 25 s wall-time bound (`T37-CIGATE/DEADLINE` git-fetch-hang) and
   passed every other gate.
-- Before this card merged, the 31 worktrees this repository registered under `C:\wt` were moved to
-  `D:\wt\MyInspection\<same name>` (robocopy /E /MOVE, then `git worktree repair`). All 31 are registered at the new
-  path with the HEAD `git worktree list` showed before the move; the uncommitted-file count was compared only for
-  `ci-diag-39c072e2` (2 before, 2 after). C: free space went from 3.7 GB to 20.6 GB.
