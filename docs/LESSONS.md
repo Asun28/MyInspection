@@ -107,3 +107,4 @@ blocking 的当场 `promote`。这样每跑完一张任务卡，经验系统就*
 
 > 模板自带一批**工具链通用**经验（PowerShell/gh/git/worktree/codex；见 LEDGER.md 与 powershell-and-gh.md）——
 > 这些坑与项目领域无关，新项目直接受用。项目特定经验随开发逐步累积。
+- 2026-10-15 T2-PHOTO-INVARIANT-CLEANUP: ALWAYS prewarm the four resolved Gradle graphs online before shipping a card whose license gate reads POMs that may be older than Gradle's 30-day cache cleanup (source: L329 recurrence 2, PR 462 ship attempt 1)
