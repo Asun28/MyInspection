@@ -42,3 +42,15 @@ A3 used to say the policy "imports no android.* type". Three Codex R3 rounds eac
 Starting point: PR #465's head `7456984c` holds `ClipboardPolicy.kt` (59 lines) and `ClipboardPolicyTest.kt`
 (six tests, 86 lines), green on that head. Bring them over onto current master. RED must fail on assertions, not
 on missing symbols (the reason #465's first review blocked).
+
+## Attempt evidence
+
+Attempt 3, 2026-11-17, code tree `76a0ca78` (merged with master `ca813eb2`). DoD: exit 0; ClipboardPolicyTest 7 tests, 0 failures.
+
+| Item | Proof | Result |
+|---|---|---|
+| A1 | RED `8a90de7c` (stub allows every request, unmarked): DoD exit 1, all 6 tests fail on `AssertionError`. R4 C1 (drop the explicit-action check), C2 (drop the notice-body check), C3 (`markSensitive = false`) and C7 (wrong denial reason) are each killed by an `AssertionError`. | pass |
+| A2 | Tests `every clipboard read is denied whatever triggers it`, `the policy and its write command expose no way to read clipboard content` (reflection) and `the write command does not print the notice body`. R4 C4 (allow reads), C6 (add a public `readPrimaryClip`) and C5 (`toString` prints the body) are each killed by an `AssertionError`. | pass |
+| A3 | Test `no class in the policy package references an android type` reads every class of the package (from the unit-test classes directory or `classes.jar`) and fails on any `android/` reference, private members and method bodies included; adding a private function with an `android.content.ClipData` parameter to `ClipboardPolicy` fails that test alone on an `AssertionError` (added after review). The policy returns a `ClipboardWriteCommand` and calls no clipboard API. | pass |
+
+R4 ran each mutant against `:app:testDebugUnitTest --tests ...ClipboardPolicyTest`; a kill needed an `AssertionError` and no compile error. The runner first rewrote the file unchanged (same SHA-256) and passed unmutated, and restored and rechecked the file after each mutant: 7 of 7 killed.
