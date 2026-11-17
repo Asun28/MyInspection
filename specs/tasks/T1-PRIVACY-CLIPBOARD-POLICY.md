@@ -45,7 +45,7 @@ on missing symbols (the reason #465's first review blocked).
 
 ## Attempt evidence
 
-Attempt 1, 2026-11-17, code tree `e17ddcc0` on base `21f33cb9`. DoD: exit 0; ClipboardPolicyTest 7 tests, 0 failures.
+Attempt 3, 2026-11-17, code tree `76a0ca78` (merged with master `ca813eb2`). DoD: exit 0; ClipboardPolicyTest 7 tests, 0 failures.
 
 | Item | Proof | Result |
 |---|---|---|
