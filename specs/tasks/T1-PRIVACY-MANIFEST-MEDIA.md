@@ -43,3 +43,15 @@ attribute) and `SelectedMediaPolicy` with five tests (122 lines), green on that 
 master; do not copy the other two policies. #465's first formal review blocked on its RED receipt failing on
 missing symbols, so this card's RED must fail on assertions: commit a stub `SelectedMediaPolicy` that rejects
 everything (accept tests fail) or accepts everything (reject tests fail) before the real one.
+
+## Attempt evidence
+
+Attempt 1, 2026-11-17, candidate `4993ca08` on base `71ebe8b9`. DoD: exit 0; 305 JVM tests, 0 failures, 1 skipped.
+
+| Item | Proof | Result |
+|---|---|---|
+| A1 | RED `187aae04`: DoD exit 1, `:app:verifyDebugBackupManifest` fails on the missing `android:usesCleartextTraffic=false`. R4 M1-M5, each against `:app:verifyDebugBackupManifest`, killed with the attribute or permission named in the failure: drop the attribute; set it to `true`; add `READ_MEDIA_IMAGES` as `uses-permission`; add `READ_EXTERNAL_STORAGE` with `maxSdkVersion="32"`; add `READ_MEDIA_IMAGES` as `uses-permission-sdk-23`. | pass |
+| A2 | `SelectedMediaPolicyTest`, 5 tests. On `187aae04` (reject-all stub) 4 fail on `AssertionError`; the fifth, every other origin rejected, is killed by M8. R4 M6-M11 against `:app:testDebugUnitTest --tests ...SelectedMediaPolicyTest`, each killed by an `AssertionError` with no compile error: drop either allowed origin; allow `SAF_OPEN_DOCUMENT_TREE`; `itemCount < 1`; `itemCount > 1`; drop the `chosenByUser` check. | pass |
+| A3 | `git diff 71ebe8b9 HEAD -- android/app/build.gradle.kts` adds 17 lines and removes none; `SelectedMediaPolicy.kt` has no import line. | pass |
+
+The R4 runner first rewrote both mutated files unchanged (same SHA-256) and passed both tasks unmutated; every mutated file was restored and its SHA-256 rechecked.
