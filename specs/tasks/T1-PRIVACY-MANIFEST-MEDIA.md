@@ -2,7 +2,7 @@
 id: T1-PRIVACY-MANIFEST-MEDIA
 title: Merged-manifest gate for cleartext and broad media reads, plus SelectedMediaPolicy
 depends_on: [T1-LOCAL-DATA-SECURITY]
-status: todo
+status: merged
 branch: T1-PRIVACY-MANIFEST-MEDIA
 worktree: D:\wt\MyInspection\T1-PRIVACY-MANIFEST-MEDIA
 allow_paths:
@@ -59,3 +59,7 @@ Attempt 5, 2026-11-17, code tree `832bcb03` (merged with master `ca813eb2`, whic
 | A3 | `git diff 71ebe8b9 HEAD -- android/app/build.gradle.kts`: 19 insertions, 2 deletions. The 2 deleted lines are the old comment that listed three asserted attributes, rewritten to name four (R3 round 1); no existing code line is deleted. Test `no class in the policy package references an android type` reads every class of the package (from the unit-test classes directory or `classes.jar`) and fails on any `android/` reference, private members and method bodies included; adding a private function with an `android.content.ClipData` parameter to `SelectedMediaPolicy` fails that test alone on an `AssertionError` (added after review). | pass |
 
 The R4 runner first rewrote both mutated files unchanged (same SHA-256) and passed both tasks unmutated; every mutated file was restored and its SHA-256 rechecked.
+
+## R5 2026-11-17
+
+Merged via PR #489 (squash `c0db11f9`, reviewed head `add13697`, CI run 44023021590 attempt 1, Codex R3 pass). R3 round 1 blocked on a stale gate comment (fixed); A3 was amended in PR #496 by the user's ruling. The CI gate stopped twice on [CI-GATE-BASE-MOVED] when the sibling cards merged first; the branch took master and the ship reran its gates. aidlc stopped this card at its 3-hour card deadline, and by the user's ruling it shipped through task.ps1 with every gate.
