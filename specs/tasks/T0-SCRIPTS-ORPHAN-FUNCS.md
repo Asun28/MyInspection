@@ -65,16 +65,18 @@ shipped candidate (A3).
   fixture files: DoD exit 1, `[DOD-FAIL] scripts/fixtures/gate2 still exists`. 3/3 killed; both scripts restored
   to SHA-256 `249D256A...A1FEE2DD` (check-licenses.ps1) and `817817D5...1344CE76` (license-scanner-check.ps1).
 - Tier S (A3): `selftest.ps1` with no arguments (one process runs all 17 gates in turn, so there are no shards)
-  from this worktree on C = `69b19802`, the merge of origin/master `2b01826f`; the DoD on C prints `[DOD-PASS]`,
-  exit 0. An earlier `-Parallel` run on C failed only 17post `T37-CIGATE/DEADLINE` (git-fetch-hang over its time
-  bound under load, L386), and this serial run replaces it. Wrapper lines and the summary (cut after `wall=`):
+  from this worktree on C = `3cea38c8`, the merge of origin/master `1e7e1532` (PR #480, the DoD fix). The DoD on
+  C, run through the payload the ship builds (`Get-ScaffoldDodPayload`), prints `[DOD-PASS]`, exit 0. Wrapper
+  lines and the summary (cut after `wall=`):
   ```text
-  head=69b19802257010a3aa2cb7bbdc423feac651cb16 status=[] start=2026-11-17T11:38:36.0720363+13:00
-  [GATE-RESULT-SUMMARY] failed=none ran=17 wall=3807.6s
+  head=3cea38c82c7a231bb85de38baf5684b09e870f53 status=[] start=2026-11-17T13:00:40.8192066+13:00
+  [GATE-RESULT-SUMMARY] failed=none ran=17 wall=3148.2s
   selftest: PASS
-  exit=0 end=2026-11-17T12:42:06.0187084+13:00 headAfter=69b19802257010a3aa2cb7bbdc423feac651cb16 statusAfter=[]
+  exit=0 end=2026-11-17T13:53:11.5934687+13:00 headAfter=3cea38c82c7a231bb85de38baf5684b09e870f53 statusAfter=[]
   ```
-  `git diff --stat 69b19802 HEAD` lists only this card.
+  `git diff --stat 3cea38c8 HEAD` lists only this card. Earlier runs: `-Parallel` on `69b19802` failed only 17post
+  `T37-CIGATE/DEADLINE` (git-fetch-hang over its time bound under load, L386); the serial run on `69b19802`
+  passed, but the merge of #480 then changed a second card.
 
 ## Attempt evidence
 
@@ -82,4 +84,4 @@ shipped candidate (A3).
 |---|---|---|
 | A1 | `git diff origin/master HEAD` on the two scripts removes only `Add-GradleLicenseFinding` (47 lines) and `Get-WorkflowActiveStepIndices` (5 lines); R4 puts back each script and the DoD exits 1 | pass |
 | A2 | DoD: `scripts/fixtures/gate2` is absent and `git grep` over scripts, .github and .claude finds none of the three names; R4 puts back the fixture and the DoD exits 1 | pass |
-| A3 | DoD parses both scripts; the serial full selftest on C = `69b19802` (record above) ends `failed=none ran=17`, `selftest: PASS` | pass |
+| A3 | DoD (ship payload) parses both scripts; the serial full selftest on C = `3cea38c8` (record above) ends `failed=none ran=17`, `selftest: PASS` | pass |
