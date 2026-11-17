@@ -77,8 +77,8 @@ tasks.withType<Test>().configureEach {
 // 合并清单 + 备份/D2D 排除规则回归检查（隐私硬边界，见 res/xml/{data_extraction_rules,backup_rules}.xml 注释）。
 // 两处均**解析**而非子串匹配（T0-TOOLCHAIN R3 finding #6a/#6b）：
 //   #6a：合并清单不再只查三个属性名是否在场（注释里出现同名字符串也会满足）——改解析 <application> 元素，
-//        断言三个属性的**精确值**（allowBackup=false、fullBackupContent=@xml/backup_rules、
-//        dataExtractionRules=@xml/data_extraction_rules），而不只是「存在」。
+//        断言四个属性的**精确值**（allowBackup=false、fullBackupContent=@xml/backup_rules、
+//        dataExtractionRules=@xml/data_extraction_rules，及 T1-PRIVACY-MANIFEST-MEDIA 加的 usesCleartextTraffic=false），而不只是「存在」。
 //   #6b：排除规则不再只查 domain 是否出现——改断言 domain **与** path 的精确配对（要求 path="."，即整个
 //        该域），把 27 个 path="." 收窄成任何更窄路径都会被判缺失。
 // non_goals 禁 Robolectric/仪器测试，改读文件断言，挂进 :app:check。
