@@ -1,7 +1,10 @@
 package nz.myinspection.app.privacy.policy
 
+import java.io.File
+import java.util.zip.ZipFile
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class SensitiveSurfacePolicyTest {
     @Test
@@ -39,5 +42,28 @@ class SensitiveSurfacePolicyTest {
             ),
             secure,
         )
+    }
+
+    @Test
+    fun `no class in the policy package references an android type`() {
+        // Unit tests may load the app classes from a directory or from a bundled classes.jar.
+        val location = File(SensitiveSurfacePolicy::class.java.protectionDomain.codeSource.location.toURI())
+        val prefix = "nz/myinspection/app/privacy/policy/"
+        val classes: Map<String, ByteArray> = if (location.isDirectory) {
+            location.resolve(prefix).listFiles { f -> f.name.endsWith(".class") }.orEmpty()
+                .associate { it.name to it.readBytes() }
+        } else {
+            ZipFile(location).use { zip ->
+                zip.entries().toList()
+                    .filter { it.name.startsWith(prefix) && it.name.endsWith(".class") }
+                    .filter { '/' !in it.name.removePrefix(prefix) }
+                    .associate { it.name.removePrefix(prefix) to zip.getInputStream(it).use { s -> s.readBytes() } }
+            }
+        }
+        assertTrue("SensitiveSurfacePolicy.class" in classes, "no SensitiveSurfacePolicy.class in $location")
+
+        val withAndroid = classes.filterValues { String(it, Charsets.ISO_8859_1).contains("android/") }.keys.sorted()
+
+        assertEquals(emptyList(), withAndroid)
     }
 }
