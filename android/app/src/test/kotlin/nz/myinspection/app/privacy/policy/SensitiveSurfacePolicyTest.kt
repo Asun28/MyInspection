@@ -66,4 +66,11 @@ class SensitiveSurfacePolicyTest {
 
         assertEquals(emptyList(), withAndroid)
     }
+
+    @Test
+    fun `the policy source imports no android type`() {
+        val source = File("src/main/kotlin/nz/myinspection/app/privacy/policy/SensitiveSurfacePolicy.kt")
+        assertTrue(source.isFile, "no source at ${source.absolutePath}")
+        assertEquals(emptyList(), source.readLines().filter { it.trimStart().startsWith("import android.") })
+    }
 }
