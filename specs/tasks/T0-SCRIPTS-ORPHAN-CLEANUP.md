@@ -76,8 +76,13 @@ split. `T0-SCRIPTS-ORPHAN-FUNCS` shipped three of them in PR #486; merging origi
   state of both paths): DoD exit 1, `[DOD-FAIL] scripts/_validation.ps1 still exists`. M2 put back the base
   `selftest.ps1` alone (the gate 1h hook): DoD exit 1, `[DOD-FAIL] a removed name is still referenced`. 2/2 killed;
   `selftest.ps1` restored to SHA-256 `1E842C30...C7FA506F` and the status is clean.
-- Tier S: the full selftest runs from this worktree on the commit that adds this record (C); its output goes in the
-  next commit (A3).
+- Tier S: the full selftest ran serially (one process, all 17 gates) from this worktree on the commit that adds this
+  record, C = `77c535ac`. Run 2, 2026-11-17 15:28-16:39 NZDT: `head=77c535ace6752725d39ef45e4fe5e09fc99b1fae
+  status=[]`, `[GATE-RESULT-SUMMARY] failed=none ran=17 wall=4228.3s`, `selftest: PASS`, `exit=0
+  headAfter=77c535ace6752725d39ef45e4fe5e09fc99b1fae statusAfter=[]`. Run 1 on the same commit (14:10-15:12) failed
+  only gate 17 case `TD134-CIAPIFAIL/malformed` ("ship still running after 90s") while another session's Gradle run
+  overlapped it; that is the wall-time case L386 records, and run 2 reran it unchanged. `git diff --stat 77c535ac
+  HEAD` lists only this card.
 
 ## Attempt evidence
 
@@ -85,4 +90,4 @@ split. `T0-SCRIPTS-ORPHAN-FUNCS` shipped three of them in PR #486; merging origi
 |---|---|---|
 | A1 | `git diff origin/master HEAD` deletes `_validation.ps1` and only the two gate 1h lines; the `_symbol-markdown.ps1` and `_unicode.ps1` loads and example calls stay; the DoD's `selftest -Only 1` passes | pass |
 | A2 | DoD: `selftest.ps1` parses and `git grep` over scripts, .github and .claude finds none of the five names; R4 M2 puts back the hook and the DoD exits 1 | pass |
-| A3 | DoD's `selftest -Only 1` passes; the full selftest on C goes in the next commit | pending |
+| A3 | DoD's `selftest -Only 1` passes; the full serial selftest on C `77c535ac` passes (`failed=none ran=17`, exit 0) and `git diff --stat 77c535ac HEAD` lists only this card | pass |
