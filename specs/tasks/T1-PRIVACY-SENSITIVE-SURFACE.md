@@ -2,7 +2,7 @@
 id: T1-PRIVACY-SENSITIVE-SURFACE
 title: SensitiveSurfacePolicy, the closed list of screens that get a secure window
 depends_on: [T1-LOCAL-DATA-SECURITY]
-status: todo
+status: merged
 branch: T1-PRIVACY-SENSITIVE-SURFACE
 worktree: D:\wt\MyInspection\T1-PRIVACY-SENSITIVE-SURFACE
 allow_paths:
@@ -49,3 +49,7 @@ Attempt 1, 2026-11-17, code tree `451966cc` on base `21f33cb9`. DoD: exit 0; Sen
 | A3 | Test `no class in the policy package references an android type` reads every class of the package (from the unit-test classes directory or `classes.jar`) and fails on any `android/` reference, private members and method bodies included; adding a private function with an `android.content.ClipData` parameter to `SensitiveSurfacePolicy` fails that test alone on an `AssertionError` (added after review). Test `the policy source imports no android type` fails on any `import android.` line; adding `import android.content.ClipData` to `SensitiveSurfacePolicy.kt` fails that test alone (R3 finding). It only returns a `SurfaceProtection` value and sets no window flag. | pass |
 
 The R4 runner first rewrote the file unchanged (same SHA-256) and passed unmutated, and restored and rechecked the file after each mutant.
+
+## R5 2026-11-17
+
+Merged via PR #494 (squash `13748ced`, reviewed head `26adfb3b`, CI run 44017539704 attempt 1, Codex R3 pass with zero findings). aidlc stopped this card at its 3-hour card deadline while it waited for the local Gradle lane shared with goal g-20261014091214-314b46; by the user's ruling it shipped through task.ps1 with every gate.
