@@ -635,53 +635,6 @@ function Get-GradleCoordinatesFromDependencyOutput {
   }
 }
 
-function Add-GradleLicenseFinding {
-  param(
-    [Parameter(Mandatory)][string]$Coordinate,
-    [Parameter(Mandatory)][string[]]$Licenses,
-    [Parameter(Mandatory)][string]$Source,
-    [Parameter(Mandatory)][string[]]$Configurations,
-    [AllowNull()][object]$DeclaredLicenseMappings = $null
-  )
-
-  $licenseText = $Licenses -join '; '
-  $findingText = Get-GradleAuditText -Value "$Coordinate => $licenseText [$Source; configurations: $($Configurations -join ', ')]"
-  Write-Host "  - $findingText"
-  foreach ($license in $Licenses) {
-    $classification = Get-GradleLicenseClassification -License $license # production policy renderer classification
-    if ($classification -eq 'plain-gpl') {
-      if (-not $script:Distributes) {
-        $script:warn += Get-GradleAuditText -Value "$Coordinate => $license（Gradle 黄牌：纯 GPL 且本项目声明不分发[Distributes=`$false]；变 public 前用 -Strict 复核）"
-      } else {
-        Add-GradleMetadataNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]"
-      }
-      continue
-    }
-    if ($classification -eq 'forbidden') {
-      Add-GradleMetadataNonCompliance "$Coordinate => $license [GRADLE-FORBIDDEN]" # compatibility helper forbidden classification
-      continue
-    }
-    if ($classification -eq 'yellow') {
-      $script:warn += Get-GradleAuditText -Value "$Coordinate => $license（Gradle 黄牌：需人工确认用途/链接方式）"
-      continue
-    }
-    if ($classification -eq 'unknown') {
-      if ($null -ne $DeclaredLicenseMappings -and $DeclaredLicenseMappings.ContainsKey($license)) {
-        $mapping = $DeclaredLicenseMappings[$license]
-        # Get-GradleExceptionMap 已限定 exact canonical allowlist；这里保留纵深检查，避免未来调用点绕过解析器。
-        if (-not (Test-GradleExceptionCanonicalLicense -License $mapping.License)) {
-          Add-GradleMetadataNonCompliance "$Coordinate => declared_license 映射的非允许 canonical '$($mapping.License)' [GRADLE-OVERRIDE]"
-        } else {
-          $mappingText = Get-GradleAuditText -Value "exact declared-license mapping: '$license' => $($mapping.License) [override $($mapping.EvidenceUrl), $($mapping.RegisteredBy) $($mapping.RegisteredOn)]"
-          Write-Host "    $mappingText"
-        }
-      } else {
-        Add-GradleMetadataNonCompliance "$Coordinate => 未被政策识别的许可 '$license' [GRADLE-UNKNOWN]"
-      }
-    }
-  }
-}
-
 function Get-GradleLicensePolicyResult {
   param(
     [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Resolved,

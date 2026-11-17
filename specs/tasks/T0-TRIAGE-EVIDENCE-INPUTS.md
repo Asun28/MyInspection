@@ -2,7 +2,8 @@
 id: T0-TRIAGE-EVIDENCE-INPUTS
 title: triage 既有证据输入失败与原始字段校验
 depends_on: [T0-LESSONS-CAP-TRIAGE-SPLIT]
-status: todo
+status: merged
+superseded_by: T0-STALE-PR-CLOSEOUT
 branch: T0-TRIAGE-EVIDENCE-INPUTS
 worktree: C:\wt\T0-TRIAGE-EVIDENCE-INPUTS
 allow_paths:
@@ -93,3 +94,7 @@ R4 追加定向删除/放宽 run_status 类型与 enum、axes 容器/必需键/�
 当前7项：verdict、branch-presence、sha-format、sha-type、reason-shape、reason-item、extra-field。
 历史11项：enum、read-content、parse、head、identity、wrong-root、owned-unknown-verdict、local-getitem-read、worktree-discovery、local-discovery、foreign-owner-before-head；另复测本卡适用的完整 Add-Finding AST 删除守卫。
 每个变异在该候选副本运行；native 0、具名 FAIL、无 PASS 才算 killed，正例必须精确 PASS 且无 FAIL。完整日志与副本仍在 ignored .review；历史收据保留，不当作本次证据。
+
+## Retired 2026-11-17
+
+Retired unimplemented by the owner's 2026-11-17 ruling, recorded in `T0-STALE-PR-CLOSEOUT`: the card that needed it, `T0-TRIAGE-EVIDENCE-CASE` (PR #294), was closed and the triage defect went upstream as Asun28/claude-devops-scaffold#406. It has no row on docs/TASK-BOARD.md, so `post-merge.ps1 retire` could not take it; this card-text PR makes the same edit.

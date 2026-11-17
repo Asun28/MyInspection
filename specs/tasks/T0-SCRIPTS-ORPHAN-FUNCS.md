@@ -1,7 +1,7 @@
 ---
 id: T0-SCRIPTS-ORPHAN-FUNCS
 title: Delete Add-GradleLicenseFinding, Get-WorkflowActiveStepIndices and the gate2 fixture nothing reads
-status: todo
+status: merged
 depends_on: []
 parallelizable_with: []
 allow_paths:
@@ -51,3 +51,57 @@ hunks for these three paths.
 
 `scripts/check-licenses.ps1` is a TierSPaths entry, so the card is Tier S and needs the full selftest on the
 shipped candidate (A3).
+
+## Implementation record (2026-11-16)
+
+- Change: the hunks of c0dc420a (`T0-SCRIPTS-ORPHAN-CLEANUP` branch) for this card's three paths, applied with
+  `git apply` on bd9db075: `Add-GradleLicenseFinding` (47 lines) and `Get-WorkflowActiveStepIndices` (5 lines)
+  removed, `scripts/fixtures/gate2/android/gradlew{,.bat}` (23 lines) deleted. 75 deletions outside this card.
+- RED: `task.ps1 -Phase red` on bd9db075 printed `[DOD-FAIL] scripts/fixtures/gate2 still exists` and exited 1.
+- DoD: `[DOD-PASS]`, exit 0.
+- R4 (hygiene): the runner first rewrote both scripts through its own byte path (SHA-256 unchanged) and saw the
+  DoD pass. Putting back check-licenses.ps1 from base: DoD exit 1, `[DOD-FAIL] a removed name is still
+  referenced`. Putting back license-scanner-check.ps1 from base: DoD exit 1, same line. Putting back the two
+  fixture files: DoD exit 1, `[DOD-FAIL] scripts/fixtures/gate2 still exists`. 3/3 killed; both scripts restored
+  to SHA-256 `249D256A...A1FEE2DD` (check-licenses.ps1) and `817817D5...1344CE76` (license-scanner-check.ps1).
+- Tier S (A3): `selftest.ps1` with no arguments (one process runs all 17 gates in turn, so there are no shards)
+  from this worktree on C = `3cea38c8`, the merge of origin/master `1e7e1532` (PR #480, the DoD fix). The DoD on
+  C, run through the payload the ship builds (`Get-ScaffoldDodPayload`), prints `[DOD-PASS]`, exit 0. Wrapper
+  lines and the summary (cut after `wall=`):
+  ```text
+  head=3cea38c82c7a231bb85de38baf5684b09e870f53 status=[] start=2026-11-17T13:00:40.8192066+13:00
+  [GATE-RESULT-SUMMARY] failed=none ran=17 wall=3148.2s
+  selftest: PASS
+  exit=0 end=2026-11-17T13:53:11.5934687+13:00 headAfter=3cea38c82c7a231bb85de38baf5684b09e870f53 statusAfter=[]
+  ```
+  `git diff --stat 3cea38c8 HEAD` lists only this card. Earlier runs: `-Parallel` on `69b19802` failed only 17post
+  `T37-CIGATE/DEADLINE` (git-fetch-hang over its time bound under load, L386); the serial run on `69b19802`
+  passed, but the merge of #480 then changed a second card.
+
+## Attempt evidence
+
+| Item | Proof | Result |
+|---|---|---|
+| A1 | `git diff origin/master HEAD` on the two scripts removes only `Add-GradleLicenseFinding` (47 lines) and `Get-WorkflowActiveStepIndices` (5 lines); R4 puts back each script and the DoD exits 1 | pass |
+| A2 | DoD: `scripts/fixtures/gate2` is absent and `git grep` over scripts, .github and .claude finds none of the three names; R4 puts back the fixture and the DoD exits 1 | pass |
+| A3 | DoD (ship payload) parses both scripts; the serial full selftest on C = `3cea38c8` (record above) ends `failed=none ran=17`, `selftest: PASS` | pass |
+
+## R5 (2026-11-17)
+
+Merged by PR #486 (squash `8bedaaba`, reviewed head `1fa5ada4`, CI `43991816723` attempt 1). Codex R3 passed both
+axes with zero findings in its first `review.ps1` round (the ship log names it round 4 because `review.ps1` counts
+every `.r*.json` file in `.review`, and the aidlc R3 had left three there).
+
+**hygiene.** R4 is in the implementation record above: putting back either script or the fixture made the DoD exit
+1; 3/3 killed.
+
+**Tier S.** The record carries the serial full selftest on C = `3cea38c8`; `git diff --stat 3cea38c8 1fa5ada4`
+lists only this card. The same lines are on PR 486 (comment 6934434832).
+
+**DoD fix and ship path.** The first ship (2026-11-17 12:50, started by `aidlc card next`) stopped at its DoD leg:
+the ship runs the DoD with `$PSNativeCommandUseErrorActionPreference` set, and `git grep` exits 1 when nothing
+matches, which is this DoD's pass case. PR #480 fixed the DoD of this card and of `T0-SCRIPTS-ORPHAN-CLEANUP`.
+aidlc read that failure as license-blocked, a stop that is final for the card run (Asun28/AIDLC#347), so this card
+shipped with `task.ps1 -Phase ship` directly; every ship gate ran.
+
+**doc_sync.** This R5 sets the status, the TASK-BOARD row and the CLAUDE.md current-stage entry.
