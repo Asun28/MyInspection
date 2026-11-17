@@ -433,11 +433,6 @@ if ($Suite -eq 'integration') {
     return $records.ToArray()
   }
 
-  function Get-WorkflowActiveStepIndices {
-    param([Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$Lines)
-    return @((Get-WorkflowActiveStepRecords -Lines $Lines) | ForEach-Object Index)
-  }
-
   function Get-WorkflowStepKeys {
     param([Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$StepLines)
     # 只收该 step 的**顶层**映射键：`- name:` 行上的那个，以及与它同列（破折号后两列）的后续键。
