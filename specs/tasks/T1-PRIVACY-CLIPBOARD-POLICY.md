@@ -19,10 +19,10 @@ non_goals:
 acceptance:
   - "A1 An explicit Copy notice action yields a write command for the notice body, marked sensitive; a write without that action, or of anything other than the notice body, is denied."
   - "A2 Every clipboard read is denied whatever triggers it; reflection shows the policy's only public method is authorize and the write command's only public methods are getText, getMarkSensitive and toString; the write command's toString does not print the notice body."
-  - "A3 The policy stays pure JVM and writes nothing itself: it imports no android.* type and only returns a command for a later UI card to apply."
+  - "A3 The policy stays pure JVM and writes nothing itself: the compiled classes of the policy package, as the unit tests load them, reference no android.* type, and the policy only returns a command for a later UI card to apply."
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:testDebugUnitTest --tests nz.myinspection.app.privacy.policy.ClipboardPolicyTest
 dod_exit: 0
-dod_assert: The six ClipboardPolicyTest cases run and pass on the candidate. On base the class does not exist, so the RED commit carries a stub policy that allows every request unmarked and exposes a read method, failing the tests on assertions.
+dod_assert: The ClipboardPolicyTest cases run and pass on the candidate. On base the class does not exist, so the RED commit carries a stub policy that allows every request unmarked and exposes a read method, failing the tests on assertions.
 review_gate: codex {verdict:pass}
 budget: 190
 hygiene: R4 mutates the action check, the body check, the sensitive flag, the read denial and the toString redaction; each mutant must fail the DoD.
@@ -34,6 +34,10 @@ doc_sync: At R5 set status merged and update the TASK-BOARD row.
 Split on 2026-11-17 from `T1-PRIVACY-MANIFEST-POLICY-GATE` (PR #465) under the user's rule that a card changes
 about 200 lines or fewer. This card keeps the clipboard half of R2; the parent card's text stays the contract.
 Plan: `docs/plans/PLAN-STALE-PRS-20261117.md`.
+
+## Amendment 2026-11-17 (A3)
+
+A3 used to say the policy "imports no android.* type". Three Codex R3 rounds each found legal Kotlin that a source regex misses (extra spaces, a comment between tokens, spaces around the dot), and only an unused import can escape the bytecode check. By the user's ruling A3 now names the property that matters at runtime: the compiled classes reference no android.* type. The source-import test is dropped.
 
 Starting point: PR #465's head `7456984c` holds `ClipboardPolicy.kt` (59 lines) and `ClipboardPolicyTest.kt`
 (six tests, 86 lines), green on that head. Bring them over onto current master. RED must fail on assertions, not
