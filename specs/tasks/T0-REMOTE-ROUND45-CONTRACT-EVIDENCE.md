@@ -1,7 +1,8 @@
 ---
 id: T0-REMOTE-ROUND45-CONTRACT-EVIDENCE
 title: Publish the four existing Round 4 and Round 5 registered source contracts
-status: todo
+status: merged
+superseded_by: T0-STALE-PR-CLOSEOUT
 depends_on: [T0-REMOTE-ROUND3-CARDS]
 allow_paths:
   - specs/tasks/T0-REMOTE-ROUND45-CONTRACT-EVIDENCE.md
@@ -224,3 +225,7 @@ git diff --check -- @expectedPaths
 if ($LASTEXITCODE -ne 0) { throw '[SOURCE-WHITESPACE-WORKING]' }
 Write-Host '[ROUND45-SOURCE-PUBLICATION-OK] four historical commit:path contracts, six-path scope and whitespace'
 ```
+
+## Retired 2026-11-17
+
+PR #319 was closed unmerged by the owner's 2026-11-17 ruling, recorded in `T0-STALE-PR-CLOSEOUT`: the products whose registered contracts it publishes are merged, and R3 blocked it twice on proof of the evidence itself. The branch stays on origin. It has no row on docs/TASK-BOARD.md, so `post-merge.ps1 retire` could not take it; this card-text PR makes the same edit.
