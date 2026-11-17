@@ -1,7 +1,8 @@
 ---
 id: T0-ROUND45-DELIVERY-CLOSEOUT
 title: Close round 4 StorageAndroid and MeasurementBinding records through targeted archival
-status: todo
+status: merged
+superseded_by: T0-STALE-PR-CLOSEOUT
 branch: T0-ROUND45-DELIVERY-CLOSEOUT
 worktree: C:\wt\T0-ROUND45-DELIVERY-CLOSEOUT
 depends_on: [T0-ARCHIVE-TARGETED-CARDS, T1-APP-STORAGE-ANDROID, T3-PDF-MEASUREMENT-BINDING]
@@ -741,3 +742,7 @@ finally:
 print(json.dumps({'case': case, 'completed': True, 'fixtureRestored': True}))
 sys.exit(0 if case == 'positive' else 1)
 ```
+
+## Retired 2026-11-17
+
+PR #440 was closed unmerged by the owner's 2026-11-17 ruling, recorded in `T0-STALE-PR-CLOSEOUT`: the products it closes out are merged, and R3 blocked this record-only change on archive inventory evidence. The branch stays on origin.
