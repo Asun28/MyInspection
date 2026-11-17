@@ -47,3 +47,15 @@ attribute) and `SelectedMediaPolicy` with five tests (122 lines), green on that 
 master; do not copy the other two policies. #465's first formal review blocked on its RED receipt failing on
 missing symbols, so this card's RED must fail on assertions: commit a stub `SelectedMediaPolicy` that rejects
 everything (accept tests fail) or accepts everything (reject tests fail) before the real one.
+
+## Attempt evidence
+
+Attempt 5, 2026-11-17, code tree `832bcb03` (merged with master `ca813eb2`, which carries T1-PRIVACY-SENSITIVE-SURFACE). DoD: exit 0; 311 JVM tests, 0 failures, 1 skipped.
+
+| Item | Proof | Result |
+|---|---|---|
+| A1 | RED `187aae04`: DoD exit 1, `:app:verifyDebugBackupManifest` fails on the missing `android:usesCleartextTraffic=false`. R4 M1-M5, each against `:app:verifyDebugBackupManifest`, killed with the attribute or permission named in the failure: drop the attribute; set it to `true`; add `READ_MEDIA_IMAGES` as `uses-permission`; add `READ_EXTERNAL_STORAGE` with `maxSdkVersion="32"`; add `READ_MEDIA_IMAGES` as `uses-permission-sdk-23`. | pass |
+| A2 | `SelectedMediaPolicyTest`, 5 tests. On `187aae04` (reject-all stub) 4 fail on `AssertionError`; the fifth, every other origin rejected, is killed by M8. R4 M6-M11 against `:app:testDebugUnitTest --tests ...SelectedMediaPolicyTest`, each killed by an `AssertionError` with no compile error: drop either allowed origin; allow `SAF_OPEN_DOCUMENT_TREE`; `itemCount < 1`; `itemCount > 1`; drop the `chosenByUser` check. | pass |
+| A3 | `git diff 71ebe8b9 HEAD -- android/app/build.gradle.kts`: 19 insertions, 2 deletions. The 2 deleted lines are the old comment that listed three asserted attributes, rewritten to name four (R3 round 1); no existing code line is deleted. Test `no class in the policy package references an android type` reads every class of the package (from the unit-test classes directory or `classes.jar`) and fails on any `android/` reference, private members and method bodies included; adding a private function with an `android.content.ClipData` parameter to `SelectedMediaPolicy` fails that test alone on an `AssertionError` (added after review). | pass |
+
+The R4 runner first rewrote both mutated files unchanged (same SHA-256) and passed both tasks unmutated; every mutated file was restored and its SHA-256 rechecked.
