@@ -79,6 +79,8 @@ doc_sync: TASK-BOARD 记录合并 OID；`specs/tech-debt-tracker.md` 的 TD175 �
 只有 49 条绑定、**`state-icon` 这个 usage 值一条都没有**、40 个状态字形配对里只登记了 14 个
 ——因为上述两张卡尚未推到远端。
 
+2026-11-17 复测：两张卡已随 2026-09 reconcile 进入 `origin/master`；在 `1e7e1532` 上 `"usage":"state-icon"` 计数为 26、`evidence-segment` 为 6，与上表一致。
+
 **推论（也是 `depends_on` 的实义）**：本卡**不能**在缺少那两张卡的树上实施——那里根本还没有
 「40 对全登记」这个声明，也就无从谈「标签漏了其中 14 对」。实施前第一步是确认工作树里
 `State glyph contrast map` 一节存在且 `"usage":"state-icon"` 计数为 26；不符即停、先同步。
@@ -128,3 +130,4 @@ doc_sync: TASK-BOARD 记录合并 OID；`specs/tech-debt-tracker.md` 的 TD175 �
 | 日期 | 变更 |
 |---|---|
 | 2026-09-09 | 建卡：承接 `T4-DESIGN-NOT-APPLICABLE-COLOR` 的 `[FOLLOW-UP]`（TD175）。开卡时复测发现缺口比 TD175 记的那一处大：40 个状态字形配对里 14 个的标签被另一种同样承担的职责占了，反方向 rail 段色 8 对里只有 6 对标着 `evidence-segment`。测量口径（本地 master `d6b369ee`）与 `origin/master` 的落后状态已显式声明。 |
+| 2026-11-17 | 并入当前 master（board 冲突按 master 取，本卡一行插在 `T4-DESIGN-NOT-APPLICABLE-COLOR` 之后）；复测 26 / 6 仍成立。随 `T0-STALE-PR-CLOSEOUT` 一并处理旧 PR。 |
