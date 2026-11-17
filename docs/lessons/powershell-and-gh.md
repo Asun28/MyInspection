@@ -35,3 +35,6 @@
 ## venv / uv（Windows）
 - `uv run <console-script>`（uvicorn/pytest 的 .exe）在 Windows 可能报 "Failed to canonicalize script path" → 一律改 `uv run python -m <module>`。（L16）
 - .ps1 一律用 PowerShell 工具调用，勿经 Bash 工具（反斜杠被吞）。（L17）
+
+## 变异批 / 自检证据
+- 变异批把编译失败与测试失败分开记账：只认产出测试报告且有具名失败用例为击杀，拿不到测试名或命中 `compileDebug*Kotlin` 的标可疑、不计入；辅助函数名加前缀避开内置别名（`Del` 被 Remove-Item 抢走、`H` 被 Get-History 抢走），数组字面量里每个调用单独加括号 `@((f a b), (g c))`。（L267）

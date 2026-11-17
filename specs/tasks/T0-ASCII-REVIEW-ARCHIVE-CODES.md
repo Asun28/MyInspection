@@ -3,7 +3,8 @@ id: T0-ASCII-REVIEW-ARCHIVE-CODES
 title: 将 review、archive 与 init 的剩余机器判定迁到 ASCII 状态码
 depends_on: [T0-ASCII-CARD-SECRET-CODES]
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
-status: todo
+status: merged
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
 branch: T0-ASCII-REVIEW-ARCHIVE-CODES
 worktree: C:\wt\T0-ASCII-REVIEW-ARCHIVE-CODES
 allow_paths:
@@ -36,3 +37,7 @@ doc_sync: QUALITY-RUBRIC 完成状态码 roster，并记录本仓刻意保留的
 ## TD134 总验收
 
 本卡合并不自动宣告 TD134 paid。编排者还须确认 `T0-CI-MERGE-GATE`、`T0-HARNESS-SUBTRACTION-PROTOCOL`、`T0-LESSONS-COLD-RECALL` 与三张状态码卡全部 merged，运行完整 selftest、lessons check 与一次真实小卡 ship 回放后，才可关闭总债。
+
+## R5 closure by upstream adoption — 2026-09-11
+
+Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md), delivered in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc928c4dd36607cc19eace40ec3cc8c01dd1`). `status: merged` records closure through that merged replacement; it does not claim this original card's implementation, DoD, RED, mutation or performance plan was independently completed. The original worktree and evidence are preserved; its old execution queue is retired.

@@ -45,3 +45,24 @@ function ConvertTo-ScaffoldControlFormatSpaces {
 
   return $result.ToString()
 }
+
+function Test-ScaffoldUnicodeExamples {
+  [CmdletBinding()]
+  param()
+
+  $findings = @()
+  $supplementary = [System.Char]::ConvertFromUtf32(0x1F600)
+  $input = 'A' + [char]0 + 'B' + [char]0x200B + 'C' + $supplementary
+  $actual = ConvertTo-ScaffoldControlFormatSpaces $input
+  if ($actual -cne ('A B C' + $supplementary)) {
+    $findings += '[UNICODE-SCALAR-EXAMPLE] control/format scalars were not replaced while a supplementary non-target scalar was preserved.'
+  }
+
+  try {
+    [void](ConvertTo-ScaffoldControlFormatSpaces ([string][char]0xD800))
+    $findings += '[UNICODE-SCALAR-EXAMPLE] malformed UTF-16 was accepted.'
+  } catch {
+    if ($_.Exception.Message -notmatch 'UNICODE-SCALAR-MALFORMED') { $findings += "[UNICODE-SCALAR-EXAMPLE] malformed UTF-16 failed through the wrong guard: $($_.Exception.Message)" }
+  }
+  return $findings
+}

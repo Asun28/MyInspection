@@ -206,6 +206,7 @@ internal fun contentType(name: String): String? = when (partKind(name)) {
         name == "[content_types].xml" -> "application/xml"
         name == "docprops/core.xml" -> "application/vnd.openxmlformats-package.core-properties+xml"
         name == "docprops/app.xml" -> "application/vnd.openxmlformats-officedocument.extended-properties+xml"
+        name == "docprops/custom.xml" -> "application/vnd.openxmlformats-officedocument.custom-properties+xml"
         name.matches(Regex("word/(styles|settings|websettings|fonttable|numbering)\\.xml")) ->
             "application/vnd.openxmlformats-officedocument.wordprocessingml.${if (name == "word/fonttable.xml") "fontTable" else if (name == "word/websettings.xml") "webSettings" else name.substringAfter('/').substringBefore('.')}+xml"
         name.matches(Regex("word/theme/theme[0-9]+\\.xml")) -> "application/vnd.openxmlformats-officedocument.theme+xml"

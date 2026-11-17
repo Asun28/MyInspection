@@ -31,10 +31,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 + 原生非零按码判（TD54/TD-117）；缺失即 fail-open
+. (Join-Path $PSScriptRoot '_cards.ps1')
+. (Join-Path $PSScriptRoot '_context.ps1')
 
 # --- 交接契约（与 docs/HANDOFF.md 同源；改这里须同步那里）---
 $Required   = @('STATUS', 'TASK', 'CARD', 'BRANCH', 'WORKTREE', 'LAST-GREEN', 'NEXT-ACTION', 'VERIFY', 'DO-NOT', 'OPEN-QUESTIONS', 'INVARIANTS', 'UPDATED')
-$StatusEnum = @('in-progress', 'blocked', 'handoff-ready', 'done')
+$StatusEnum = @(Get-ScaffoldHandoffStatusEnum)
 # 行动关键字段：必须具体、可执行；不许模糊、不许占位；STATUS≠done 时不许 'none'
 $ActionFields = @('LAST-GREEN', 'NEXT-ACTION', 'VERIFY')
 # 模糊措辞黑名单（命中行动字段即判模糊交接）
@@ -43,24 +45,18 @@ $Vague = @('tbd', '???', 'continue where', 'where i left off', 'should work', 'f
 
 function Read-Block($file) {
   if (-not (Test-Path $file)) { return $null }
-  $text = Get-Content $file -Raw
-  # 只认**末尾**的 HANDOFF 块（契约见头注）：若 session 误 append 新块而非原地编辑旧块，
-  # progress.md 里会出现多个 HANDOFF:START/END 对；[regex]::Matches 取全部匹配、采最后一个——
-  # 防旧 [regex]::Match 懒惰首匹配把过期首块当权威指针（TD57/TD-120）。
-  $ms = [regex]::Matches($text, '(?s)<!--\s*HANDOFF:START\s*-->(.*?)<!--\s*HANDOFF:END\s*-->')
-  if ($ms.Count -gt 0) { return $ms[$ms.Count - 1].Groups[1].Value } else { return '' }
+  return (Get-ScaffoldHandoffBlock -Text (Get-Content $file -Raw))
 }
 
 function Get-Fields($block) {
   $h = [ordered]@{}
   foreach ($line in ($block -split "`r?`n")) {
-    $mm = [regex]::Match($line, '^\s*([A-Z][A-Z\-]+):\s*(.*)$')
-    if ($mm.Success) {
+    $mm = Get-ScaffoldHandoffFieldMatch -Line $line
+    if ($mm) {
       # TD63 item11：此前无条件剥离字段值内任何 ' #...' 后缀（当作行尾注释）——但字段值本就可能合法含
       # 空格+井号（如颜色码 " #FFFFFF"、shell 命令里的字面 # 文本），会被静默截断丢失半截内容。不再剥离，
       # 字段值原样保留（含用户自己写的任何 ' #' 文本）。
-      $val = $mm.Groups[2].Value.Trim()
-      $h[$mm.Groups[1].Value] = $val
+      $h[$mm.Key] = $mm.Value
     }
   }
   return $h
@@ -123,12 +119,18 @@ switch ($Verb) {
       if (-not $f.Contains($k)) { $errs += "缺字段 $k"; continue }
       $v = $f[$k]
       if ([string]::IsNullOrWhiteSpace($v)) { $errs += "$k 为空" ; continue }
-      # TD63 item11：此前逢 `<` 或 `>` 任一字符即拒（`[<>]`），连带禁掉裸 shell 重定向符（如 `*> out.log`）
-      # 写进行动字段——但那不是占位符，只是恰好含 `>`。只识别**成对**占位符 `<...>`（真占位符形态）。
-      if ($v -match '<[^>]*>') { $errs += "$k 残留占位（未填）：$v" ; continue }
+      # Handoff fields use the card validator's declared whole-value placeholder rule. Prose may quote
+      # a path template or a contract token; only an unfilled value itself is rejected.
+      if (Test-ScaffoldHandoffValuePlaceholder -Key $k -Value $v) { $errs += "$k 残留占位（未填）：$v" ; continue }
     }
     if ($f.Contains('STATUS') -and $f['STATUS'] -and ($f['STATUS'] -notin $StatusEnum)) {
       $errs += "STATUS='$($f['STATUS'])' 非法（应 $($StatusEnum -join '|')）"
+    }
+    # A raw TAB is left when an interpreter consumes a backslash: the field
+    # parses but the next session receives an unrunnable path.
+    $tabbedFields = @(Get-ScaffoldTabbedHandoffField -BlockText $block)
+    if ($tabbedFields.Count) {
+      $errs += "[HANDOFF-TAB] $($tabbedFields.Count) field value(s) carry a raw TAB, rendered as [TAB]: $($tabbedFields -join ' | '). Retype the value from the real path."
     }
     $isDone = $f.Contains('STATUS') -and $f['STATUS'] -eq 'done'
     foreach ($k in $ActionFields) {

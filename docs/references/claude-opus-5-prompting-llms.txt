@@ -2,11 +2,14 @@
 
 > 源：https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5
 > (c) Anthropic。本文件是**提炼非镜像**；所引提示语片段按**功能必要性最小引用**并标注出处——引用基准见本目录 `README.md`「来源与引用基准」。
-> 精炼子集（非原样拷贝）。模型出新版/行为变了就刷新本文件（过时的 reference 比没有更糟）。上次对照上游校核：2026-07-25。
+> 精炼子集（非原样拷贝）。模型出新版/行为变了就刷新本文件（过时的 reference 比没有更糟）。上次对照上游校核：2026-09-24
+> （本次对照补入两处此前未收录的内容：「子代理派工上限」节里 Claude Code / Agent SDK 的确定性上限一段，及「较易任务也表现好」一句；其余与现页一致）。
 > 跨模型通用技巧不在这——见 claude-prompting-best-practices-llms.txt。
 > 官方页共 8 段推荐提示语，本文件**逐条收录**（均为要照字面喂给模型才生效的短片段，按最小引用保留）：①简洁冗长度 ②长 system prompt 尾部提醒 ③进度更新节奏
 > ④写盘产物长度 ⑤任务范围收窄 ⑥子代理上限 ⑦纠正旁白降噪 ⑧关思考时的复合缓解。
-> 在本脚手架里：Opus 5（`claude-opus-5`）= 想 / 架构 / 评审（见 CLAUDE.md 模型分工节）。以下是把它调准的杠杆。
+> 在本脚手架里：Opus 席位（想 / 架构 / 评审，见 CLAUDE.md 模型分工节）已由 Opus 5.5（`claude-opus-5-5`）接任，本篇仍在服役——
+> 它是 **Opus 5.5 的基线层**：官方 Opus 5.5 页是相对本页的差异页，写明 Opus 5 的提示模式仍是合理起点。给 Opus 5.5 调提示时
+> 先读本篇，再用 `claude-opus-5-5-prompting-llms.txt` 覆盖（两篇说法不同处以它为准）。以下是把 Opus 5 调准的杠杆。
 >
 > **`claude-opus-4-8-prompting-llms.txt` 仍在，且不是废档——它是兜底席位。** Fable 5 与 Opus 5 **都**带安全
 > 分类器，官方默认回退路由**按拒答类目**把请求改道到当时推荐的兜底模型，官方示例里选中的就是 Opus 4.8
@@ -19,6 +22,7 @@
   迁移不必重写，只需按下方「五处反转」体检一遍。
 - **agentic 编码**：多文件特性、大型重构、端到端交付最强；**会做完整个任务而不是留 stub/占位**。
   最佳用法 = **一次把完整任务规格给全，然后放手让它跑**（别挤牙膏式多回合补充）。
+  单轮小改这类较易任务上也表现好，只是与旧模型的差距较小。
 - **代码评审 / 找 bug**：precision 与 recall 双高，单遍就能捞到真 bug，且多出来的发现多为真问题而非误报。
   **低 effort 下准确度仍在**——支持「评审时快跑一遍 + 事后再细跑一遍」的两段式。
 - **低 effort 效率**：`low`/`medium` 用零头的 token 与延迟换到强质量。**从默认 `high` 起步**，按自己的 eval 调；
@@ -124,6 +128,9 @@
   ```
   Delegate to a subagent only for large tasks that are genuinely independent and parallelizable, such as a wide multi-file investigation. Do not delegate work you can finish yourself in a handful of tool calls, and do not use subagents to verify or double-check your own work. If one subagent can complete the task, use one rather than several, and keep spawn counts low.
   ```
+- harness 是 Claude Code 或 Claude Agent SDK 时，确定性上限是环境变量 `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`、
+  `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` 与 SDK 的 `max_budget_usd` 选项，需 Claude Code 2.1.217 或更新（钉了旧版 SDK 的先升级）。
+  Claude Code 只在使用它的 `claude_code` system prompt 预设时才自带一条委派指令；自定义或省略 system prompt 时，自己加上面那段。
 
 ## 自我纠正与纠正旁白
 - 不用提示就能抓住并修正自己的错。**别写「double-check your answer」「回答前再核一遍」**——与它自身行为叠加，只加成本不加质量。

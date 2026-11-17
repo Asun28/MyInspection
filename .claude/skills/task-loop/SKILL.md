@@ -16,7 +16,13 @@ description: >-
 并守住四件容易忘的纪律：**先测、剪枝、文档同步、复盘（经验回流）**。一律用 `pwsh`（非 bash）。
 
 ## 前置
+- **MyInspection 项目配置**：`ReviewGate='required'`。下文的上游默认意见模式仅说明可配置行为；本项目任一 `block`、超时或不可用裁决都阻断合并，只有当前候选的 Codex `pass` 与 `required` CI 成功才可合并。评审次数遵循本地 `ReviewRoundCap` 与明确的用户授权。
 - 若用户给的是 TaskId（如 `T1-FOO`），先 `Read specs/tasks/<id>.md`，再读它引用的计划章节。
+- **动第一个文件前先读卡的邻域**：`depends_on` 卡（活卡或 `specs/archive/tasks/`）、`allow_paths` 下的现有文件及其测试，
+  再 `lessons.ps1 search` 卡片关键词。Opus 5.5 倾向于直接开干，卡写得松时尤其要先读后写（依据：
+  `docs/references/claude-opus-5-5-prompting-llms.txt`「多应用工作流：先探索再动手」）。读是为了改对，不是扩范围。
+- **开工、续接、拆卡或改卡前先查别的会话（L218）**：`pwsh -NoProfile -File scripts\live-work.ps1 -TaskId <id>`；有 `[LIVE-WORK-OVERLAP]` 就停下问用户哪个会话持有它。reset、clean 或删除 worktree 前跑 `scripts\live-work.ps1`，它报出另一会话的改动（`[LIVE-WORK]`）或读不到（`[LIVE-WORK-UNKNOWN]`）也停下问。`-Phase start` 自带这一查，`-TakeOver` 只在用户同意接手后用。
+- **开新卡前先跑 `pwsh -NoProfile -File scripts\post-merge.ps1 audit`**（不写 ref，只往对象库添加抓取到的对象）：本会话自己交付的卡报了漂移就当场补上（`[CARD-DRIFT-R5-MISSING]` 走 `post-merge.ps1 r5`，`[CARD-DRIFT-CLOSED]` 走 `post-merge.ps1 retire`），其余的报告给用户，不替别的会话改。退出 2 是读取失败，不等于没有漂移。
 - 遵守卡片 `allow_paths` / `forbid`；不发明字段。**所有编辑都在 `<WorktreeRoot>\<id>` 工作树内**，不动主检出。
   （WorktreeRoot 见 scripts/_config.ps1；留空则按 OS 自动取默认：Windows `<系统盘>\wt`（如 `C:\wt`）/ macOS·Linux `~/.wt`。）
 
@@ -29,20 +35,48 @@ description: >-
 > 会把分支并进它自己、假报成功而 base 从未前进。**传 `-Base` 也救不了**。下面每条相位命令都从主检出根目录执行。
 
 - **R1 start** — 在**主检出**跑 `pwsh -NoProfile -File scripts\task.ps1 -TaskId <id> -Phase start`（建 `<WorktreeRoot>\<id>`、引导 uv/.venv+npm、打印 TDD/DoD 提醒）。之后可 `cd` 进该 worktree **编辑文件**，但相位命令仍回主检出跑。
-- **验收契约（RED 前对齐）** — 把 `dod_command` 复述成**可测形式**、与卡片对齐；**写不出 RED（标准不可测/模糊/范围错）就停，先回去修卡**（改 `dod_command`、必要时回流计划），别私自重解读。标准一旦冻结，后面**别为过闸悄悄放低**（vacuous pass，L19/L20/L47）。若本卡是把已有横切纪律行为化（跨文档/脚本的既有约定升级为强制检查），先 grep 全部权威面、一次性纳入 `allow_paths` + DoD（L97），别等 R3 逐轮外溢。
-- **先测 · R2 RED** — 先写**失败**测试并跑 `dod_command` 确认非零退出，才写生产代码；`scripts\task.ps1 -TaskId <id> -Phase red` 把这一拍固化成证据 `.review/<id>.red`（`ship` 校验它 → RED-first 成可强制闸；非 TDD 卡 `-SkipRed` 显式跳过）。**测试落点镜像源码**：改既有代码先扩展该单元现有测试文件、别新建平行测试；新测试文件只给真正的新单元。
+- **ship 路由（默认 = PR · R1 start 前判一次，ship 前再判一次）** — 仓库配了 `origin` 就走远端 ship（push → PR → R3 → CI → squash 合并）；`-Local` 只用于没有 `origin` 的仓库，或用户对**这一张卡**明确要求本地合并。判定在主检出跑：`git fetch origin <base>` 后 `git rev-list --left-right --count <base>...origin/<base>`，输出为 `<ahead> <behind>`：
+  - `0 0`：直接 start / ship。
+  - `0 <n>`（只落后）：先 `git merge --ff-only origin/<base>` 再 start，卡分支才从 origin 的最新 base 长出来。
+  - ahead > 0（本地 base 有 origin 没有的提交）：**停下**，向用户报告 `[BASE-AHEAD-OF-ORIGIN] ahead=<n> behind=<m>`，请用户裁定怎样让本地 base 与 origin 对齐。只领先几个提交（卡登记、经验入账）时通常 `git push origin <base>` 即可，与 ship 的 `[SCOPE-UNPUSHED-BASE]` 提示同一出路；behind 也 > 0 时两边已分叉，push 会被拒，须先合并 origin 再推。原因：从这样的 base 长出的卡分支，对 `origin/<base>` 的 diff 带着全部未推送提交，远端 ship 的范围闸与预算闸一定拦下。
+  - **不得为绕开上面这一拦改走 `-Local`**：每次 `-Local` 合并都让本地 base 再多领先一步，下一张卡更推不上去，最后每张卡都只能本地合并，PR 流程整体失效（2026-09-24 实测：本地 master 领先 origin 379 个提交、落后 106 个）。评审后端暂不可用（如 codex 配额耗尽）同样不是改走 `-Local` 的理由：按 L21 等恢复后重跑远端 ship。
+- **验收契约（RED 前对齐）** — 把 `dod_command` 复述成**可测形式**、与卡片对齐；**写不出 RED（标准不可测/模糊/范围错）就停，先回去修卡**（改 `dod_command`、必要时回流计划），别私自重解读。标准一旦冻结，后面**别为过闸悄悄放低**（vacuous pass，L19/L20/L47）。若本卡是把已有横切纪律行为化（跨文档/脚本的既有约定升级为强制检查），先 grep 全部权威面、一次性纳入 `allow_paths` + DoD（L97），别等 R3 逐轮外溢；**这一扫必须记进卡的 `sweep:` 字段**（跑的那条 grep + 它找到的教学面）——照本条办事的卡多半会超过 5 条 `allow_paths`，超过即 `check-cards` 强制该字段（哨兵 `[CARD-SWEEP]`，T94），不填则开卡当场被拒。
+- **先测 · R2 RED** — 先写**失败**测试并跑 `dod_command` 确认非零退出，才写生产代码；`scripts\task.ps1 -TaskId <id> -Phase red` 固化这一拍（GREEN 下必抛、危险 dod 先被 check-cards 拦；T68 起为**可选辅助**——ship 不再校验 RED 证据，合并闸=确定性闸）。**测试落点镜像源码**：改既有代码先扩展该单元现有测试文件、别新建平行测试；新测试文件只给真正的新单元。
 - **R2 GREEN** — 写最小实现到通过；**不改冻结物**（`_config.ps1` FrozenPaths，PreToolUse 钩子会拒），守 CLAUDE.md 关键不变量；**写第三方库调用前按其 pinned 版本核验 API**（Context7 取该版本文档／读 `docs/references/*-llms.txt`；R3 #15 会查。工具无关 L26，Context7 是当前默认）。
 - **剪枝** — 设计层 `ponytail`（步骤 1.5 · 写测试前审**取向**：这卡/这层抽象/这依赖真要建吗、stdlib·平台原生能否覆盖）；代码层 `/simplify`（步骤 3.5 · GREEN 后清理本卡改动，只做质量清理不找 bug，改完必跑 `dod_command` 确认仍绿）；R4 按 `docs/DEVOPS-WORKFLOW.md §4` mutation-survivor 法删冗余测试、落实卡片 `hygiene`。脚手架本身是有意的重型 harness，别把刻意结构当 bloat 砍掉。
 - **安全闸（步骤 4.5 · commit 前 · 建议）** — `/security-review-local` 审工作区未提交改动，末行 `pass` 才继续、`block` 修复后重跑（worktree 卡对**实际 diff** 施同一 rubric，见 L20）；硬编码密钥的**确定性**拦截由 `check-secrets` 提供、已接入 ship。流水线：安全(本地·建议) → commit → check-secrets(强制) → codex PR，正交不重复。
-- **R3 前置自检（步骤 4.6 · 卡片首次 ship 前 · 建议层·非闸）** — 首次跑 `-Phase ship` 前，对 worktree 实际 diff 按 `docs/QUALITY-RUBRIC.md` 的评审维度做一次本地自检（工具无关 L26：如已装 `/code-review high` 之类的代码评审工具可直接用；无此类工具时改派一个 fresh-context 子代理对着同一份 rubric 逐条自查），本地吃掉 R3 会挑的问题——省一整轮 push+PR+codex 等待的往返（L97：R3 每轮只报当轮最刺眼一处，完备性问题会逐轮外溢而非一次点全；这一步把该检查挪到本地免费循环里）。**只对首轮建议**——卡已进入真实 R3 反馈循环（block 过一次）后，直接对着 R3 给的具体 reason 改，别在每次重 ship 前重复跑本地自检。
-- **ship 前证据审计（步骤 4.7 · 建议层·非闸）** — 长自主/多卡运行按间隔派一个**独立全新上下文** verifier 子代理，只喂【卡片 + 实际 diff + DoD 输出】（不喂工作对话），核对每处「声称完成」是否有本会话工具证据——兜底事实标准见 `docs/HANDOFF.md`；绝不替代 DoD/verify/R3。
-- **R3 ship** — `pwsh -NoProfile -File scripts\task.ps1 -TaskId <id> -Phase ship`（**RED 证据闸** → DoD 闸 → **verify 总闸** → 提交 → **范围闸**（allow_paths 越界拦截）→ 许可闸 → **check-secrets** → review.ps1 `-SizeOnly` 的**真实 diff 预算闸** → push → `gh pr create` → review.ps1 的 Codex 评审 → squash 合并）。Codex 裁决 `block` 修复后重 ship，**绝不绕过**；gh 未登录会停在闸门（提示 `gh auth login`）。**无远端/无 Codex 的本地 T0**：`-Phase ship -Local`（跑 DoD 后本地合并，不 push/PR/gh）。codex block 若命中的问题**是本卡这次 diff 本身引入/携带的真实缺陷**（即使维度与卡片原 `diagnosis` 不同），当场修好或把那段有缺陷的改动整段回退/剥离出本卡 diff——**不得留着已知缺陷合并**；只有问题确属既有系统、与本次 diff 无关（纯属评审顺带发现）才开一张新 `T<n>` 卡登记、本卡维持不动（L113——不同于 L101 讲的「首轮评审前须先有卡」，这里是评审**过程中**判断该修/该回退还是该拆）。
-- **文档同步 · R5** — 合并后落实卡片 `doc_sync`（`status: -> merged`、CLAUDE.md「当前阶段」、面向用户则 README）。**技术债扫描（不阻塞）**：对照 CLAUDE.md 关键不变量 + `docs/QUALITY-RUBRIC.md §2` 扫本卡改动，「能跑但偏离既定模式/契约」即**追加一行**到 `specs/tech-debt-tracker.md`（status=`open`）——登记非当场修、修走新卡。最后 `pwsh -NoProfile -File scripts\task.ps1 -TaskId <id> -Phase cleanup`。
+- **Pre-ship evidence audit (step 4.7 · advisory · not a gate)** — on long autonomous / multi-card runs, at intervals, dispatch one verifier subagent in a **fresh, isolated context**, fed only [the card + the actual diff + DoD output] and never the working conversation, to check that every "done" claim has tool evidence from this session. Fallback standard of truth: `docs/HANDOFF.md`. Never a substitute for DoD/verify/R3.
+  **Why this stays while generic verification scaffolding goes** (Opus 5 removes its own need for "verify your work" / "use a subagent to double-check" instructions — see `docs/references/claude-opus-5-prompting-llms.txt`): that rule targets **same-context** self-checks, which the model now does natively and better. This is not one. The **isolation is the mechanism** — a verifier that never saw the working conversation cannot inherit the assumption that produced the defect. Measured returns in this repo: `archive.ps1` (3 real defects), `selftest.ps1` F2, `task.ps1` F1, T74's `$RepoRoot` clobber, TD97's relocation audit. **Do not generalize it into a same-context re-check, and do not run it per card on short work.**
+- **内环节奏** — rounds = scoped `-Only`（GATE-MAP 行，永远只是诊断）; ship 的**验收按卡 tier**（ADR 0016；`check-cards` 每次都打印 `[CARD-TIER] id=<id> tier=<S|1|0>`，`-Phase start` 与 `-Phase ship` 都看得到）：**S** = one async full proof per frozen candidate（`selftest.ps1 -Parallel`，一如既往）; **1** = `pwsh -NoProfile -File scripts\selftest.ps1 -TaskId <id>`（按 GATE-MAP 路由 + 底座闸，结论 `[SELFTEST-TIER-PASS]`；有改动路径没被任何行覆盖就自动升级为全量）; **0**（纯文档/卡/账本）= `ci.yml`，`-TaskId` 建议不强制。multi-session lanes: see `docs/DEVOPS-WORKFLOW.md` §3.2 inner-loop acceptance.
+- **ship（T68：合并闸=确定性闸）** — `pwsh -NoProfile -File scripts\task.ps1 -TaskId <id> -Phase ship`（DoD 闸 → **verify 总闸** → 提交 → **范围闸**（allow_paths 越界拦截）→ **预算闸**（T233/TD235：diff 超出 **base 卡**声明的 `budget:` 即 `[CARD-BUDGET-OVER]` 阻断——出路是拆卡，或把预算抬到 base 分支上、作为独立提交、理由写进那个提交；分支内抬高无效；没声明 `budget:` 的卡照旧通过）→ 许可闸 → **check-secrets** → push → `gh pr create` → CI 检查闸（TD134：auto 与 `-NoAutoMerge` **两条路径都过**；`-NoAutoMerge` 只在当前调用通过精确 CI 后暂停，晚些时候交付必须执行其 `[SHIP-MANUAL-RESUME]` 命令，fresh 重跑同一 ship 的 R3、workflow/run-attempt/PR/jobs 身份、终局 base/head/OID 快照与受保护合并腿，不裸跑 review/checks/merge。期望检查 = `ci.yml` **自陈的单枚 fan-in context `required`**（T86，见 `docs/DEVOPS-WORKFLOW.md` §3.0；`ci.yml` 缺失或无 `required` job 即 fail-closed。ADR 0007：元层 scaffold-selftest 不在 PR 上跑，**故 ship 前本地全量 selftest 是强制的、CI 不替你跑**））→ squash 合并）。**R3 默认意见模式**（`ReviewGate` 留空）：ship **不因评审阻断**；但卡自己声明了 `review_gate:` 就在合并前跑一遍、只报告与入账（T242/TD248——本仓每张卡都声明它，故实际每次 ship 都会跑），没声明才跳过；要第二意见随时 `review.ps1`。**T301**：`ReviewIntensityByTier` 按卡**算出的** tier 选档（adversarial / advisory / skip，只降不升，哨兵 `[R3-INTENSITY]`）——tier-0 的 skip 写的是 `routed_skip` 裁决，不是「评审过了」。**One exception since T277 (ADR 0016 item 4)**: the verdict carries two axes, and on a **Tier-S** card an axis-`spec` block (the reviewer saying the diff does not do what the card closed) stops the ship with `[R3-SPEC-BLOCK]` before the merge — fix the diff, or fix the card on the base branch, then rerun the same ship. A `standards` finding never blocks at any tier, and neither does a reviewer timeout or an unreadable verdict: those carry no axes at all.`ReviewGate='required'` 恢复旧强制闸——该态下 Codex 裁决 `block` 修复后重 ship，**绝不绕过**；gh 未登录会停在闸门（提示 `gh auth login`）。**无远端的本地 T0**：`-Phase ship -Local`（DoD + 本仓 `ReviewGate='required'` 的 R3；缺少可用后端或评审未通过均 fail-closed，通过后本地合并，不 push/PR/gh）。有 `origin` 的仓库何时可用 `-Local`，以上方「ship 路由」为准。评审意见/裁决命中的问题**是本卡这次 diff 本身引入/携带的真实缺陷**（即使维度与卡片原 `diagnosis` 不同），当场修好或把那段有缺陷的改动整段回退/剥离出本卡 diff——**不得留着已知缺陷合并**；只有问题确属既有系统、与本次 diff 无关（纯属评审顺带发现）才开一张新 `T<n>` 卡登记、本卡维持不动（L113——不同于 L101 讲的「首轮评审前须先有卡」，这里是评审**过程中**判断该修/该回退还是该拆）。
+- **文档同步 · R5** — 合并后落实卡片 `doc_sync`（`status: -> merged`、CLAUDE.md「当前阶段」、面向用户则 README）。**技术债扫描（不阻塞）**：对照 CLAUDE.md 关键不变量 + `docs/QUALITY-RUBRIC.md §2` 扫本卡改动，「能跑但偏离既定模式/契约」即**追加一行**到 `specs/tech-debt-tracker.md`（status=`open`）——登记非当场修、修走新卡。**Where an advisory R3 finding goes (T277 / ADR 0016 item 4)**: a post-merge finding becomes a tech-debt row only once it is `re-measured` on the merged tree and still holds there as a code defect — one that no longer reproduces is closed in this card's R5 note, never carried as a row nobody can reproduce. A finding about **card prose** is fixed in that card's own R5 commit, in the same commit that flips its `status`, and never becomes a card. 最后 `pwsh -NoProfile -File scripts\task.ps1 -TaskId <id> -Phase cleanup`。
+  - R5 的机械部分走 `pwsh -NoProfile -File scripts\post-merge.ps1 r5 -TaskId <id> -BoardStatusFile <f> -StageEntryFile <f> -CardNoteFile <f>`：三段 prose 由你写成文件；它在 origin 新切的 worktree 里落位，白名单外即 `[POST-MERGE-SCOPE]`，CI 通过即合并并清掉自己的分支。卡分支合并后跑 `post-merge.ps1 prune -Branch <id>`（只删 PR 已合并且 tip 未动的分支）。README 等白名单外的面仍按原流程。
+  - 真跑前先给同一条命令加 `-DryRun` 预览：落位、白名单判定、check-cards 与 check-secrets 都和真跑相同，打印 diff，不推送、不开 PR，结束时删掉自己的 worktree 与本地分支。
 - **复盘 · R5.5（经验回流 · 闭环最后一拍）** — cleanup 后做一次极简复盘：本卡有没有踩到会复发的坑（工具链坑 / 判断坑 / 「下次该先知道」的东西）？有则 `pwsh -NoProfile -File scripts\lessons.ps1 add -Tags '..' -Severity blocking|major|minor -Symptom '..' -RootCause '..' -Rule '..'` 入账，`blocking` 的当场 `promote`；没有就**显式跳过、别硬凑**。这一拍与开场的「相关经验（Gotchas）检索」对称——**一头取、一头存**，闭合自净化经验回路。门槛/真相源见 `docs/LESSONS.md`「接入 task-loop」，别在此复述晋升规则（免双源漂移）。
 
+## 回合何时结束（长回合别中途停）
+Opus 5.5 在长的多段任务里会边做边汇报，其中一些汇报以纯文字结束回合：没有工具调用的消息一发出，工作就停在那里等人。
+本闭环正是多相位的长任务，按下面判断何时结束回合（依据：`docs/references/claude-opus-5-5-prompting-llms.txt`「无人值守 agentic 运行」）。
+- **完成条件**：一张卡只在这些都成立时才算做完：`ship` 退出 0 且合并落地、R5 文档同步已提交、`cleanup` 退出 0、R5.5 复盘已入账或显式跳过。
+  开工时把 R1–R5.5 列进 todo 工具（跨会话用 planning-with-files 三件套），每过一个相位更新一次。
+  PR 未合并就关闭的卡（拆分、被取代、用户退役）用 `post-merge.ps1 retire -TaskId <id> -SupersededBy <id> -BoardStatusFile <f> -CardNoteFile <f>` 收尾（status 置 merged 并加 superseded_by），不留在 todo；retire 必须指定接替它的卡，没有接替卡的交给用户裁定。
+- **不该停的五种**：① 写一段总结、宣布下一相位却不执行；② 「如无异议我就继续」式的征询；③ 列一串待用户决定的事，而按自己的判断没有一项挡住后续工作；
+  ④ 因回合已长、或刚过一个里程碑（DoD 绿、PR 开出）就停下汇报；⑤ 走 PR 的 `ship` 退出 0、合并落地就收尾：合并是 R5 的起点，同一回合接着跑 `post-merge.ps1 r5`、`cleanup` 与 R5.5。状态说明与建议照写，但和下一次工具调用放在同一条消息里，先做不依赖用户答复的部分。
+- **该停的**：下一步离不开用户时——CLAUDE.md「执行边界」要求先停下确认的动作；上方「ship 路由」的 `[BASE-AHEAD-OF-ORIGIN]`；
+  `[R3-ROUND-CAP]` 或同一争点两轮互不认可（转人裁）；
+  卡片的 `allow_paths` 或验收要改、需要用户裁定；外部失败（如评审配额）确诊后需要授权的回退；受保护的闸或钩子拒绝（如 `L86-WT`、
+  `guard-frozen`）时停下说明，不绕。
+- **后台没跑完不算完**：自己起的后台命令（ship、selftest、变异批）或子代理还在跑，该相位就没完成：等完成通知、读它的输出再往下走，
+  别先报完成（被硬杀后的续接另见 L196）。
+- **Opus 5.5 做代码评审的 effort**：官方测试中它的 `medium` 在编码与知识工作 eval 上已追平或超过 Opus 5 的 `high`，早期测试者另报告
+  它评审抓到的 bug 更多、误报更少；且同档比 Opus 5 想得多。
+  派 Opus 5.5 做评审或复核（4.7 的证据审计、Codex 不可用时经用户授权的 Opus R3 代席）从 `medium` 起；Tier-S 或安全面改动可用
+  `high`；`xhigh`/`max` 只在测到收益后用。档位由 agent 定义（`.claude/agents/*.md` frontmatter）或工作流 `agent()` 的 `effort`
+  选项决定；子代理提示里别写「仔细想」「再核一遍」，思考量由 effort 控。
+
 ## 并行窗口（多卡并行 · 适配全程 AI）
-`plan-forge` 会标出 `parallel_window`（依赖已就绪、`allow_paths` 互不重叠的一批卡）。全程 AI 时**并行推进**——这正是「每卡一棵 worktree」的价值兑现处：
-- **每卡一个 agent、各占一棵 worktree**：窗口内每张卡派一个子 agent（Agent 工具，必要时 `isolation: worktree`），各自跑完整 R1–R5。`task.ps1 -Phase start` 本就为每卡建独立 `<WorktreeRoot>\<id>`，天然隔离、互不撞文件（前提 `allow_paths` 不重叠，plan-forge 已校验）。
+`decompose-cards` 会标出 `parallel_window`（依赖已就绪、`allow_paths` 互不重叠的一批卡）——它是投影任务卡的唯一所有者，`plan-forge` 只审计计划、停在裁决（TD180）。全程 AI 时**并行推进**——这正是「每卡一棵 worktree」的价值兑现处：
+- **每卡一个 agent、各占一棵 worktree**：窗口内每张卡派一个子 agent（Agent 工具，必要时 `isolation: worktree`），各自跑完整 R1–R5。`task.ps1 -Phase start` 本就为每卡建独立 `<WorktreeRoot>\<id>`，天然隔离、互不撞文件（前提 `allow_paths` 不重叠，decompose-cards 的 5 角度卡审已校验）。
 - **顺序铁律**：冻结点卡（契约/schema）必须**先单独跑完并合并**，其依赖卡才进并行窗口；`depends_on` 未满足的卡不入窗口。
 - **合并不冲突**：各 worktree 独立 ship/合并；因 `allow_paths` 不重叠，合并面不撞。任一卡 Codex `block` 只挡它自己，不连累同窗其他卡。
 - 并行只是把单卡闭环**复制 N 份**，**不降低任何一道闸**（TDD/ponytail/安全/Codex/CI 照跑）。
@@ -55,6 +89,6 @@ description: >-
 
 ## 相关经验（Gotchas · 真相源 = `docs/lessons/LEDGER.md`，此处只指针）
 本闭环踩过的坑已沉淀为经验；动手前用 `pwsh -File scripts\lessons.ps1 search <关键词>` 调取，尤其这几条最常复发：
-- **ship / 合并**：L13（worktree 内 `gh pr merge` **不加** `--delete-branch`）· L15（PR 开好后**单次** `review.ps1 -PostStatus`，别跑两遍 codex）· L21（codex 配额耗尽 ≠ 裁决 block，待重置后**重跑** ship，勿手动合并）· L23（评审分支名**避免斜杠**，用 `T-id` / 连字符）。
+- **ship / 合并**：L13（worktree 内 `gh pr merge` **不加** `--delete-branch`）· L15（同一次连续 ship 内只跑一次 `review.ps1 -PostStatus`；`-NoAutoMerge` 暂停后按 `[SHIP-MANUAL-RESUME]` 发起的是 fresh 受保护 ship，须重新评审）· L21（codex 配额耗尽 ≠ 裁决 block，待重置后**重跑** ship，勿手动合并）· L23（评审分支名**避免斜杠**，用 `T-id` / 连字符）。
 - **评审边界**：L18（`review.ps1` 卡感知 `allow_paths`；卡自身 meta 改动走 main、勿入功能分支 PR）· L20（worktree 安全闸的 `git diff` 在主检出求值 → 对 worktree 实际 diff 施 rubric）。
 - **工具链**：L1（只读诊断与写操作**分批**）· L4（`codex exec` 前置 EOF stdin）。

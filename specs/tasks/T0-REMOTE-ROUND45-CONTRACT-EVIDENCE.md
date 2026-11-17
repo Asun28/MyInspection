@@ -1,0 +1,226 @@
+---
+id: T0-REMOTE-ROUND45-CONTRACT-EVIDENCE
+title: Publish the four existing Round 4 and Round 5 registered source contracts
+status: todo
+depends_on: [T0-REMOTE-ROUND3-CARDS]
+allow_paths:
+  - specs/tasks/T0-REMOTE-ROUND45-CONTRACT-EVIDENCE.md
+  - docs/evidence/round45-contracts/manifest.json
+  - docs/evidence/round45-contracts/T1-APP-STORAGE-ANDROID.registered.txt
+  - docs/evidence/round45-contracts/T3-PDF-MEASUREMENT-BINDING.registered.txt
+  - docs/evidence/round45-contracts/T3-PDF-DEVICE-FIXTURE.registered.txt
+  - docs/evidence/round45-contracts/T3-PDF-TEXT-METRICS-OPS.registered.txt
+sweep: Publish only four complete original local task contracts and their exact provenance. Their registration, current acceptance, dependencies, review histories and execution remain assigned to the existing Round 4 and Round 5 pair registrations and product cards.
+acceptance:
+  - "A1 Preserve all four previously registered local contracts byte-for-byte, and resolve each original Git commit:path from the fixed original-D repository to the stated blob; also check raw SHA-256 and length. Reject missing, extra, linked or changed source files."
+  - "A2 Keep this metadata publication to its six exact paths: this manager, the source manifest and four complete historical contracts. Do not register or mark a product complete, change Board/ADR/parent status, or claim current successor bytes equal to originals where an approved rescope occurred. The former seven-path receipt attempt remains preserved as BLOCK history; a final merged-SOURCE readable proof is required in the existing Round 4 registration before any Round 4 or Round 5 product work starts."
+  - "A3 Reject the candidate unless a separate root decision and approved-card copy match the latest original-D master path commit, its sole changed path, committed blob, whole raw card bytes and exact six-path scope. Run genuine full metadata DoD on the final six-path tree and preserve its native command, UTC, exit and complete raw hashes outside the candidate. The existing Round 4 registration must verify the immutable merged SOURCE head, tree, six blobs and final DoD proof in a tracked readable section before any product starts. Official diff budget, formal R3, exact-head CI and ordinary remote merge remain required for SOURCE and Round 4 separately."
+forbid:
+  - Product implementation, production configuration, task status changes or rewritten original text
+  - Treating a co-edited payload and manifest hash as proof without the independently fixed historical Git blob
+non_goals:
+  - Registering the Round 4/5 product pairs or running their runtime tests
+dod_command: $raw = Get-Content specs/tasks/T0-REMOTE-ROUND45-CONTRACT-EVIDENCE.md -Raw; $b = [regex]::Matches($raw, '(?s)```powershell\r?\n(.*?)\r?\n```'); if ($b.Count -ne 1) { throw 'one assertion block required' }; & ([scriptblock]::Create($b[0].Groups[1].Value)); pwsh -NoProfile -File scripts/check-cards.ps1; if ($LASTEXITCODE -ne 0) { exit 1 }; pwsh -NoProfile -File scripts/archive.ps1 -CheckCardsIndex -Quiet; if ($LASTEXITCODE -ne 0) { exit 1 }
+dod_exit: 0
+dod_assert: Independent original-D whole-card authority and four historical commit:path Git identities match the copied raw source blobs, SHA-256 and manifest metadata; exact source directory contents and complete six-path Git scope pass staged, committed and working whitespace checks. Product DoD is not claimed.
+review_gate: codex {verdict:pass}
+hygiene: Synthetic authority controls must reject co-edited candidate and pins plus wrong record repository/ref/path/commit/blob/whole SHA/scope; source and scope corruption controls must fail named guards. Every subsequent whole-card revision requires a newly bound independent root approval and fresh full DoD. The former tracked receipt and four BLOCK verdicts remain historical. Final immutable SOURCE proof is published by the existing Round 4 registration after SOURCE merges; SOURCE must still pass its own final-tree full DoD, formal R3, exact-head CI and ordinary merge.
+doc_sync: Record the actual evidence publication merge and immutable source pins for later Round 4 and Round 5 registration comparisons; neither pair is registered here.
+---
+
+# Four registered source contracts
+
+The earlier six-path candidate was committed as `cc7faa1c7a605f9447950ebe51b8f5b775d0b11e` with parent `15f3931b77924f5d1ae3e55cb0c866bc36e85946`. Its full metadata DoD exited 0 at 07:58 UTC, but the subsequent formal R3 blocked it: the reviewer's two-dot comparison (`47b78af825c699608821eb75bfa77104ac4bb86b..cc7faa1c7a605f9447950ebe51b8f5b775d0b11e`) listed 22 paths, while the actual PR three-dot comparison (`47b78af825c699608821eb75bfa77104ac4bb86b...cc7faa1c7a605f9447950ebe51b8f5b775d0b11e`) contained only the same six approved paths. That earlier revision targeted 47b78af. This projection targets actual remote base c0afac77175786b55c61c6ebb0292a64a33431a8 after PR320 merged; its upstream Board, CLAUDE and metadata changes remain upstream. Root must make a non-rewriting merge of that remote base into the canonical branch, preserving the prior commit and its evidence, before the revised candidate can receive fresh DoD, budget, and formal review. It copies the four existing **local registered** contracts under `docs/evidence/round45-contracts/`. Each raw file is compared to the independently approved SHA-256 and Git blob identity, and the manifest repeats the original commit:path provenance for readers. The four source commits are not ancestors of this remote base, so source commit:path is verified against the original local Git history before approval; a remote delivery clone can still check the raw byte SHA and computed Git blob. No local product history or current remote successor is silently substituted. The Round 4 and Round 5 registrations must later compare each original with its own current card, preserve unchanged fields and ordered history, and state Binding's approved nineteen-case transfer explicitly. This publication adds no product card or product runtime and does not change Board or ADR status.
+
+Independent original-D approval and a sole-path committed master blob must match the whole card; local pins alone cannot authorize it. First approval `42597418e9bba4099a7eb95214e75bfb86e90d12` was superseded for candidate `1db41104516c767be69ce9ae7ac023093cac5598` by sole-card commit `643fe9763526e7f5b83a36b813af8fbe6287b61f`. That candidate passed post-commit full DoD at 09:56:34–09:56:41 UTC on 2026-09-18. Both are historical, not approval of later bytes. Four formal BLOCK verdicts are preserved as separate historical attempts. The first raised review-base/scope and approval visibility, the later verdicts raised final-tree DoD proof, and the fourth identified an unverified rootAuthorization plus a receipt still bound to a898 rather than 966. Those raw attempts, grants and verdicts remain preserved; none is a PASS for this six-path revision. Root approved a material timing rescope in decision SHA 2BD1ED7A71C06BEB7E14B92426808B20C6DB04F22C4C0DE6995DADF091E35AB5: SOURCE now publishes six paths with genuine final-tree full DoD, formal R3, exact-head CI and ordinary merge; the existing Round 4 registration verifies and publishes readable proof of the immutable merged SOURCE head/tree, six blobs and final DoD before any Round 4 or Round 5 product starts. Each new revision needs a fresh external root decision, sole-path original-D commit, approved-card copy and six-path scope. No earlier grant or final-seven-path DoD authorizes this new candidate.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$base = 'c0afac77175786b55c61c6ebb0292a64a33431a8'
+$dir = 'docs/evidence/round45-contracts'
+$manager = 'specs/tasks/T0-REMOTE-ROUND45-CONTRACT-EVIDENCE.md'
+$manifestPath = "$dir/manifest.json"
+# BEGIN independent own-card approval guard
+function Need($ok,[string]$message) { if (-not $ok) { throw $message } }
+function Eq($actual,$expected,[string]$message) { Need ([string]::Equals([string]$actual,[string]$expected,[StringComparison]::Ordinal)) $message }
+function SetEq($actual,$expected,[string]$message) {
+    $set=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($item in $actual) { Need ($set.Add([string]$item)) $message }
+    Need ($set.SetEquals([string[]]$expected)) $message
+}
+function AssertBinding($a,$r,$o,$scope) {
+    Need ($null -ne $r) '[OWN-AUTHORITY-ROOT-MISSING]'
+    Eq $a.repository $o.repository '[OWN-AUTHORITY-REPOSITORY]'
+    Eq $a.ref $o.ref '[OWN-AUTHORITY-REF]'
+    Eq $a.path $o.path '[OWN-AUTHORITY-PATH]'
+    Eq $a.commit $o.commit '[OWN-AUTHORITY-COMMIT]'
+    Eq $a.blob $o.blob '[OWN-AUTHORITY-BLOB]'
+    Eq $a.sha256 $o.sha256 '[OWN-AUTHORITY-WHOLE-SHA]'
+    SetEq @($a.allow_paths) $scope '[OWN-AUTHORITY-SCOPE]'
+    Eq $r.status 'ROOT_APPROVED_ROUND45_SOURCE_WHOLE_CARD' '[OWN-AUTHORITY-ROOT-STATUS]'
+    Eq $r.authorizedBy '01a0aa38-dacf-7183-9fc4-42db089c204a' '[OWN-AUTHORITY-ROOT-ISSUER]'
+    Eq $r.base $o.base '[OWN-AUTHORITY-ROOT-BASE]'
+    Eq $r.repository $o.repository '[OWN-AUTHORITY-ROOT-REPOSITORY]'
+    Eq $r.ref $o.ref '[OWN-AUTHORITY-ROOT-REF]'
+    Eq $r.path $o.path '[OWN-AUTHORITY-ROOT-PATH-ITEM]'
+    Eq $r.commit $o.commit '[OWN-AUTHORITY-ROOT-COMMIT]'
+    Eq $r.blob $o.blob '[OWN-AUTHORITY-ROOT-BLOB]'
+    Eq $r.sha256 $o.sha256 '[OWN-AUTHORITY-ROOT-WHOLE-SHA]'
+    SetEq @($r.allow_paths) $scope '[OWN-AUTHORITY-ROOT-SCOPE]'
+}
+function CopyMap($map) { $copy=@{}; foreach($key in $map.Keys) { $copy[$key]=$map[$key] }; return $copy }
+function MustReject([scriptblock]$run,[string]$marker) {
+    try { & $run; throw '[SELFTEST-SURVIVED]' }
+    catch { if (-not $_.Exception.Message.Contains($marker)) { throw "[SELFTEST-WRONG-FAILURE] $marker $_" } }
+    Write-Host "[ROUND45-NEGATIVE-KILLED] $marker"
+}
+function AssertSourceRaw([byte[]]$bytes,$length,$hash,$blob) {
+    Need ($bytes.Length -eq $length -and [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)) -ceq $hash) '[SOURCE-RAW-SHA]'
+    [byte[]]$header=[Text.Encoding]::ASCII.GetBytes("blob $($bytes.Length)") + [byte]0
+    $actual=[Convert]::ToHexString([Security.Cryptography.SHA1]::HashData([byte[]]($header+$bytes)))
+    Eq $actual $blob.ToUpperInvariant() '[SOURCE-RAW-BLOB]'
+}
+$authority='D:/Projects/MyInspection'
+$approvalRoot='D:/Projects/MyInspection/_local/rotating-card-orchestrator/round45-source-own-card-approval'
+$approvalScope=@($manager,$manifestPath,
+    "$dir/T1-APP-STORAGE-ANDROID.registered.txt",
+    "$dir/T3-PDF-MEASUREMENT-BINDING.registered.txt",
+    "$dir/T3-PDF-DEVICE-FIXTURE.registered.txt",
+    "$dir/T3-PDF-TEXT-METRICS-OPS.registered.txt")
+foreach($file in @("$approvalRoot/approval.json","$approvalRoot/approved-card.md")) {
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw '[OWN-AUTHORITY-MISSING]' }
+    if ((Get-Item -LiteralPath $file -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw '[OWN-AUTHORITY-LINK]' }
+}
+$approval=Get-Content -LiteralPath "$approvalRoot/approval.json" -Raw | ConvertFrom-Json -AsHashtable
+Eq $approval.schemaVersion 1 '[OWN-AUTHORITY-SCHEMA]'
+Eq $approval.task 'T0-REMOTE-ROUND45-CONTRACT-EVIDENCE' '[OWN-AUTHORITY-TASK]'
+Eq $approval.base $base '[OWN-AUTHORITY-BASE]'
+$rootDecisionPath='D:/Projects/MyInspection/_local/rotating-card-orchestrator/round45-source-six-path-root-decision.json'
+Eq $approval.rootAuthorization $rootDecisionPath '[OWN-AUTHORITY-ROOT-PATH]'
+Need (Test-Path -LiteralPath $rootDecisionPath -PathType Leaf) '[OWN-AUTHORITY-ROOT-MISSING]'
+Need (-not ((Get-Item -LiteralPath $rootDecisionPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) '[OWN-AUTHORITY-ROOT-LINK]'
+$rootDecision=Get-Content -LiteralPath $rootDecisionPath -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+Need ($rootDecision.schemaVersion -is [long] -and $rootDecision.schemaVersion -eq 1) '[OWN-AUTHORITY-ROOT-SCHEMA]'
+Eq $rootDecision.task $approval.task '[OWN-AUTHORITY-ROOT-TASK]'
+Need ($rootDecision.approvedUtc -is [string] -and -not [string]::IsNullOrWhiteSpace($rootDecision.approvedUtc)) '[OWN-AUTHORITY-ROOT-TIME]'
+function ApprovalGit([string[]]$arguments) {
+    $value=@(& git.exe -C $authority @arguments)
+    Need ($LASTEXITCODE -eq 0) '[OWN-AUTHORITY-GIT]'
+    return ($value -join "`n")
+}
+$approvalCommit=ApprovalGit @('log','-1','--format=%H','refs/heads/master','--',$manager)
+Need ($approvalCommit -cmatch '^[0-9a-f]{40}$') '[OWN-AUTHORITY-COMMIT]'
+& git.exe -C $authority merge-base --is-ancestor $approvalCommit refs/heads/master
+Need ($LASTEXITCODE -eq 0) '[OWN-AUTHORITY-ANCESTOR]'
+Need ((ApprovalGit @('rev-list','--parents','-n','1',$approvalCommit)).Split(' ').Count -eq 2) '[OWN-AUTHORITY-PARENT]'
+SetEq @((ApprovalGit @('diff-tree','--no-commit-id','--name-only','-r',$approvalCommit)).Split("`n")) @($manager) '[OWN-AUTHORITY-SOLE-PATH]'
+$approvalBlob=ApprovalGit @('rev-parse',('{0}:{1}' -f $approvalCommit,$manager))
+Need ($approvalBlob -cmatch '^[0-9a-f]{40}$') '[OWN-AUTHORITY-BLOB]'
+$start=[Diagnostics.ProcessStartInfo]::new()
+$start.FileName='git.exe'; $start.UseShellExecute=$false; $start.CreateNoWindow=$true
+$start.RedirectStandardOutput=$true; $start.RedirectStandardError=$true
+foreach($arg in @('-C',$authority,'cat-file','blob',$approvalBlob)) { [void]$start.ArgumentList.Add($arg) }
+$process=[Diagnostics.Process]::new(); $process.StartInfo=$start; $buffer=[IO.MemoryStream]::new()
+try {
+    Need ($process.Start()) '[OWN-AUTHORITY-BLOB-READ]'
+    $stderr=$process.StandardError.ReadToEndAsync()
+    $process.StandardOutput.BaseStream.CopyTo($buffer)
+    $process.WaitForExit()
+    Need ($process.ExitCode -eq 0) '[OWN-AUTHORITY-BLOB-READ]'
+    Eq $stderr.GetAwaiter().GetResult() '' '[OWN-AUTHORITY-BLOB-STDERR]'
+    $approvedBytes=$buffer.ToArray()
+} finally { $buffer.Dispose(); $process.Dispose() }
+$approvedSha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($approvedBytes))
+$observed=@{repository=$authority;ref='refs/heads/master';path=$manager;commit=$approvalCommit;blob=$approvalBlob;sha256=$approvedSha;base=$base}
+AssertBinding $approval $rootDecision $observed $approvalScope
+$cases=@(
+    @('repo','approval','repository','wrong','[OWN-AUTHORITY-REPOSITORY]'),
+    @('ref','approval','ref','wrong','[OWN-AUTHORITY-REF]'),
+    @('path','approval','path','wrong','[OWN-AUTHORITY-PATH]'),
+    @('commit','approval','commit',('0'*40),'[OWN-AUTHORITY-COMMIT]'),
+    @('blob','approval','blob',('0'*40),'[OWN-AUTHORITY-BLOB]'),
+    @('whole','approval','sha256',('0'*64),'[OWN-AUTHORITY-WHOLE-SHA]'),
+    @('scope','approval','allow_paths',@($approvalScope | Select-Object -Skip 1),'[OWN-AUTHORITY-SCOPE]'),
+    @('status','root','status','DENIED','[OWN-AUTHORITY-ROOT-STATUS]'),
+    @('issuer','root','authorizedBy','wrong','[OWN-AUTHORITY-ROOT-ISSUER]'),
+    @('base','root','base',('0'*40),'[OWN-AUTHORITY-ROOT-BASE]')
+)
+foreach($case in $cases) {
+    $a=CopyMap $approval; $r=CopyMap $rootDecision; $o=CopyMap $observed
+    if ($case[1] -eq 'approval') { $a[$case[2]]=$case[3] } else { $r[$case[2]]=$case[3] }
+    MustReject { AssertBinding $a $r $o $approvalScope } $case[4]
+    AssertBinding $approval $rootDecision $observed $approvalScope
+}
+MustReject { AssertBinding $approval $null $observed $approvalScope } '[OWN-AUTHORITY-ROOT-MISSING]'
+$a=CopyMap $approval; $o=CopyMap $observed; $a.sha256='0'*64; $o.sha256='0'*64
+MustReject { AssertBinding $a $rootDecision $o $approvalScope } '[OWN-AUTHORITY-ROOT-WHOLE-SHA]'
+AssertBinding $approval $rootDecision $observed $approvalScope
+Write-Host '[ROUND45-AUTHORITY-CONTROLS-OK] 12 named negatives and restored positive'
+Eq ([Convert]::ToBase64String([IO.File]::ReadAllBytes("$approvalRoot/approved-card.md"))) ([Convert]::ToBase64String($approvedBytes)) '[OWN-AUTHORITY-APPROVED-COPY]'
+Eq ([Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $PWD $manager)))) ([Convert]::ToBase64String($approvedBytes)) '[OWN-AUTHORITY-CANDIDATE]'
+# END independent own-card approval guard
+$fixed = @(
+    @('T1-APP-STORAGE-ANDROID','a718507f31ededba510d1be9335f3c9683e0650b','specs/tasks/T1-APP-STORAGE-ANDROID.md','684adfb406263a55c7ac4d6ad2a268053487f500','66DA765394F287AA8A08B060CB45A7982FAF826E0B9A743689873C2B23EF52D1',5129),
+    @('T3-PDF-MEASUREMENT-BINDING','9635a6503c3a25efa017a40e6da628f5f0dfa57e','specs/tasks/T3-PDF-MEASUREMENT-BINDING.md','ac802da62d7a007fe5c26cadbde29ab665cfeb91','CE312FAE39B424112A7C57C1B9B1410FD7A371F7FCEF8A291028CD8C733F2FC1',6524),
+    @('T3-PDF-DEVICE-FIXTURE','6ff56fc2bf829f496f197b74171e989b2941e40e','specs/tasks/T3-PDF-DEVICE-FIXTURE.md','1decac7622657aeb228de6c06addcc66e1feefe0','B6BCCDE1A17EEDF15BE1164FB450B79A68DACE67280330926B9620BA4D83C96A',9862),
+    @('T3-PDF-TEXT-METRICS-OPS','e5cf6339223031519b6c41a734d1a6b67d0cd815','specs/tasks/T3-PDF-TEXT-METRICS-OPS.md','38c45eed3271051d5322b18650b89259c728ba7b','6F673C8EB46477BDDAD76AEDFF7643700F9F28F8B37FECB5BD3B407A41734CD1',4118)
+)
+$expectedPaths = @($manager,$manifestPath)
+$expectedNames = @('manifest.json')
+$dirItem = Get-Item -LiteralPath $dir -Force
+$manifestItem = Get-Item -LiteralPath $manifestPath -Force
+if (($dirItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or ($manifestItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw '[SOURCE-LINK] directory or manifest' }
+$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+if (([string]::Join('|',@($manifest.PSObject.Properties.Name | Sort-Object))) -cne 'purpose|sources' -or $manifest.purpose -cne 'Byte-exact previously registered local contracts; no product acceptance or status change') { throw '[SOURCE-MANIFEST-SCHEMA]' }
+if (@($manifest.sources).Count -ne 4) { throw '[SOURCE-MANIFEST-COUNT]' }
+foreach ($entry in $fixed) {
+    $id,$commit,$oldPath,$blob,$sha,$length = $entry
+    $copy = "$dir/$id.registered.txt"
+    $expectedPaths += $copy
+    $expectedNames += "$id.registered.txt"
+    $records = @($manifest.sources | Where-Object { $_.id -ceq $id })
+    if ($records.Count -ne 1) { throw "[SOURCE-MANIFEST-ID] $id" }
+    $record = $records[0]
+    $keys = @($record.PSObject.Properties.Name | Sort-Object)
+    $wantedKeys = @('copyPath','id','rawBytes','rawSha256','sourceBlob','sourceCommit','sourcePath')
+    if (([string]::Join('|',$keys)) -cne ([string]::Join('|',$wantedKeys))) { throw "[SOURCE-MANIFEST-FIELDS] $id" }
+    if ($record.sourceCommit -cne $commit -or $record.sourcePath -cne $oldPath -or $record.sourceBlob -cne $blob -or $record.rawSha256 -cne $sha -or $record.rawBytes -ne $length -or $record.copyPath -cne $copy) { throw "[SOURCE-MANIFEST-PIN] $id" }
+    $historicalBlob=ApprovalGit @('rev-parse','--verify',("{0}:{1}" -f $commit,$oldPath))
+    Eq $historicalBlob $blob "[SOURCE-HISTORICAL-BLOB] $id"
+    Eq (ApprovalGit @('cat-file','-t',$historicalBlob)) 'blob' "[SOURCE-HISTORICAL-TYPE] $id"
+    if (-not (Test-Path -LiteralPath $copy -PathType Leaf)) { throw "[SOURCE-MISSING] $id" }
+    $item = Get-Item -LiteralPath $copy -Force
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "[SOURCE-LINK] $id" }
+    $bytes = [IO.File]::ReadAllBytes($item.FullName)
+    AssertSourceRaw $bytes $length $sha $blob
+    if ($id -eq 'T1-APP-STORAGE-ANDROID') {
+        $bad=[byte[]]$bytes.Clone(); $bad[0]=$bad[0] -bxor 1
+        MustReject { AssertSourceRaw $bad $length $sha $blob } '[SOURCE-RAW-SHA]'
+        AssertSourceRaw $bytes $length $sha $blob
+    }
+}
+$actualNames = @(Get-ChildItem -LiteralPath $dir -Force | ForEach-Object Name | Sort-Object)
+if (([string]::Join('|',$actualNames)) -cne ([string]::Join('|',@($expectedNames | Sort-Object)))) { throw '[SOURCE-DIRECTORY-SET]' }
+$allPaths=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach($arguments in @(
+    @('diff','--name-only',$base,'HEAD'),
+    @('diff','--cached','--name-only',$base),
+    @('diff','--name-only',$base),
+    @('ls-files','--others','--exclude-standard')
+)) {
+    $names=@(& git.exe @arguments)
+    if ($LASTEXITCODE -ne 0) { throw '[SOURCE-SCOPE-GIT]' }
+    foreach($path in $names) { if($path) { [void]$allPaths.Add($path) } }
+}
+SetEq @($allPaths) $expectedPaths '[SOURCE-SCOPE]'
+MustReject { SetEq (@($allPaths)+@('docs/evidence/extra-untracked.txt')) $expectedPaths '[SOURCE-SCOPE]' } '[SOURCE-SCOPE]'
+SetEq @($allPaths) $expectedPaths '[SOURCE-SCOPE]'
+Write-Host '[ROUND45-SOURCE-CONTROLS-OK] raw corruption and extra scope rejected, positive restored'
+git diff --cached --check $base -- @expectedPaths
+if ($LASTEXITCODE -ne 0) { throw '[SOURCE-WHITESPACE-STAGED]' }
+git diff --check $base HEAD -- @expectedPaths
+if ($LASTEXITCODE -ne 0) { throw '[SOURCE-WHITESPACE-COMMITTED]' }
+git diff --check -- @expectedPaths
+if ($LASTEXITCODE -ne 0) { throw '[SOURCE-WHITESPACE-WORKING]' }
+Write-Host '[ROUND45-SOURCE-PUBLICATION-OK] four historical commit:path contracts, six-path scope and whitespace'
+```

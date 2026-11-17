@@ -1,6 +1,6 @@
 # plan-forge — 想法 → 审过的计划 → 可执行任务卡（可复用规划 harness）
 
-> 一条把"一句话想法 / 初稿计划"打磨成"经多裁判对抗审计、可直接施工的带依赖任务卡"的多 Agent 流水线。
+> 一条把"一句话想法 / 初稿计划"打磨成"经审计（T2 为多裁判对抗核验）、可直接施工的带依赖任务卡"的多 Agent 流水线。
 > 两个工作流都在 `.claude/workflows/`，全部 `args` 参数化——**换项目只改 args**。
 > **红线**：计划是**唯一真相源**（人拥有 / 人批准）；卡是它的**薄投影**；harness 只做**审计 / 投影 / 校验**，绝不偷偷把计划变成权威（呼应 `specs/README.md`「不引入第二真相源」）。
 
@@ -10,12 +10,12 @@
                       计划(真相源, 落 _local/)
                                 │
                            plan-forge
-                                │ 8 差异化 lens → 多裁判对抗核验 → 裁决 → 拆解 → 卡审
+                                │ 按 tier 选 lens（T2 全 8 个）→ T2 多裁判对抗核验 → 裁决，停在裁决
                                 ▼
                       裁决(fix-first/ready) + 审计报告 ──[人改计划到 ready]──▶ 修正计划
                                                             │
                         decompose-cards ◀───────────────────┘
-                                │ 投影任务卡 + 4 角度对抗卡审
+                                │ 投影任务卡 + 5 角度对抗卡审
                                 ▼
                       任务卡结构化定义 ──[人审, 修 FATAL/HIGH]──▶ 写入 specs/tasks/*.md
 ```
@@ -23,14 +23,15 @@
 ## 各段怎么跑
 
 ### 1. plan-forge（审计现有计划）
-`Workflow({ scriptPath: ".claude/workflows/plan-forge.mjs", args: { planPath, priorReviewPath?, claudeMdPath?, specsReadmePath?, templatePath? } })`
-- 产出：裁决（`ready-to-decompose` / `fix-first`）+ 经对抗核验存活的发现 + 排序修正项 + 初版卡 + 卡审。
+`Workflow({ scriptPath: ".claude/workflows/plan-forge.mjs", args: { planPath, tier?, priorReviewPath?, claudeMdPath?, specsReadmePath? } })`
+- `tier` 传字面量 `T0` / `T1` / `T2`，缺省按 `T2`：`T0` 不审、返回 `tier-skipped`；`T1` 跑 3 个 lens（future-self / decomposition / dod）、不跑对抗核验；`T2` 跑全 8 个 lens 并对抗核验。
+- 产出：`verdict`（`ready-to-decompose` / `fix-first`；`T0` 为 `tier-skipped`；汇总裁判无结果时为 `synthesis-skipped`）+ `tier` + `verify_mode`（是否经对抗核验）+ 发现 + 排序修正项 + `skipped_lenses`（没产出结果的 lens；有缺席 lens 时裁决不会是 `ready-to-decompose`）。不产出任务卡：投影归 `decompose-cards.mjs`（TD180），在人批准修正后的计划之后才跑。
 - `priorReviewPath` 可选：给定则 lens 主动避开「前次评审已发现项」，只打遗漏 + 冻结点风险（对已审过的计划仍有信号）。
 - **人工闸（默认）/ 自主链式（长自主运行可选）**：`fix-first` 则按修正项把计划改到 ready，再进下一段；机械修正（措辞/字段对齐/遗漏补全类）可自主改并重新过 plan-forge、报证据，但计划裁为 ready（计划签核前奏）仍需人确认。
 
 ### 2. decompose-cards（投影成卡）
 `Workflow({ scriptPath: ".claude/workflows/decompose-cards.mjs", args: { planPath, reportPath?, templatePath?, specsReadmePath?, claudeMdPath?, decisions?: ["已确认决定1", ...] } })`
-- 产出：任务卡结构化定义 + 4 角度对抗卡审（拓扑 / DoD 可机检 / 硬边界许可 / allow_paths 覆盖）。
+- 产出：任务卡结构化定义 + 5 角度对抗卡审（右尺寸 / 拓扑 / DoD 可机检 / 硬边界许可 / allow_paths 覆盖）。
 - `decisions` 可选：把 plan-forge 的修正项浓缩成逐条「已确认决定」喂进去，确保卡吸收、不把旧坑写进卡。
 - **人工闸（默认）/ 自主链式（长自主运行可选）**：卡 FATAL/HIGH 修复可自主改并重新卡审、报证据；但写入 `specs/tasks/*.md`（真实任务卡落地）是**计划签核**——只有用户能拍板，必须停下等批准。
 
@@ -58,12 +59,12 @@
 
 ## 设计要点（为什么这么搭）
 - **差异化、不重复**：plan-forge 的 lens 在有 priorReview 时显式避开"前次评审已发现项"，只打**遗漏 + 冻结点风险**。
-- **对抗核验**：每条 FATAL/HIGH 由多个裁判从不同角度试图**反驳**，≥多数反驳即枪毙，杀掉似是而非的发现。
+- **对抗核验（T2）**：每个 lens 最重的 3 条 FATAL/HIGH 由 3 个裁判从不同角度试图**反驳**，≥2 票反驳即枪毙，杀掉似是而非的发现；其余的作为未核验项交汇总裁判逐条核实。
 - **冻结点意识**：专打"前期错后面白干"——契约 / schema 冻结后改 = 版本评审 + 全下游返工，冻结前改近零成本。
 - **真相源单一 + 人工闸**：每段之间人批准，harness 不产生第二真相源。
 
-## 成本（按 effort / 预算缩放 lens 与裁判数）
+## 成本（按 tier 路由 lens 与裁判数）
 | 工作流 | 量级 | 备注 |
 |---|---|---|
-| plan-forge | 约 60-85 agent | 视发现数（8 lens × 多裁判核验 + 汇总 + 拆解 + 卡审） |
-| decompose-cards | 约 5 agent | 1 拆解 + 4 并行卡审 |
+| plan-forge | T0 = 0；T1 = 4；T2 最多 81 agent | T1：3 lens + 1 汇总；T2：8 lens + 每 lens 至多 3 条发现 × 3 裁判 + 1 汇总 |
+| decompose-cards | 约 6 agent | 1 拆解 + 5 并行卡审 |

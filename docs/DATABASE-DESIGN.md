@@ -106,6 +106,16 @@ A verified receipt is created only after the provider write has completed and th
 
 `MediaArchiveLedger.archivedEligible` additionally requires an `ARCHIVED` local identity and an exact receipt entry. A current unrevoked full receipt covers every owner; a property receipt covers only assets whose active owners are all that property. Hash/size disagreement, revoked receipts, future verification times, and property mismatch fail closed and remain visible through `assetsArchivedWithoutValidReceipt()`. This evidence only authorizes downstream cleanup decisions; actual SAF/provider I/O belongs to `T5-BACKUP-IO`, and byte deletion/rehydration belongs to `T5-LOCAL-MEDIA-RETENTION`.
 
+### Report interchange evolution (schema v6)
+
+Locally delivered on 2026-09-08 as `800593b4`, with approved version review and formal R3 pass. Migration `5.sqm` preserves every old export receipt field and assigns `format = PDF`. The new schema-only `databases/5.db` is the empty v5 migration baseline; no existing snapshot or migration is rewritten.
+
+Export identity becomes `(inspection_id, audience, format, quality)`: PDF retains `LOW/MEDIUM/HIGH/EXTRA_HIGH`; HTML requires `NONE`. Legacy archive inserts still create PDF receipts, and both legacy archive reads filter PDF while preserving their old field shape. Format-aware queries are separate, so HTML cannot unlock `MediaArchiveLedger.cleanupEligible`.
+
+`report_import_receipt` contains exactly nine required fields: `inspection_id` (primary key reusing the native inspection UUID), `source_sha256`, `source_byte_size`, `extractor_version`, `manifest_sha256`, `source_date`, `mapping_receipt_json`, `mapping_sha256`, and `imported_at`. No separate receipt UUID, mutable lifecycle timestamp, raw-source or metadata column is added. The indexed source digest and insert guard reject duplicate source or inspection identities, including `OR IGNORE` and `OR REPLACE`; update/delete guards abort without changing domain evidence, independently of `recursive_triggers`.
+
+SQL checks text storage types, 64-byte lowercase hex digests (including embedded-NUL rejection), positive integer source size/import time, bounded ASCII extractor code, date storage shape and nonempty mapping text. Strict calendar validity, canonical mapping JSON, its closed fields/privacy exclusions and cryptographic agreement belong to PLANNER/COMMIT. Generated SQL is not authorization to persist arbitrary mapping text: COMMIT must validate the reviewed receipt before its atomic draft transaction. Native `data_hash` and backup format v1 remain unchanged; actual import commit and report delivery are separate tasks.
+
 ## 8. Diagnostics database schema
 
 ### `diagnostic_run`

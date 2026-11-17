@@ -16,7 +16,7 @@ description: >-
 
 ## 三层（按加载方式）
 - **必须层（Tier1）**：`CLAUDE.md` 的「经验铁律」小节，每轮自动在上下文，封顶 N 个**驻留经验 id**（见 `_config.ps1` `LessonsMustCap`，默认 10）。
-  计量的是 id 不是条目：一条写着 `[L190][L193]` 的 bullet 算 2 个，把几条并进一条 bullet 不会让它变便宜。
+  计量的是 id 不是条目：一条写着 `[L21][L205]` 的 bullet 算 2 个，把几条并进一条 bullet 不会让它变便宜。
 - **按需层（Tier2）**：`docs/lessons/<topic>.md`（如 `powershell-and-gh.md`），相关时才读。
 - **总账（Tier3）**：`docs/lessons/LEDGER.md`，全量、append-only、唯一真相源。
 

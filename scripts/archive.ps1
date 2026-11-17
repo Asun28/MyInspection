@@ -31,6 +31,8 @@
 .PARAMETER DryRun    只报「会搬什么」、写零文件（首用/核验安全网）。
 .PARAMETER CheckCardsIndex  只读核验 cards-index.md 是否与归档卡投影逐字节一致；不搬运、不修复。
 .PARAMETER Quiet     仅打印一行汇总。
+.PARAMETER CardsOnly  仅归档 CardIds 指定的 merged 卡；不读写技术债或 lessons。
+.PARAMETER CardIds    卡 id 数组或逗号列表；必须与 CardsOnly 同用。
 .PARAMETER LessonsOnly  仅执行 -LessonIds 路径；不读写技术债、任务卡及其索引。
 .PARAMETER RestoreLessonIds  把指定 lesson 整块从冷库移回热账本；仅可与 -LessonsOnly 同用。
 .EXAMPLE
@@ -42,8 +44,11 @@
 param(
   [string]$RepoRoot,
   [switch]$DryRun,
+  [switch]$Check,
   [switch]$CheckCardsIndex,
   [switch]$Quiet,
+  [switch]$CardsOnly,
+  [string[]]$CardIds,
   [switch]$LessonsOnly,
   [string[]]$LessonIds,   # T40-LEDGERARCH：lessons 账本冷存目标（如 -LessonIds L32,L34）
   [string[]]$RestoreLessonIds
@@ -53,6 +58,27 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出；缺失即 fail-open（同其它脚本）
 . (Join-Path $PSScriptRoot '_cards.ps1')
+
+$targetedCards = $PSBoundParameters.ContainsKey('CardsOnly') -or $PSBoundParameters.ContainsKey('CardIds')
+if ($targetedCards) {
+  if (-not $CardsOnly -or -not $PSBoundParameters.ContainsKey('CardIds')) {
+    throw '[ARCHIVE-CARD-MODE] CardsOnly and CardIds must be supplied together.'
+  }
+  foreach ($mode in @('Check','CheckCardsIndex','LessonsOnly','LessonIds','RestoreLessonIds')) {
+    if ($PSBoundParameters.ContainsKey($mode)) { throw "[ARCHIVE-CARD-MODE] Cannot combine targeted cards with $mode." }
+  }
+  if ($null -eq $CardIds -or $CardIds.Count -eq 0) { throw '[ARCHIVE-CARD-BADID] CardIds is empty.' }
+  $selectedCardIds = [Collections.Generic.List[string]]::new()
+  $seenCardIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach ($item in $CardIds) {
+    foreach ($token in ([string]$item).Split(',')) {
+      $id = $token.Trim()
+      if (-not (Test-ScaffoldCardId $id)) { throw "[ARCHIVE-CARD-BADID] Invalid card id: $id" }
+      if (-not $seenCardIds.Add($id)) { throw "[ARCHIVE-CARD-DUPLICATE] Repeated card id: $id" }
+      $selectedCardIds.Add($id)
+    }
+  }
+}
 
 if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
 $archiveLessonsUsed = $PSBoundParameters.ContainsKey('LessonIds')
@@ -133,12 +159,24 @@ function Get-LineSlice([string[]]$lines, [int]$from, [int]$toExclusive) {
   return ,@($lines[$from..($toExclusive - 1)])
 }
 
+# A lesson block owns its text, not the separator blank lines immediately around
+# it.  A second atomic replacement can leave either side holding that separator;
+# trim only those outer empty lines before authorising the exact-content retry.
+# Do not trim text lines: case and trailing spaces remain part of the content.
+function Get-ComparableLessonBlockText([string[]]$lines, [int]$from, [int]$toExclusive) {
+  $block = [System.Collections.Generic.List[string]]::new()
+  foreach ($line in (Get-LineSlice $lines $from $toExclusive)) { $block.Add($line) }
+  while ($block.Count -and $block[0].Trim().Length -eq 0) { $block.RemoveAt(0) }
+  while ($block.Count -and $block[$block.Count - 1].Trim().Length -eq 0) { $block.RemoveAt($block.Count - 1) }
+  return ($block -join "`n")
+}
+
 $movedTd = @()      # 搬走的技术债整行（原文）
 $stats = [ordered]@{ td_archived = 0; td_kept = 0; cards_archived = 0; cards_kept = 0 }
 
 # ── 1. 技术债：拆热/冷 ──
 $trackerHeader = $null; $trackerSep = $null; $statusIdx = 5
-if (-not $LessonsOnly -and (Test-Path $TrackerPath)) {
+if (-not $targetedCards -and -not $LessonsOnly -and (Test-Path $TrackerPath)) {
   $lines = Get-Content $TrackerPath
   $keptLines = [System.Collections.Generic.List[string]]::new()
   foreach ($line in $lines) {
@@ -174,7 +212,7 @@ function Get-CardField([string]$raw, [string]$key) {
   return Get-UncommentedValue $value
 }
 
-function Get-CardsIndexText([string]$archiveTasksDir) {
+function Get-CardsIndexText([string]$archiveTasksDir, [string]$Newline = "`n") {
   $cardRows = [System.Collections.Generic.List[string]]::new()
   if (Test-Path -LiteralPath $archiveTasksDir -PathType Container) {
     foreach ($cf in (Get-ChildItem -LiteralPath $archiveTasksDir -Filter *.md -ErrorAction SilentlyContinue | Sort-Object Name)) {
@@ -194,8 +232,7 @@ function Get-CardsIndexText([string]$archiveTasksDir) {
     '| id | 状态 | 标题 |',
     '|---|---|---|'
   )
-  # 生成件固定 UTF-8 no-BOM + LF，避免 Windows Set-Content 的平台行尾让同一投影字节漂移。
-  return (($cardHead + $cardRows) -join "`n") + "`n"
+  return (($cardHead + $cardRows) -join $Newline) + $Newline
 }
 
 function Test-ExactBytes([byte[]]$left, [byte[]]$right) {
@@ -206,16 +243,151 @@ function Test-ExactBytes([byte[]]$left, [byte[]]$right) {
   return $true
 }
 
-if ($CheckCardsIndex) {
-  $expectedCardsIndexBytes = [Text.UTF8Encoding]::new($false).GetBytes((Get-CardsIndexText $ArchTasksDir))
-  [byte[]]$actualCardsIndexBytes = if (Test-Path -LiteralPath $CardsIndex -PathType Leaf) {
+# Generated projections must keep the repository's established delimiter.  Reading with Get-Content loses
+# this information, so sample the bytes before any read-modify-write path and write UTF-8 without a BOM.
+function Get-ScaffoldTextNewline([string]$Path, [string]$Fallback = "`n") {
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $Fallback }
+  $bytes = [IO.File]::ReadAllBytes($Path)
+  for ($i = 0; $i -lt ($bytes.Length - 1); $i++) {
+    if ($bytes[$i] -eq 13 -and $bytes[$i + 1] -eq 10) { return "`r`n" }
+    if ($bytes[$i] -eq 10) { return "`n" }
+  }
+  return $Fallback
+}
+
+function Write-ScaffoldUtf8Text([string]$Path, [string]$Text) {
+  [IO.File]::WriteAllText($Path, $Text, [Text.UTF8Encoding]::new($false))
+}
+
+if ($targetedCards) {
+  # Freeze the entire selection before creating directories or changing any file.
+  $selection = [Collections.Generic.List[object]]::new()
+  foreach ($id in $selectedCardIds) {
+    $hot = Join-Path $TasksDir "$id.md"
+    $cold = Join-Path $ArchTasksDir "$id.md"
+    $hotExists = Test-Path -LiteralPath $hot
+    $coldExists = Test-Path -LiteralPath $cold
+    if (-not $hotExists -and -not $coldExists) { throw "[ARCHIVE-CARD-UNKNOWN] No card: $id" }
+    foreach ($path in @($hot,$cold)) {
+      if (-not (Test-Path -LiteralPath $path)) { continue }
+      if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "[ARCHIVE-CARD-PATH] Not a file: $path" }
+      $raw = Get-Content -LiteralPath $path -Raw
+      if ((Get-CardField $raw 'id') -cne $id) { throw "[ARCHIVE-CARD-IDENTITY] Mismatched id: $path" }
+      if ((Get-CardField $raw 'status') -cne 'merged') { throw "[ARCHIVE-CARD-NOT-MERGED] Not merged: $id" }
+      $declaredWorktree = Get-CardField $raw 'worktree'
+      if (-not [string]::IsNullOrWhiteSpace($declaredWorktree)) {
+        $worktreePath = if ([IO.Path]::IsPathRooted($declaredWorktree)) { $declaredWorktree } else {
+          Join-Path $RepoRoot $declaredWorktree
+        }
+        if (Test-Path -LiteralPath $worktreePath -PathType Container) { throw "[ARCHIVE-HELD] Worktree exists: $id" }
+      }
+    }
+    if ($hotExists -and $coldExists -and
+        -not (Test-ExactBytes ([IO.File]::ReadAllBytes($hot)) ([IO.File]::ReadAllBytes($cold)))) {
+      throw "[ARCHIVE-CARD-DIVERGED] Hot and cold bytes differ: $id"
+    }
+    $selection.Add([pscustomobject]@{ Id=$id; Hot=$hot; Cold=$cold; HasHot=$hotExists; HasCold=$coldExists })
+  }
+  if ($DryRun) {
+    Write-Host "[ARCHIVE-CARDS-DRYRUN] selected=$($selection.Count); no writes"
+    exit 0
+  }
+  if (-not (Test-Path -LiteralPath $ArchTasksDir -PathType Container)) {
+    New-Item -ItemType Directory -Path $ArchTasksDir -Force | Out-Null
+  }
+  $moved = 0
+  foreach ($card in $selection) {
+    if (-not $card.HasHot) { continue }
+    if ($card.HasCold) {
+      # Recheck the complete destination immediately before deleting a duplicate source.
+      if (-not (Test-ExactBytes ([IO.File]::ReadAllBytes($card.Hot)) ([IO.File]::ReadAllBytes($card.Cold)))) {
+        throw "[ARCHIVE-CARD-DIVERGED] Duplicate changed before removal: $($card.Id)"
+      }
+      Remove-Item -LiteralPath $card.Hot
+    } else {
+      if (Test-Path -LiteralPath $card.Cold) { throw "[ARCHIVE-CARD-PATH] Destination appeared: $($card.Id)" }
+      Move-Item -LiteralPath $card.Hot -Destination $card.Cold
+    }
+    $moved++
+  }
+  # Only this index supplies its delimiter; absent/newline-free indices fall back to LF.
+  $newline = Get-ScaffoldTextNewline $CardsIndex
+  $indexText = Get-CardsIndexText $ArchTasksDir $newline
+  $indexBytes = [Text.UTF8Encoding]::new($false).GetBytes($indexText)
+  [byte[]]$previousBytes = if (Test-Path -LiteralPath $CardsIndex -PathType Leaf) {
     [IO.File]::ReadAllBytes($CardsIndex)
   } else { $null }
-  if (-not (Test-ExactBytes $actualCardsIndexBytes $expectedCardsIndexBytes)) {
-    Write-Output '[ARCHIVE-CARDS-INDEX-DRIFT] specs/archive/cards-index.md 与 specs/archive/tasks/*.md 投影不一致；请用正常 archive 流程重建后提交。'
+  if (-not (Test-ExactBytes $previousBytes $indexBytes)) { Write-ScaffoldUtf8Text $CardsIndex $indexText }
+  Write-Host "[ARCHIVE-CARDS-OK] selected=$($selection.Count); moved=$moved"
+  exit 0
+}
+
+function Get-FirstTextDifferenceLine([string]$Actual, [string]$Expected) {
+  $actualLines = $Actual -split "\r?\n"
+  $expectedLines = $Expected -split "\r?\n"
+  $limit = [Math]::Max($actualLines.Count, $expectedLines.Count)
+  for ($i = 0; $i -lt $limit; $i++) {
+    $left = if ($i -lt $actualLines.Count) { $actualLines[$i] } else { $null }
+    $right = if ($i -lt $expectedLines.Count) { $expectedLines[$i] } else { $null }
+    if ($left -cne $right) { return ($i + 1) }
+  }
+  return 1
+}
+
+$TrackerNewline = Get-ScaffoldTextNewline $TrackerPath
+$TdArchiveNewline = Get-ScaffoldTextNewline $TdArchive $TrackerNewline
+$TdIndexNewline = Get-ScaffoldTextNewline $TdIndex $TdArchiveNewline
+$CardsIndexNewline = Get-ScaffoldTextNewline $CardsIndex $TdArchiveNewline
+
+function Get-TdIndexText([string]$ArchivePath, [string]$Newline = "`n") {
+  $rows = [System.Collections.Generic.List[string]]::new()
+  $statusIndex = 5
+  if (Test-Path -LiteralPath $ArchivePath -PathType Leaf) {
+    foreach ($line in (Get-Content -LiteralPath $ArchivePath)) {
+      if ($line -notmatch '^\s*\|') { continue }
+      $cells = Split-TdRow $line
+      if ($cells.Count -lt 1) { continue }
+      if ($cells[0] -eq 'id') { $found = [array]::IndexOf($cells, '状态'); if ($found -ge 0) { $statusIndex = $found }; continue }
+      if (Test-SeparatorRow $cells) { continue }
+      $id = Format-Cell $cells[0]
+      $location = if ($cells.Count -gt 2) { Format-Cell $cells[2] 60 } else { '' }
+      $debt = if ($cells.Count -gt 3) { Format-Cell $cells[3] 120 } else { '' }
+      $severity = if ($cells.Count -gt 4) { Format-Cell $cells[4] } else { '' }
+      $status = if ($cells.Count -gt $statusIndex) { Format-Cell $cells[$statusIndex] } else { '' }
+      $rows.Add("| $id | $severity | $status | $location | $debt |")
+    }
+  }
+  $header = @(
+    '# 技术债精简索引（cold-storage index · 可 grep）',
+    '',
+    ('> 一行一条已归档（paid/accepted）债项，共 {0} 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。' -f $rows.Count),
+    '> 由 `scripts/archive.ps1` 从归档文件投影生成，勿手工编辑。新卡/续接查「这坑还没还过？」先 grep 本表。',
+    '',
+    '| id | 严重度 | 状态 | 位置 | 一句话（债，截断） |',
+    '|---|---|---|---|---|'
+  )
+  return (($header + $rows) -join $Newline) + $Newline
+}
+
+if ($CheckCardsIndex -or $Check) {
+  $checks = @([pscustomobject]@{ Path = $CardsIndex; Expected = (Get-CardsIndexText $ArchTasksDir (Get-ScaffoldTextNewline $CardsIndex)); Label = 'specs/archive/cards-index.md' })
+  if ($Check) {
+    $checks += [pscustomobject]@{ Path = $TdIndex; Expected = (Get-TdIndexText $TdArchive (Get-ScaffoldTextNewline $TdIndex)); Label = 'specs/archive/tech-debt-index.md' }
+  }
+  $drift = @()
+  foreach ($checkItem in $checks) {
+    $expectedBytes = [Text.UTF8Encoding]::new($false).GetBytes($checkItem.Expected)
+    [byte[]]$actualBytes = if (Test-Path -LiteralPath $checkItem.Path -PathType Leaf) { [IO.File]::ReadAllBytes($checkItem.Path) } else { $null }
+    if (-not (Test-ExactBytes $actualBytes $expectedBytes)) {
+      $actualText = if ($null -eq $actualBytes) { '' } else { [Text.UTF8Encoding]::new($false).GetString($actualBytes) }
+      $drift += ('{0}:{1}' -f $checkItem.Label, (Get-FirstTextDifferenceLine $actualText $checkItem.Expected))
+    }
+  }
+  if ($drift.Count) {
+    foreach ($path in $drift) { Write-Output "[ARCHIVE-CHECK-DRIFT] $path 与当前生成器投影不一致；请运行正常 archive 流程重建后提交。" }
     exit 1
   }
-  if (-not $Quiet) { Write-Host 'archive cards-index check: PASS' }
+  if (-not $Quiet) { Write-Host "[ARCHIVE-CHECK-OK] $(if ($Check) { 'archive check: PASS' } else { 'archive cards-index check: PASS' })" }
   exit 0
 }
 
@@ -243,6 +415,8 @@ $lsMoved = 0; $lsSkipped = 0; $lsFailed = 0
 $ledgerLines = @()
 $archiveLines = @()
 if ($lessonsUsed) {
+  $LedgerNewline = Get-ScaffoldTextNewline $LedgerPath
+  $LessonsArchiveNewline = Get-ScaffoldTextNewline $LessonsArchive $LedgerNewline
   # F1（R3）：`pwsh -File` 外部调用不做逗号数组自动拆分——`-LessonIds L32,L34` 落地成一个字符串
   # "L32,L34"（而非两元素数组），偏偏 README 文档的正是这种写法，实测外部调用下会整体判非法、0 搬。
   # 校验前显式按逗号展开每个元素，兑现文档承诺的调用形态。F8（R3）：空 token **保留**进校验——
@@ -298,7 +472,7 @@ if ($lessonsUsed) {
       # F11：只收**规范形式**（无前导零）——`L02` 这类别名经数值匹配会撞上 `L2` 的块，fail-closed 拒绝。
       # 前缀哨兵是给机检用的：闸 2f(a) 靠「预览里出现了搬运器自己的拒绝」证明 -DryRun 真透传到了本脚本，
       # 而中文告警文案一旦被改写或在编码链上变字节就会假红/假绿（L165）。中文正文保留给人读，两者并存。
-      Write-Warning "archive.ps1 -LessonIds：[ARCHIVE-LESSON-REJECT-ALIAS] 非法/非规范 id『$rawId』（须形如 L32，无前导零），已跳过。"
+      Write-Warning "[ARCHIVE-LESSON-BADID] archive.ps1 -LessonIds：[ARCHIVE-LESSON-REJECT-ALIAS] 非法/非规范 id『$rawId』（须形如 L32，无前导零），已跳过。"
       $lessonsReport.Add("  [无效] $rawId"); $lsFailed++; continue
     }
     $n = 0
@@ -307,7 +481,7 @@ if ($lessonsUsed) {
       $lessonsReport.Add("  [越界] $id"); $lsFailed++; continue
     }
     if ($lessonMoveDirection -eq 'archive' -and $n -eq $maxId) {
-      Write-Warning "archive.ps1 -LessonIds：拒绝搬 $id ——当前 LEDGER 最高 id，搬走会令下次 Next-Id 重铸撞号，已跳过（其余 id 照常处理）。"
+      Write-Warning "[ARCHIVE-LESSON-MAXID] archive.ps1 -LessonIds：拒绝搬 $id ——当前 LEDGER 最高 id，搬走会令下次 Next-Id 重铸撞号，已跳过（其余 id 照常处理）。"
       $lessonsReport.Add("  [拒绝-最高id] $id"); $lsFailed++; continue
     }
     $inLedger = @(Get-LedgerHeadings $ledgerLines | Where-Object { $_.Id -eq $id })
@@ -317,7 +491,7 @@ if ($lessonsUsed) {
       $lessonsReport.Add("  [重复id] $id"); $lsFailed++; continue
     }
     if (-not $inLedger.Count -and -not $inArchive.Count) {
-      Write-Warning "archive.ps1 -LessonIds：未知 id『$id』——LEDGER 与归档均查无此条（防手滑打错 id），已跳过。"
+      Write-Warning "[ARCHIVE-LESSON-UNKNOWN-ID] archive.ps1 -LessonIds：未知 id『$id』——LEDGER 与归档均查无此条（防手滑打错 id），已跳过。"
       $lessonsReport.Add("  [未知id] $id"); $lsFailed++; continue
     }
     if ($inArchive.Count -and $inLedger.Count) {
@@ -328,10 +502,10 @@ if ($lessonsUsed) {
       $ha = $inArchive[0]
       # Get-Content has already normalized physical line endings into lines; preserve every remaining character,
       # including case, trailing spaces, and trailing blank lines. Only ordinal equality can authorize deletion.
-      $ledgerBlockText = (Get-LineSlice $ledgerLines $h.Start $h.End) -join "`n"
-      $archiveBlockText = (Get-LineSlice $archiveLines $ha.Start $ha.End) -join "`n"
+      $ledgerBlockText = Get-ComparableLessonBlockText $ledgerLines $h.Start $h.End
+      $archiveBlockText = Get-ComparableLessonBlockText $archiveLines $ha.Start $ha.End
       if (-not [string]::Equals($ledgerBlockText, $archiveBlockText, [System.StringComparison]::Ordinal)) {
-        Write-Warning "[ARCHIVE-LESSON-REJECT-CONFLICT] archive.ps1 -LessonIds：$id 两侧并存且内容不一致（疑似归档陈旧 / 在册已更新）——拒绝自动清除，双侧未动，请人工核对后再定。"
+        Write-Warning "[ARCHIVE-LESSON-DIVERGED] [ARCHIVE-LESSON-REJECT-CONFLICT] archive.ps1 -LessonIds：$id 两侧并存且内容不一致（疑似归档陈旧 / 在册已更新）——拒绝自动清除，双侧未动，请人工核对后再定。"
         $lessonsReport.Add("  [冲突-两侧不一致] $id"); $lsFailed++; continue
       }
       if ($lessonMoveDirection -eq 'restore') {
@@ -382,6 +556,7 @@ if ($DryRun) {
     $moveVerb = if ($lessonMoveDirection -eq 'restore') { '恢复' } else { '搬' }
     Write-Host "  lessons：将$moveVerb $lsMoved 条，幂等/跳过 $lsSkipped 条，拒绝/无效 $lsFailed 条"
     if (-not $Quiet -and $lessonsReport.Count) { Write-Host "  lessons 明细："; $lessonsReport | ForEach-Object { Write-Host $_ -ForegroundColor DarkGray } }
+    Write-Host "[ARCHIVE-LESSON-PLAN] move=$lsMoved skip=$lsSkipped reject=$lsFailed" -ForegroundColor DarkGray
   }
   # F2（R3）：DryRun 不再无条件 exit 0——`-DryRun -LessonIds L999` 之前告警照发却仍报成功，违反 fail-closed
   # 承诺（预览模式下也不该把「无效/拒绝」伪装成绿）。tracker/cards 的 DryRun 语义不受影响（那两路径不产生 $lsFailed）。
@@ -395,7 +570,7 @@ if (-not $LessonsOnly) { New-Item -ItemType Directory -Force $ArchTasksDir | Out
 
 # ── 3. 写活追踪器（去掉冷行）+ 追加到归档 ──
 if (-not $LessonsOnly -and $movedTd.Count) {
-  Set-Content -Path $TrackerPath -Value ($keptLines -join "`n") -Encoding utf8
+  Write-ScaffoldUtf8Text $TrackerPath (($keptLines -join $TrackerNewline) + $TrackerNewline)
 
   if (-not $trackerHeader) { $trackerHeader = '| id | 发现日 | 位置 | 偏离了什么（债） | 严重度 | 状态 | 偿还指针 |' }
   if (-not $trackerSep) { $trackerSep = '|---|---|---|---|---|---|---|' }
@@ -427,7 +602,7 @@ if (-not $LessonsOnly -and $movedTd.Count) {
     $trackerHeader,
     $trackerSep
   )
-  Set-Content -Path $TdArchive -Value (($archHead + $archiveBody) -join "`n") -Encoding utf8
+  Write-ScaffoldUtf8Text $TdArchive ((($archHead + $archiveBody) -join $TdArchiveNewline) + $TdArchiveNewline)
 }
 
 # ── 4. 重算技术债精简索引（从归档投影）──
@@ -458,17 +633,28 @@ if (-not $LessonsOnly -and (Test-Path $TdArchive)) {
     '| id | 严重度 | 状态 | 位置 | 一句话（债，截断） |',
     '|---|---|---|---|---|'
   )
-  Set-Content -Path $TdIndex -Value (($idxHead + $idxRows) -join "`n") -Encoding utf8
+  Write-ScaffoldUtf8Text $TdIndex (Get-TdIndexText $TdArchive $TdIndexNewline)
 }
 
 # ── 5. 移动 merged 卡 ──
 if (-not $LessonsOnly) {
   foreach ($card in $mergedCards) {
     $dest = Join-Path $ArchTasksDir "$($card.id).md"
+    $cardRaw = Get-Content -LiteralPath $card.path -Raw
+    $worktree = Get-CardField $cardRaw 'worktree'
+    if ($worktree) {
+      $worktreePath = if ([IO.Path]::IsPathRooted($worktree)) { $worktree } else { Join-Path $RepoRoot $worktree }
+      if (Test-Path -LiteralPath $worktreePath -PathType Container) {
+        Write-Warning "[ARCHIVE-HELD] archive.ps1：$($card.id) 已 merged 但 worktree 仍在磁盘上：$worktreePath。卡保留在 specs/tasks；请先运行 pwsh -File scripts/task.ps1 -TaskId $($card.id) -Phase cleanup。"
+        $stats.cards_archived--
+        $stats.cards_kept++
+        continue
+      }
+    }
     # 目标已存在且**内容不同**（id 归档后又被重建的罕见碰撞）→ 跳过并告警，绝不 -Force 覆盖丢失（审计 #5）。
     # 内容相同则覆盖无害（幂等）。
     if ((Test-Path $dest) -and ((Get-Content $dest -Raw) -ne (Get-Content $card.path -Raw))) {
-      Write-Warning "archive.ps1：归档目标已存在且内容不同，跳过以防覆盖丢失：specs/archive/tasks/$($card.id).md（活卡留原位，请人工核对）。"
+      Write-Warning "[ARCHIVE-HELD] archive.ps1：归档目标已存在且内容不同，跳过以防覆盖丢失：specs/archive/tasks/$($card.id).md（活卡留原位，请人工核对）。"
       $stats.cards_archived--
       continue
     }
@@ -478,7 +664,7 @@ if (-not $LessonsOnly) {
 
 # ── 6. 重算卡索引（从 specs/archive/tasks/ 投影）──
 if (-not $LessonsOnly -and (Test-Path $ArchTasksDir)) {
-  [IO.File]::WriteAllText($CardsIndex, (Get-CardsIndexText $ArchTasksDir), [Text.UTF8Encoding]::new($false))
+  Write-ScaffoldUtf8Text $CardsIndex (Get-CardsIndexText $ArchTasksDir $CardsIndexNewline)
 }
 
 # ── 7. 写 lessons 热/冷账本（仅当本轮确有移动/补齐时落盘——幂等重跑 0 搬 = 不触碰任何文件）──
@@ -500,14 +686,14 @@ if ($lessonsUsed -and $lsMoved -gt 0) {
     '> `lessons.ps1 archive` 可先机械预筛出保守候选（规则见 `docs/LESSONS.md` §3），但仍只是转调本入口。勿手工编辑正文。',
     ''
   )
-  $lsArchiveText = (($lsHead + $archiveLines) -join "`n")
-  $lsLedgerText = ($ledgerLines -join "`n")
+  $lsArchiveText = (($lsHead + $archiveLines) -join $LessonsArchiveNewline) + $LessonsArchiveNewline
+  $lsLedgerText = ($ledgerLines -join $LedgerNewline) + $LedgerNewline
   if ($lessonMoveDirection -eq 'restore') {
     # 恢复方向反过来：先确认热账本落盘，再从冷库移除。第二步失败只会留下逐字一致的两侧并存态，重跑自愈。
     $lsLedgerWriteOk = $true
     $lsLedgerTmp = "$LedgerPath.tmp"
     try {
-      Set-Content -Path $lsLedgerTmp -Value $lsLedgerText -Encoding utf8 -ErrorAction Stop
+      Write-ScaffoldUtf8Text $lsLedgerTmp $lsLedgerText
       Move-Item -Path $lsLedgerTmp -Destination $LedgerPath -Force -ErrorAction Stop
     } catch {
       $lsLedgerWriteOk = $false
@@ -518,7 +704,7 @@ if ($lessonsUsed -and $lsMoved -gt 0) {
     if ($lsLedgerWriteOk) {
       $lsTmpPath = "$LessonsArchive.tmp"
       try {
-        Set-Content -Path $lsTmpPath -Value $lsArchiveText -Encoding utf8 -ErrorAction Stop
+        Write-ScaffoldUtf8Text $lsTmpPath $lsArchiveText
         Move-Item -Path $lsTmpPath -Destination $LessonsArchive -Force -ErrorAction Stop
       } catch {
         $lsFailed++
@@ -530,7 +716,7 @@ if ($lessonsUsed -and $lsMoved -gt 0) {
     $lsArchiveWriteOk = $true
     $lsTmpPath = "$LessonsArchive.tmp"
     try {
-      Set-Content -Path $lsTmpPath -Value $lsArchiveText -Encoding utf8 -ErrorAction Stop
+      Write-ScaffoldUtf8Text $lsTmpPath $lsArchiveText
       Move-Item -Path $lsTmpPath -Destination $LessonsArchive -Force -ErrorAction Stop
     } catch {
       $lsArchiveWriteOk = $false
@@ -541,7 +727,7 @@ if ($lessonsUsed -and $lsMoved -gt 0) {
     if ($lsArchiveWriteOk) {
       $lsLedgerTmp = "$LedgerPath.tmp"
       try {
-        Set-Content -Path $lsLedgerTmp -Value $lsLedgerText -Encoding utf8 -ErrorAction Stop
+        Write-ScaffoldUtf8Text $lsLedgerTmp $lsLedgerText
         Move-Item -Path $lsLedgerTmp -Destination $LedgerPath -Force -ErrorAction Stop
       } catch {
         $lsFailed++

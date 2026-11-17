@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "schema_revision": 1,
+  "records": [
+    {
+      "local_id": "d1",
+      "kind": "defect",
+      "severity_guess": "high",
+      "category": "C2",
+      "anchor": "hunk",
+      "file": "scripts/check-scope.ps1",
+      "symbol": "Test-ScopePath",
+      "line_start": null,
+      "line_end": null,
+      "unit_ids": ["scripts/check-scope.ps1#0123456789ab-1"],
+      "trigger": "early return skips the loop",
+      "expected": "every segment is checked",
+      "actual": "a .. segment gets through",
+      "impact": "scope gate fail-open",
+      "contract_ref": "lesson:L228",
+      "evidence_refs": ["scripts/check-scope.ps1:41"],
+      "evidence_needed": [],
+      "introduced_or_worsened": "introduced",
+      "suggested_fix_direction": "return after the loop"
+    },
+    {
+      "local_id": "q1",
+      "kind": "question",
+      "severity_guess": null,
+      "category": "C1",
+      "anchor": "absent",
+      "file": "docs/DEVOPS-WORKFLOW.md",
+      "symbol": null,
+      "line_start": 120,
+      "line_end": 124,
+      "unit_ids": [],
+      "trigger": "claims every ship path is gated",
+      "expected": "-Local named or excluded",
+      "actual": "only remote described",
+      "impact": "reader assumes -Local is gated",
+      "contract_ref": "none",
+      "evidence_refs": ["docs/DEVOPS-WORKFLOW.md:120"],
+      "evidence_needed": ["scripts/task.ps1 -Local branch"],
+      "introduced_or_worsened": "pre_existing",
+      "suggested_fix_direction": ""
+    },
+    { "unit_id": "scripts/check-scope.ps1#0123456789ab-1", "categories_checked": ["C1", "C2", "C3"], "status": "finding", "candidate_local_ids": ["d1"], "missing_context": [] },
+    { "unit_id": "android/app/build.gradle.kts#file", "categories_checked": ["C1"], "status": "blocked", "candidate_local_ids": [], "missing_context": ["android/gradle/libs.versions.toml"] }
+  ]
+}

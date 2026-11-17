@@ -38,11 +38,12 @@ brief ──Scout(多角度并行搜候选)──▶ 去重候选清单
    （离线/确定性/目标 shell/无 GPU）、**可行性** 0–10、**build-vs-buy**（adopt / fork-and-adapt / reference-only / build-from-scratch）。
    默认怀疑：许可不明、维护停滞、贴合度低 → 倾向 drop。
 3. **Synthesize（汇总选型）**：决策矩阵（每候选 fit/effort/risk/decision）+ 推荐 + **决策日志**（为什么选 X 不选 Y，逐条）+
-   **ADR 草案**（背景/决策/备选方案/后果，可直接落 `docs/adr/`）。所有候选都不过或都不贴合 → 明确推荐 build-from-scratch。
+   **ADR 草案**（标题 + 紧接标题的状态行 `- Status: Accepted` + 背景/决策/备选方案/后果，可直接落 `docs/adr/`）。所有候选都不过或都不贴合 → 明确推荐 build-from-scratch。
 
 ## 产物落位（人工闸·默认 / 自主链式·长自主运行可选）
 - 决策矩阵 / 推荐 → `_local/2-options.md`（非技术同事也读得懂的一页选型说明，gitignored）。
-- ADR 草案 → `docs/adr/NNNN-<kebab>.md`（**永久**决策记录，入库；命名/结构见 `docs/adr/README.md`）。这条 ADR 就是第三步计划
+- ADR 草案 → `docs/adr/NNNN-<kebab>.md`（**永久**决策记录，入库；命名/结构见 `docs/adr/README.md`）。落库前确认标题下一行是状态行
+  `- Status: Accepted`（逐字此格式；selftest 闸 14h 机检，缺了就红）。这条 ADR 就是第三步计划
   「技术栈 / 目录结构 / Provider 契约」三节的依据来源。
 - 然后进第三步：按推荐的 base 写 `_local/PLAN.md`（`docs/PLAN-TEMPLATE.md`）→ `plan-forge.mjs`。
 - **自主链式边界**（与 `scout-options.mjs` 的 next_step 一致；启用长自主运行本身即用户对本段的委托）：落盘决策矩阵、归档 ADR

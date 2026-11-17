@@ -5,8 +5,8 @@
   元数据/子进程/POM 失败均非零退出。规则见 docs\LICENSE-POLICY.md；模型权重/数据/字体/素材仍须人工登记。
 
 .DESCRIPTION
-  - 后端：优先 `uv run --with pip-licenses`（在项目环境内内省到项目实际安装依赖）；无 uv 时尝试 `pip-licenses`，再无则跳过并告警。
-  - 前端：若有 frontend\package.json，用 `npx --yes license-checker --json`。
+  - 后端：优先 `uv run --with pip-licenses==5.5.5`（在项目环境内内省到项目实际安装依赖）；无 uv 时尝试 `pip-licenses`，再无则跳过并告警。
+  - 前端：若有 frontend\package.json，用 `npx --yes license-checker@25.0.1 --json`。扫描前须完成联网预热，扫描本身离线。
   - Gradle：离线解析 app debug/release runtime、core runtime/testRuntime 四张图，从缓存 POM 或受控精确豁免取许可。
   - 禁列（正则，大小写不敏感）：GPL / AGPL / SSPL / EUPL / EPL / CC-BY-NC / non-?commercial / research[- ]only。
   - LGPL/OpenRAIL/MPL 单独标黄（进程外 CLI / 文件级 copyleft 等隔离用法可接受；其它需人工确认）。
@@ -1183,12 +1183,18 @@ try { . (Join-Path $PSScriptRoot '_encoding.ps1') } catch { }   # UTF-8 输出 +
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $RepoRoot
 
+# Match the existing CI provisioning and LICENSE-POLICY pins. These process-local settings reach every
+# scanner child; -AsLibrary returned above and therefore does not change its caller's environment.
+$env:UV_OFFLINE = '1'
+$env:npm_config_offline = 'true'
+Write-Host '[LICENSE-OFFLINE] scanners use the prewarmed cache; missing tools or metadata remain coverage gaps.' -ForegroundColor DarkGray
+
 Write-Host "=== 后端 PyPI 许可扫描 ===" -ForegroundColor Cyan
 $pyJson = $null
 if ((Test-Path (Join-Path $RepoRoot 'pyproject.toml')) -and (Get-Command uv -ErrorAction SilentlyContinue)) {
   # 必须扫**项目** venv 的依赖：uvx 是隔离环境，只会扫到 pip-licenses 自身依赖→漏扫项目。
   # 用 `uv run --with pip-licenses` 在项目环境内运行，pip-licenses 才能内省到项目实际安装的依赖。
-  $pyJson = & uv run --with pip-licenses pip-licenses --format=json 2>$null
+  $pyJson = & uv run --with pip-licenses==5.5.5 pip-licenses --format=json 2>$null
 }
 if (-not $pyJson -and (Get-Command pip-licenses -ErrorAction SilentlyContinue)) {
   $pyJson = & pip-licenses --format=json 2>$null
@@ -1212,7 +1218,7 @@ if ((Test-Path $pkg) -and (Get-Command npx -ErrorAction SilentlyContinue)) {
   # TD-205：license-checker 默认从 process.cwd() 找 package.json（此处 cwd = $RepoRoot，见上方 Set-Location），恒扫仓根、从不进 frontend/。
   #   须显式 --start 指到前端目录，否则 frontend/ 的 GPL/AGPL 等违禁依赖漏判，而下面仍打印「已扫描 npm 包」——一个虚假的 commercial-safe 信号（fail-open）。
   $feDir = Join-Path $RepoRoot 'frontend'
-  $njson = & npx --yes license-checker --start $feDir --json 2>$null
+  $njson = & npx --yes license-checker@25.0.1 --start $feDir --json 2>$null
   if ($njson) {
     try {
       $obj = $njson | ConvertFrom-Json

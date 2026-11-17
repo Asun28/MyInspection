@@ -26,19 +26,19 @@ class MediaArchiveSchemaTest {
     }
 
     @Test
-    fun `schema v5 exposes four exact text-and-integer tables`() {
-        assertEquals(5L, MyInspectionDatabase.Schema.version)
-        assertArchiveTables()
+    fun `schema v6 exposes four exact text-and-integer archive tables`() {
+        assertEquals(6L, MyInspectionDatabase.Schema.version)
+        assertArchiveTables(includeFormat = true)
     }
 
-    private fun assertArchiveTables() {
+    private fun assertArchiveTables(includeFormat: Boolean = false) {
         assertTable(
             "local_asset_state",
             listOf("rel_path", "content_hash", "byte_size", "state", "changed_at", "reason"),
         )
         assertTable(
             "report_export_receipt",
-            listOf("id", "inspection_id", "audience", "quality", "rel_path", "content_hash", "byte_size", "exported_at"),
+            listOf("id", "inspection_id", "audience", "quality", "rel_path", "content_hash", "byte_size", "exported_at") + if (includeFormat) listOf("format") else emptyList(),
         )
         assertTable(
             "verified_backup_receipt",

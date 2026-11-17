@@ -1,6 +1,6 @@
 name: ci
 
-# 确定性验收闸门（R2）。作为默认分支规则集的必需状态检查 `verify`（有 GitHub Pro/public 时）。
+# 确定性验收闸门（R2）。CI 的必需汇总检查为 `required`；本项目另要求独立 R3 `codex-review` 通过。
 # 最终的 E2E verify gate 步骤本身纯确定性、离线 —— 与本机 verify.ps1 同义。其余步骤（Sync deps / License
 # gate 前的 pinned 扫描器预热 / T0-TOOLCHAIN 起新增的 Gradle online build）按需联网装配工具链/依赖，同产品运行时联网正交
 # （见各步骤自身注释）。若非 Python 项目，把下面的 setup-python / uv 步骤换成你的工具链。
@@ -38,7 +38,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:                      # ← job 名即必需检查的 context 名
+  verify:                      # 确定性验证；由 required 汇总结果
     # windows-latest（T0-TOOLCHAIN 起改自 ubuntu-latest）：scripts/verify.ps1 的 Android 闸硬编码
     # `cmd /c 'gradlew.bat --offline -q :core:check'`（Windows 专属调用，不含 --no-daemon——该项加固曾短暂
     # 破例进本卡 allow_paths，R3 第六轮后随「撤销三次破例、拆卡」一并撤销，归还 T0-GATE-HARDENING，
@@ -183,6 +183,7 @@ jobs:
         # This is the only online phase for license-scanner tooling. Exact versions are warmed before the gate;
         # the gate itself forces uv and npm offline, so a cold/missing cache fails closed without a registry request.
         run: |
+          Write-Host '[LICENSE-PIN] provision pinned scanners online before the offline license gate.'
           if (Test-Path pyproject.toml) {
             uv run --with pip-licenses==5.5.5 pip-licenses --version
             if ($LASTEXITCODE -ne 0) { Write-Error "pip-licenses provisioning failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
@@ -222,3 +223,35 @@ jobs:
           if ((Test-Path $f) -and ((Get-Item $f).Length -gt 0)) {
             pwsh -NoProfile -File $f
           } else { Write-Host 'verify.ps1 still placeholder; skipping' }
+
+      - name: Assert clean worktree
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $dirty = @(git status --porcelain)
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect the verified worktree' }
+          if ($dirty.Count -gt 0) {
+            $dirty | Write-Host
+            throw 'Verification changed the checkout; generated changes must be committed and verified again'
+          }
+
+  # Scaffold ship reads this one fan-in context.  The project verification stays
+  # in `verify`; this job only exposes its result as the stable merge predicate.
+  required:
+    if: ${{ always() }}
+    needs: [verify]
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Assert project verification succeeded
+        shell: pwsh
+        run: |
+          $results = @'
+          ${{ toJSON(needs) }}
+          '@ | ConvertFrom-Json -AsHashtable
+          if ($results.Count -eq 0) { throw 'No required jobs were reported' }
+          foreach ($job in $results.Keys) {
+            if ($results[$job].result -cne 'success') {
+              throw "Required job $job completed as $($results[$job].result)"
+            }
+          }

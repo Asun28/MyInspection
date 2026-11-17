@@ -1,0 +1,169 @@
+---
+id: T0-LIVE-WORK-START
+title: Stop task.ps1 start from overrunning work another session holds, and tell every session to check live work first
+status: merged
+depends_on: [T0-LIVE-WORK-GUARD]
+parallelizable_with: []
+allow_paths:
+  - scripts/task.ps1
+  - scripts/selftest.ps1
+  - docs/DEVOPS-WORKFLOW.md
+  - CLAUDE.md
+  - .claude/skills/task-loop/SKILL.md
+  - docs/HANDOFF.md
+  - specs/tasks/T0-LIVE-WORK-START.md
+sweep: "rg 'L218|L273|活跃写者|他会话|并行会话|other session|another session|live work' over CLAUDE.md, docs/HANDOFF.md, docs/DEVOPS-WORKFLOW.md, .claude/skills/task-loop/SKILL.md, .claude/hooks/*.ps1 and scripts/task.ps1 (2026-09-25, origin/master cf1bd18a, carried over from T0-LIVE-WORK-GUARD on the 2026-10-07 split). The only hit is task.ps1:1146, the ship-time [SHIP-CONCURRENT-SESSION] notice, which looks at the main checkout and at worktree directory names only; this card leaves it as is. No teaching surface states L218 or L273: CLAUDE.md's execution boundary and the task-loop skill's 前置 get one rule line each, docs/HANDOFF.md gets the per-task handoff rule. scripts/selftest.ps1: gate 15's fixture starts several cards that all declare README.md while its earlier steps leave README.md edits in other fixture worktrees, so those later starts pass -TakeOver (user ruling 2026-09-25), and gate 15 gains the executable start cases (A3). docs/DEVOPS-WORKFLOW.md: _config.ps1 DocSyncMap couples scripts/task.ps1 to it, so its R1 row gets one sentence on start's live-work check (user ruling 2026-09-26). Its multi-session text stays with T0-MAIN-CHECKOUT-READONLY and T0-POST-MERGE-CARD-DRIFT."
+forbid:
+  - Changing scripts/live-work.ps1 (T0-LIVE-WORK-GUARD owns it)
+  - Changing check-cards.ps1, review.ps1, post-merge.ps1, lessons.ps1, _scope.ps1 or the scope and budget gates
+  - A -TakeOver that continues past a probe failure (live-work.ps1 exit 2)
+non_goals:
+  - The probe itself (T0-LIVE-WORK-GUARD)
+  - The dirty-worktree ask hook (T0-DIRTY-WORKTREE-HOOK)
+  - Guarding the edit tools or making the main checkout read-only (T0-MAIN-CHECKOUT-READONLY)
+acceptance:
+  - "A1 task.ps1 -Phase start runs live-work.ps1 -TaskId <id> before git worktree add. Exit 3 stops start with [START-LIVE-WORK] and the overlap lines, unless -TakeOver is given, which prints the same lines and continues; exit 2 or any other code stops start with [START-LIVE-WORK-UNKNOWN], with or without -TakeOver. When the card's worktree already exists, the existing refusal also prints that worktree's uncommitted count and newest change time as the ASCII pair uncommitted=<n> newest=<ISO-8601> and says another session may hold it and it must not be reset; cleanup keeps its dirty-tree guard. -TakeOver is a start parameter described in task.ps1's help"
+  - "A2 Selftest gate 15 keeps running: its fixture starts after those in 15a and 15b' pass -TakeOver, as does the 15r fixture helper. A new gate 15 block runs the real task.ps1 in the gate 15 fixture and prints [15LW-OK] only when all of these hold: a start whose card declares a path another fixture worktree has uncommitted exits non-zero with [START-LIVE-WORK] and creates no worktree; the same start with -TakeOver exits 0 and creates it; a start whose probe fails (a registered fixture worktree whose directory was removed) exits non-zero with [START-LIVE-WORK-UNKNOWN] and creates no worktree, also with -TakeOver; and a start of a card whose worktree exists with one uncommitted edit, with -TakeOver, refuses with uncommitted=1 and leaves the edit in place"
+  - "A3 The task-loop skill's 前置, CLAUDE.md's execution boundary and docs/HANDOFF.md each tell a session to run live-work.ps1 -TaskId <id> before it starts, resumes, splits or amends a card, and live-work.ps1 before it resets, cleans or removes a worktree; when another session holds overlapping work, stop and ask the user which session owns it (L218). docs/HANDOFF.md adds that a session whose progress.md HANDOFF names another task writes its own handoff to _local/handoff-<id>.md (L273), which the probe lists"
+  - "A4 docs/DEVOPS-WORKFLOW.md's R1 row says start runs the live-work check and stops on an overlap unless -TakeOver is given"
+  - "A5 The Tier-S full selftest run passes on the shipped candidate"
+dod_command: $o = (& pwsh -NoProfile -File scripts/selftest.ps1 -Only 15 2>&1 | Out-String); $rc = $LASTEXITCODE; if ($rc -ne 0 -or -not $o.Contains('[15LW-OK]')) { Write-Host ($o.Substring([Math]::Max(0, $o.Length - 4000))); Write-Host "[DOD-FAIL] selftest -Only 15 rc=$rc or no [15LW-OK]"; exit 1 }; foreach ($f in @('CLAUDE.md', '.claude/skills/task-loop/SKILL.md', 'docs/HANDOFF.md')) { $t = Get-Content -Raw -LiteralPath $f; if (-not ($t.Contains('live-work.ps1 -TaskId') -and $t.Contains('L218'))) { Write-Host "[DOD-FAIL] $f lacks the live-work rule"; exit 1 } }; if (-not (Get-Content -Raw -LiteralPath 'docs/HANDOFF.md').Contains('_local/handoff-')) { Write-Host '[DOD-FAIL] docs/HANDOFF.md lacks the per-task handoff rule'; exit 1 }; Write-Host '[DOD-PASS]'; exit 0
+dod_exit: 0
+dod_assert: Gate 15 passes with the new start block printing [15LW-OK] (A1, A2), and the three teaching surfaces carry the live-work rule and HANDOFF.md the per-task handoff rule (A3); prints [DOD-PASS]. On base it exits 1 because gate 15 prints no [15LW-OK].
+review_gate: codex {verdict:pass}
+budget: 300
+hygiene: R4 runs single-statement mutants against selftest -Only 15, each recorded in the R5 note with the case that caught it - drop the start stop, make -TakeOver the default, let -TakeOver continue past exit 2, map exit 2 to 0 in start, drop the existing-worktree count; every one must make the [15LW-OK] block fail.
+doc_sync: At R5 set status merged, update the TASK-BOARD row and the CLAUDE.md current-stage entry, and fill L218's enforced_by with task.ps1 start's live-work check.
+---
+
+# T0-LIVE-WORK-START
+
+Split from `T0-LIVE-WORK-GUARD` on 2026-10-07 (user ruling; that card's "Split" section has the reason). It
+carries what that card's acceptance A3 and A6 asked for, plus the executable start cases Codex R3 found missing
+on PR #447. The incident behind it is in `T0-LIVE-WORK-GUARD`'s "What happened".
+
+## Design
+
+1. **Check before start (A1).** Starting a card whose paths another worktree has changed, or whose branch
+   already exists, stops until the user says to take it over. A probe that fails stops start even with
+   `-TakeOver`, because nobody can say what the unread worktree holds.
+2. **Keep the selftest fixtures running (A2).** Gate 15 starts several fixture cards that all declare
+   `README.md` while its earlier steps leave `README.md` edits in other fixture worktrees, which the new check
+   reads as another session's work. Those later starts pass `-TakeOver`; the starts in 15a and 15b' stay plain.
+3. **Say it where it is read (A3, A4).** One rule line each in CLAUDE.md's execution boundary (always loaded)
+   and the task-loop skill, the per-task handoff rule in docs/HANDOFF.md, one sentence in the R1 row.
+
+## Evidence carried from PR #447 (combined candidate)
+
+- **A real start run** (2026-09-26) in a `--shared` clone carrying the candidate `task.ps1` and `live-work.ps1`:
+  a second worktree held an uncommitted edit to `.claude/skills/task-loop/SKILL.md`; start stopped with
+  `[START-LIVE-WORK]` and created no worktree; with `-TakeOver` it continued; a third start with `-TakeOver` on
+  the existing worktree refused with `（1 个未提交改动，最新改动 …）` and the edit stayed. A2 turns this into an
+  executable selftest block, which matches the ASCII `uncommitted=<n>` pair rather than the Chinese text, because
+  gate 15 also runs on windows-latest, whose console code page can turn the Chinese into `?` (L165, L17).
+- **Gate 15** on the first candidate failed at four fixture starts (15w, 15g9, 15h3, 15h4) until those starts
+  passed `-TakeOver` (#421).
+
+## Order with other cards
+
+`T0-MAIN-CHECKOUT-READONLY` also edits CLAUDE.md's execution boundary; whichever ships second merges
+origin/master before ship and keeps both lines. `T0-DIRTY-WORKTREE-HOOK` ships after this card and adds the
+hook to the execution-boundary line this card writes.
+
+## Implementation record (2026-10-07)
+
+Delivered through the AIDLC loop (goal `g-20260925112601-012c7e`, revision 1), after `T0-LIVE-WORK-GUARD` merged
+(#447). The `task.ps1` start check, the gate 15 `-TakeOver` edits and the three rule lines come from the combined
+candidate of PR #447 (`00a0e56d`), applied with `git apply --3way` onto `246d8aa1`. Changes on top of it:
+
+- The existing-worktree refusal first prints one ASCII line, `[START-WORKTREE-EXISTS] <worktree> uncommitted=<n>`
+  `newest=<ISO-8601>` (amended by #449), then throws as before. The pair needs its own line: PowerShell's error
+  view wraps a long `throw` message, and in gate 15 it split the pair across two lines. The card's worktree is
+  found by its branch in the probe's overlap lines, not by its path: git stores the long form of a path given with
+  8.3 short names, so on a runner whose TEMP is `C:\Users\RUNNER~1\...` the two strings differ.
+- CLAUDE.md's execution-boundary line no longer names the dirty-worktree hook; `T0-DIRTY-WORKTREE-HOOK` adds it.
+  It says instead that a probe failure stops start even with `-TakeOver`.
+- Gate 15 gains the 15lw block (A2), placed last in the `$e2e` fixture before its cleanup. It prints `[15LW-OK]`
+  only when all its cases hold, and each case fails under its own ASCII sentinel (`[15LW-STOP]`,
+  `[15LW-TAKEOVER]`, `[15LW-EXISTING-CLEAN]`, `[15LW-EXISTING]`, `[15LW-UNKNOWN]`, `[15LW-OTHER-EXIT]`,
+  `[15LW-HELP]`; the last four cases and the exact line come from R3 round 1, below).
+
+**Start probes from the main checkout.** `task.ps1` runs `live-work.ps1 -TaskId <id> -RepoPath <main checkout>`,
+and the probe always includes the main checkout, so an uncommitted edit there to one of the card's paths also
+stops start. That is intended: the main checkout is shared by every session.
+
+**R3 round 1 (PR #452, on `15a8bb51`).** Codex blocked on two spec findings, both #6 (tests missing):
+
+1. A clean existing card worktree printed `newest=unknown`: with no uncommitted and no unmerged path the probe has
+   no time to give, and 15lw(c) only tested a dirty worktree with the partial pattern `newest=\d{4}-`. When the
+   probe says `unknown`, start now prints the worktree's HEAD commit time in the probe's UTC format, as the probe
+   does for a deletion-only worktree. If that `git log` fails, the line keeps `newest=unknown`; start still refuses.
+2. 15lw did not check the overlap lines, a probe exit other than 0, 2 and 3, the do-not-reset text, or the
+   `-TakeOver` help. Now (a) and (b) each require exactly one `[LIVE-WORK-OVERLAP]` line for the fixture worktree
+   that holds `README.md`. (c) matches the whole `[START-WORKTREE-EXISTS]` line, which now ends with the ASCII
+   clause `another session may hold this worktree: do not reset, checkout or clean it; ask the user (L218)`, with the
+   exact expected time: clean (`uncommitted=0`, the HEAD commit time read with `%cI`) and dirty (`uncommitted=1`,
+   the edited file's write time). (e) swaps the fixture's `live-work.ps1` for one that exits 5, requires
+   `[START-LIVE-WORK-UNKNOWN] live-work.ps1 exited 5` and no worktree with and without `-TakeOver`, then restores
+   the file byte for byte. (f) requires exactly one `.PARAMETER TakeOver <text>` line in `task.ps1`'s help block.
+   That block cannot be read with `Get-Help`: every `.PARAMETER` there keeps its text on the same line, so
+   `Get-Help task.ps1 -Parameter TakeOver` finds no parameter, for this and every other parameter. (f) reads the line.
+
+A fresh-context review of the fix found nothing blocking. It showed that checking only the time's shape let two
+mutants pass (always the HEAD time; local time instead of UTC), so (c) compares the exact time (M11, M12 below).
+
+**DoD.** `selftest.ps1 -Only 15` on `a96b5e23` passed in 1218 s with the `[15LW-OK]` line (R4's control run below),
+and the three teaching surfaces and the HANDOFF.md rule pass the DoD's text checks.
+
+**Tier-S (A5).** The acceptance run is `selftest.ps1 -Parallel` on this PR's final head, the commit that adds this
+paragraph, launched from the card worktree with an empty `git status --porcelain` and no edit during or after it.
+Its launch HEAD, status and shard exits are posted on PR #452. A commit cannot carry the result of a run on itself,
+so this record names the run instead. Earlier full runs passed on `a96b5e23` (1143 s) and on `283c7546` (1680 s,
+before R3 round 1). Neither counts as acceptance: edits followed both, and this record was edited in the same
+worktree while the `a96b5e23` run was going, which DEVOPS-WORKFLOW §3.2 says voids a frozen-tree proof.
+
+**R3 round 2 (on `7b53d7b2`).** Codex blocked on one spec finding: the run cited for A5 was on `a96b5e23`, and two
+record commits and a merge of origin/master `8d465d6a` (which changes only `T0-DIRTY-WORKTREE-HOOK`'s card)
+followed it. The paragraph above now names the run on the final head.
+
+**R4.** Each mutant ran `selftest.ps1 -Only 15` in its own detached worktree of `a96b5e23`, at most 6 at once,
+beside an unmutated control copy, which passed with `[15LW-OK]`. A kill is a non-zero exit, no `[15LW-OK]`, and the
+mutant's own sentinel in the output; re-encoding the unmutated file must give back its bytes. 12 of 12 killed on
+`scripts/task.ps1` at `a96b5e23` (SHA-256 `3095FC11…CD24C`; `selftest.ps1` `8325D141…7D58E`). M12 is visible
+only where local time differs from UTC; this machine is UTC+13. Earlier batches: the first (on `2a127f35`) let M5
+survive, because 15lw(c) matched `uncommitted=1` in the overlap line that start prints before it refuses. Anchoring
+the case on the refusal then made the second batch's control fail, which is how the wrapped `throw` message above
+was found. The third (`9566e125`) and fourth (`92063c73`, after a fresh-context review found the path comparison
+above and a 15lw(a) assertion the start's own step header satisfied) killed M1-M5 with a passing control.
+
+| id | single-statement change in `scripts/task.ps1` | killed by |
+|---|---|---|
+| M1 | the start stop `if ($liveWork -eq 3 -and -not $TakeOver)` -> `if ($false)` | `[15LW-STOP]` |
+| M2 | `[switch]$TakeOver` -> `[switch]$TakeOver = $true` (-TakeOver by default) | `[15LW-STOP]` |
+| M3 | `elseif ($liveWork -ne 0)` -> `... -and -not $TakeOver` (-TakeOver past exit 2) | `[15LW-UNKNOWN]` |
+| M4 | `$liveWork = $LASTEXITCODE` -> exit 2 mapped to 0 | `[15LW-UNKNOWN]` |
+| M5 | `if ($lwMine.Count -and $lwMine[0] -match …) {` -> `if ($false) {` (no pair) | `[15LW-EXISTING]` |
+| M6 | the probe lines `$lwLines \| ForEach-Object { Write-Host … }` -> `$null = $lwLines` | `[15LW-STOP]` |
+| M7 | `elseif ($liveWork -ne 0)` -> `elseif ($liveWork -eq 2)` (other exit codes pass) | `[15LW-OTHER-EXIT]` |
+| M8 | the do-not-reset clause dropped from the `[START-WORKTREE-EXISTS]` line | `[15LW-EXISTING]` |
+| M9 | the `.PARAMETER TakeOver` help line loses its keyword | `[15LW-HELP]` |
+| M10 | `if ($lwNewest -ceq 'unknown') {` -> `if ($false) {` (no HEAD-time fallback) | `[15LW-EXISTING-CLEAN]` |
+| M11 | `if ($lwNewest -ceq 'unknown') {` -> `if ($true) {` (always the HEAD time) | `[15LW-EXISTING]` |
+| M12 | `.UtcDateTime.ToString(` -> `.LocalDateTime.ToString(` | `[15LW-EXISTING-CLEAN]` |
+
+## R5 (2026-10-09)
+
+Merged by PR #452 (squash `827ca3d2`, reviewed head `ee233c8f`, CI `37893001840` attempt 2). Codex R3 round 3
+passed both axes with zero findings; the user authorized that round after round 2 reached ReviewRoundCap=2. Round 1
+blocked on two spec findings and round 2 on the Tier-S evidence, both fixed as recorded above. CI attempt 1 failed
+in the license gate for a reason outside this diff (TD176: the only Gradle Actions cache, saved on 2026-09-07, had
+passed Gradle's 30-day cleanup, which deleted the POMs the scanner reads). With the user's approval the cache was
+deleted and CI rerun; the resumed ship reviewed the same head again and Codex passed it again with zero findings.
+
+**doc_sync.** This R5 sets the status, the TASK-BOARD row and the CLAUDE.md current-stage entry. L218 enforced_by:
+deferred to the lessons PR after T0-DIRTY-WORKTREE-HOOK (agreed with session myinspection-86), which fills it once
+with this start check and that card's hook.
+
+**Known limits, not fixed here.** If `git log` fails on an existing card worktree that is clean, the
+`[START-WORKTREE-EXISTS]` line keeps `newest=unknown`; start still refuses. `task.ps1`'s comment help cannot be read
+with `Get-Help` for any parameter, because every `.PARAMETER` keeps its text on the same line.

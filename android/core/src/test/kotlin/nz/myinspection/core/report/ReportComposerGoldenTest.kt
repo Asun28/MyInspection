@@ -33,7 +33,7 @@ import kotlin.test.assertTrue
  * | A18 | reverse the adverse-item traversal | `summary order differs from room/item traversal` |
  */
 class ReportComposerGoldenTest {
-    private val composer = ReportComposer(ReportTestFixtures.measurer)
+    private val composer = ReportComposer(ReportTestFixtures.measurer, ReportTestFixtures.typography)
 
     @Test
     fun `fixed inspection produces the golden six-page layout tree`() {
@@ -117,18 +117,23 @@ class ReportComposerGoldenTest {
 
     @Test
     fun `a footer that measures to multiple lines is refused instead of overflowing its fixed strip`() {
-        val wrappingFooter = TextMeasurer { text, style, widthMm ->
+        val wrappingFooter = TextMeasurer { text, language, style, widthMm ->
             if (text.startsWith("ea9cd02e76bf ·")) {
-                MeasuredText(listOf("ea9cd02e76bf", text.substringAfter("ea9cd02e76bf ")), 4)
+                ReportTestFixtures.measuredLines(
+                    listOf("ea9cd02e76bf", text.substringAfter("ea9cd02e76bf ")),
+                    language,
+                    style,
+                )
             } else {
-                ReportTestFixtures.measurer.measure(text, style, widthMm)
+                ReportTestFixtures.measurer.measure(text, language, style, widthMm)
             }
         }
 
         assertEquals(
             "footer text must measure as one line within the 10mm strip",
             kotlin.test.assertFailsWith<IllegalArgumentException> {
-                ReportComposer(wrappingFooter).compose(ReportTestFixtures.report(), Audience.LANDLORD)
+                ReportComposer(wrappingFooter, ReportTestFixtures.typography)
+                    .compose(ReportTestFixtures.report(), Audience.LANDLORD)
             }.message,
         )
     }

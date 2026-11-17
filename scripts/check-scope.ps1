@@ -7,8 +7,8 @@
   ship 的范围闸（task.ps1）与本脚本共用同一枚判定核 scripts\_scope.ps1——本脚本不是「第二实现」，
   它只是那枚核的第二个入口（TD93 item①；双实现漂移的教训见 _scope.ps1 / _gitbase.ps1 头注）。
 
-  存在的理由：`docs\DEVOPS-WORKFLOW.md`「任何已 push 状态的手工恢复」是**绕过 ship 主路**的最后手段平面，
-  而 CI 没有范围闸（TD89 根因）——那条序列里的范围核对此前是散文（人眼比对 git diff 输出，没有退出码）。
+  存在的理由：`docs\DEVOPS-WORKFLOW.md`「任何已 push 状态的手工恢复」需要独立的诊断/人工自查平面，
+  而 CI 没有范围闸（TD89 根因）——那条序列里的范围核对此前是散文（人眼比对 git diff 输出，没有退出码）。本命令不构成交付旁路：最终交付仍须重入 `task.ps1 -Phase ship`，共用 R3、候选 CI 的精确身份/终局快照和 merge 路径。
 
   退出码（fail-closed）：
     0 = 全部改动 ∈ 卡 allow_paths。
@@ -51,8 +51,16 @@
 [CmdletBinding()]
 param(
   # 绑定期即校验字符集（同 check-cards / task.ps1 的卡 id 契约）：TaskId 会拼进卡片与 worktree 路径，路径穿越面。
+  # T229/TD231: derived from the card-id rule row in _cards.ps1, never copied. A ValidatePattern attribute
+  # cannot call a function, so this is a ValidateScript that dot-sources the shared library off this script's
+  # own directory - the same "run the trusted checkout's copy" rule this file's header states for
+  # _scope.ps1/_cards.ps1. The row's CaseSensitive flag now applies here too; the old ValidatePattern
+  # defaulted to IgnoreCase and accepted ids check-cards rejects.
   [Parameter(Mandatory)]
-  [ValidatePattern('^T\d+-[A-Z0-9]+(-[A-Z0-9]+)*$', ErrorMessage = 'TaskId 非法格式：值 "{0}" 须匹配卡 id 契约 ^T\d+-[A-Z0-9]+(-[A-Z0-9]+)*$（同 check-cards / task.ps1）。')]
+  # ErrorMessage 内嵌 ASCII 哨兵 [SCOPE-BADID]（同 task.ps1 的 TD50-BADID 手法 · L17）：selftest 15v 臂4 要跨
+  # 子进程/locale 稳定判「绑定期拒」，中文断言在异构控制台会产假 FAIL。没有它，删掉本行的变异会存活——
+  # 15v 其余各臂只驱动 task.ps1，判不到 check-scope 这一侧。
+  [ValidateScript({ . (Join-Path $PSScriptRoot '_cards.ps1'); Test-ScaffoldCardId $_ }, ErrorMessage = 'TaskId 非法格式 [SCOPE-BADID]：值 "{0}" 不符卡 id 契约（判据取自 _cards.ps1 的 card-id 规则行，与 check-cards / task.ps1 同源、大小写敏感）。')]
   [string]$TaskId,
   [string]$Base = '',
   [string]$Path = '',
@@ -239,7 +247,8 @@ foreach ($c in $changed) { Write-Host "    $c" -ForegroundColor DarkGray }
 # 旧码读 $RepoRoot/specs/tasks/<id>.md——按文档从卡的 worktree 里跑时，那就是**被审分支自己的**卡：
 # 分支只要给自己的卡加几行 allow_paths，检查器就照单全收，恢复序列的范围闸遂被绕过。判定标准必须来自
 # 受信基线，与闸 17ab（R3 的 FrozenPaths 从基线解析，被审分支清空自身副本也不能弱化标准）同一条道理。
-# ship 侧无此洞：L86 强制相位命令在主检出跑，task.ps1 读的本就是基线检出那份卡。
+# Ship takes the same shape since T241/TD247. It used to read the MAIN CHECKOUT WORKING FILE - L86 only
+# guarantees that is the main checkout, never that it is the baseline, so an uncommitted widening was honoured. It now reads the base card through `git show` too, and pins the base to an immutable sha first, exactly as here.
 # 同上：读的是**钉住的基线 sha**那份卡，不是 $baseRef 那个可变引用——否则并发 fetch 会让「判定用的 diff」
 # 与「采信的 allow_paths」来自两个不同的基线提交（codex R3 r5 #2）。
 $cardInBase = "specs/tasks/$TaskId.md"

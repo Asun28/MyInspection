@@ -1,0 +1,129 @@
+{
+  "sourceCommit": "4c9735ef113e2a778d628de490bfc0554d9defa9",
+  "priorCandidate": "fd682ef6a57e648283ed4680dbd56712effada10",
+  "files": [
+    {
+      "path": "docs/PREREVIEW-PROTOCOL.md",
+      "sourceBlob": "0bbfb4e51b08624c23f38a8e388aad485e05b1b8",
+      "sourceSha256": "1cbf12a29e6ccc67bcfaeeeae93c0ce65e00d151ccdcc67f885421be5f744457",
+      "sourceBytes": 29016,
+      "adoptedBodySha256": "5948ca1be9474a3fdedb4c2b5aea1380aae86de19a3799ecec98f31df0d0e2e8",
+      "adoptedBodyBytes": 29739,
+      "replacements": [
+        {
+          "old": "# PR review v2, Phase 1a: the discovery packet protocol",
+          "new": "# PR review v2, Phase 1a: the discovery packet protocol\n\n> Remote adoption: this document describes the approved target protocol. Only the schema and policy foundation are available at this PR; FACTS-LIB follows next. RECORDS, workers, runner and the trust-manifest/ship integration are pending. See `docs/plans/PREREVIEW-REMOTE-ADOPTION.md`; source local card references below are design lineage, not claims that those cards or scripts exist on remote master.",
+          "occurrences": 1
+        },
+        {
+          "old": "Outbound trust surfaces: `docs/TRUST-MANIFEST.md`.",
+          "new": "Future outbound integration must first update `docs/TRUST-MANIFEST.md`; this adoption authorizes no provider or network execution.",
+          "occurrences": 1
+        },
+        {
+          "old": "codex R3 stays the only merge gate, the packet",
+          "new": "codex R3 and deterministic delivery checks remain required, the packet",
+          "occurrences": 1
+        },
+        {
+          "old": "Pass `-Local` when the card will ship `-Local` (this\n   repository's usual mode): base resolution follows the ship mode through",
+          "new": "Pass `-Local` only when the card will ship `-Local`; omit it for remote delivery. Base resolution follows the ship mode through",
+          "occurrences": 1
+        },
+        {
+          "old": "- **Nothing is written into the reviewed worktree or its `.review/`**. The codex reviewer runs read-only inside that\n  worktree and may open any file there",
+          "new": "- **The packet and worker outputs are not written into the reviewed worktree or its `.review/`**. The codex reviewer\n  uses a workspace-write sandbox rooted at that worktree and may open any file there",
+          "occurrences": 1
+        },
+        {
+          "old": "(`docs/TRUST-MANIFEST.md`, R3 row)",
+          "new": "(`scripts/review.ps1`, codex invocation)",
+          "occurrences": 1
+        },
+        {
+          "old": "Everything HEAD tracks stays in the snapshot whether or not it matches an\nignore rule (`add -A` never drops a tracked path), so the guarantee for tracked content rests on the repository's own",
+          "new": "Existing tracked files remain eligible regardless of ignore rules; tracked deletions are reflected in the\nsnapshot by `add -A`. The guarantee for tracked content rests on the repository's own",
+          "occurrences": 1
+        },
+        {
+          "old": "exactly the snapshot tree's content, so every tracked file plus untracked non-ignored files; an ignored untracked file cannot enter",
+          "new": "exactly the snapshot tree's content: existing tracked files plus untracked non-ignored files, with tracked deletions reflected; an ignored untracked file cannot enter",
+          "occurrences": 1
+        },
+        {
+          "old": "worktree (1a keeps no per-round archive, hence \"right after the block\"), lists",
+          "new": "worktree (the linker reads the current verdict; `review.ps1` also preserves per-round `.r<n>.json` files), lists",
+          "occurrences": 1
+        },
+        {
+          "old": "> **Status**: a human-facing description of the contracts the Phase-1a cards carry (`docs/TASK-BOARD.md`, section\n> \"PR review v2\"; the cards are self-contained and win on any discrepancy, and known wording gaps in sibling cards\n> are listed as follow-ups in this card's body); the scripts land card by card and nothing described here runs before\n> the RUN card merges.",
+          "new": "> **Status**: the approved target protocol, adopted in the stages listed in `docs/plans/PREREVIEW-REMOTE-ADOPTION.md`.\n> Source Phase-1a card names below identify planned responsibilities. Operational packet execution remains pending\n> the runner, workers, RECORDS and their separate integration delivery.",
+          "occurrences": 1
+        },
+        {
+          "old": "> **Conventions**: commands are named by subcommand (`prereview.ps1 run`); script paths are cited only for files that\n> exist today. Truth sources:",
+          "new": "> **Conventions**: commands are named by subcommand (`prereview.ps1 run`); paths may name pending artifacts.\n> Current availability follows the remote adoption plan. Contract sources:",
+          "occurrences": 1
+        },
+        {
+          "old": "L309, L317, L321, L224",
+          "new": "L224; rubric 6",
+          "occurrences": 1
+        },
+        {
+          "old": "L148, L310, L227",
+          "new": "L148, L227",
+          "occurrences": 1
+        },
+        {
+          "old": "The baseline the checkpoint is\nmeasured against (143 archived cards: first-round pass 32.9%, 3.9 blocks per card on average) is stated in the\n\"PR review v2\" section of `docs/TASK-BOARD.md`.",
+          "new": "Before a remote live checkpoint, establish its baseline from the then-current remote archive. The local source\nstudy (143 archived cards, first-round pass 32.9%, 3.9 blocks per card) is historical provenance only; it is not\na measured remote baseline. Adoption scope is recorded in `docs/plans/PREREVIEW-REMOTE-ADOPTION.md`.",
+          "occurrences": 1
+        }
+      ],
+      "sourceFile": "PREREVIEW-PROTOCOL.txt"
+    },
+    {
+      "path": "docs/PREREVIEW-CHECKLISTS.md",
+      "sourceBlob": "836a99e8a4b756fb1f78e92159e86eb4e48a06c3",
+      "sourceSha256": "c0c8adacc6f77ef8d067f2987e69398e1abdef40e10c46b1ad32bf511b6181f1",
+      "sourceBytes": 12238,
+      "adoptedBodySha256": "1a46b3031d6781769280838decf1640100f8b5f7254eb719b89742a9a7e7e84c",
+      "adoptedBodyBytes": 12151,
+      "replacements": [
+        {
+          "old": "lesson:L309, lesson:L224",
+          "new": "lesson:L224",
+          "occurrences": 1
+        },
+        {
+          "old": "lesson:L227, lesson:L310",
+          "new": "lesson:L227",
+          "occurrences": 1
+        },
+        {
+          "old": " (lesson:L309, lesson:L321)",
+          "new": "",
+          "occurrences": 1
+        },
+        {
+          "old": "lesson:L317",
+          "new": "rubric:6",
+          "occurrences": 2
+        },
+        {
+          "old": " (lesson:L309)",
+          "new": "",
+          "occurrences": 1
+        },
+        {
+          "old": " (lesson:L321)",
+          "new": "",
+          "occurrences": 1
+        }
+      ],
+      "sourceFile": "PREREVIEW-CHECKLISTS.txt"
+    }
+  ],
+  "purpose": "Historical byte-exact adoption evidence; original source text is data, not an active policy or instruction. Do not alter old references."
+}

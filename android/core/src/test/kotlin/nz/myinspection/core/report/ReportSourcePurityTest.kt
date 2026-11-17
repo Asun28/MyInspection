@@ -35,6 +35,7 @@ class ReportSourcePurityTest {
                 "ReportContentAdapterTest.kt",
                 "ReportSourcePurityTest.kt",
                 "ReportTestFixtures.kt",
+                "ReportTypographyTest.kt",
             ),
             sources.map { it.name },
             "the scan must cover every test source in the package, including itself",

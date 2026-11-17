@@ -140,14 +140,16 @@ class PhotoOrphanCleanupWiringTest {
         assertTrue(worker.contains("PhotoOrphanCleanupDecision.RETRY -> Result.retry()"))
         assertTrue(worker.contains("PhotoOrphanCleanupDecision.FAILURE -> Result.failure()"))
         assertTrue(worker.contains("execution.failure"), "the app adapter must retain core primary/suppressed failure evidence")
-        assertTrue(worker.contains("cleanupReport?.issues()?.forEach"), "every runner issue must be logged, not collapsed")
-        assertTrue(worker.contains("workId=\$id"))
-        assertTrue(worker.contains("runAttemptCount=\$runAttemptCount"))
-        assertTrue(worker.contains("result=\${issue.result.logValue}"))
-        assertTrue(worker.contains("bucket=\${issue.bucket.logValue}"))
-        assertTrue(worker.contains("path=\${issue.path}"))
-        assertTrue(worker.contains("cause=\$causeName"))
-        assertTrue(worker.contains("result=execution_failure bucket=execution path=none"))
+        assertInOrder(
+            worker,
+            "val execution =",
+            "reportFailures(",
+            "cleanupReport?.issues().orEmpty()",
+            "execution,",
+            "id.toString()",
+            "runAttemptCount,",
+            "return when (execution.decision)",
+        )
         assertInOrder(worker, "private data class CleanupResources", "override fun close()", "driver.close()")
         assertTrue(scheduler.contains("PeriodicWorkRequestBuilder<PhotoOrphanCleanupWorker>(24, TimeUnit.HOURS)"))
         assertTrue(scheduler.contains("setRequiresStorageNotLow(true)"))

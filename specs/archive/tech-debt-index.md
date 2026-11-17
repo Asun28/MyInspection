@@ -1,6 +1,6 @@
 # 技术债精简索引（cold-storage index · 可 grep）
 
-> 一行一条已归档（paid/accepted）债项，共 48 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
+> 一行一条已归档（paid/accepted）债项，共 49 条；完整还债指针在 `tech-debt-archive.md` 按 id 查。
 > 由 `scripts/archive.ps1` 从归档文件投影生成，勿手工编辑。新卡/续接查「这坑还没还过？」先 grep 本表。
 
 | id | 严重度 | 状态 | 位置 | 一句话（债，截断） |
@@ -53,3 +53,4 @@
 | TD168 | minor | paid | 迟到失败 callback 在 watchdog 先结算时丢失 admission 分类（`T4-SCHEDULE-R… | **同一事实按谁赢得竞速而有两种分类**：worker 证实 admission 后，若 **watchdog** 先 settle 掉 flight（`WORKER_CONFIRMED_ADMISSION`，waiter 得 ADMIT… |
 | TD169 | minor | paid | 边缘路径诊断记的 generation 为空或记成了新的那一代（`T4-SCHEDULE-REMINDER-FLIGH… | `expire` 的 Missing/Quarantined 与 `proved`/`reread` 的不可读分支构造 `Settlement(RECEIPT_QUARANTINED)` **不带 generation**，于是 `Fli… |
 | TD170 | minor | paid | waiter 抛出的 Throwable 被静默吞掉、无任何诊断（`T4-SCHEDULE-REMINDER-FLIG… | `publish` 逐个隔离 waiter 是 A2 的硬要求（一个 waiter 抛错不得饿死其余），但当前 `catch (_: Throwable)` **不记录任何东西**，于是调用方的 bug 完全消失、无从排查。修法：继续调用… |
+| TD174 | major | paid | `core/report/importing/docx/package/` 自定义文档属性边界 | 原始来源包含 `docProps/custom.xml`，现有 reader 在 extractor 前返回 `UNSUPPORTED_PART`。合成 extractor DoD 通过不代表该原包可导入 / 修法：独立评审有界读取后丢弃… |

@@ -18,6 +18,7 @@ internal class DocxXmlBoundary(private val limits: DocxPackageLimits, private va
     private val defaults = HashMap<String, String>()
     private val overrides = HashMap<String, String>()
     private var elements = 0L
+    private var customRelationships = 0
 
     fun validate(parts: Map<String, ByteArray>) {
         if (!parts.keys.containsAll(listOf("[content_types].xml", "_rels/.rels", "word/document.xml"))) fail(DocxPackageReason.INVALID_PACKAGE)
@@ -27,6 +28,7 @@ internal class DocxXmlBoundary(private val limits: DocxPackageLimits, private va
                 if (bytes.size < signature.size || !bytes.copyOfRange(0, signature.size).contentEquals(signature)) fail(DocxPackageReason.UNSUPPORTED_CONTENT)
             } else parse(name, bytes, parts)
         }
+        if ("docprops/custom.xml" in parts && customRelationships != 1) fail(DocxPackageReason.UNSAFE_RELATIONSHIP)
         parts.keys.filter { it != "[content_types].xml" }.forEach { name ->
             if ((overrides[name] ?: defaults[name.substringAfterLast('.')]) != contentType(name)) fail(DocxPackageReason.UNSUPPORTED_CONTENT)
         }
@@ -59,6 +61,7 @@ internal class DocxXmlBoundary(private val limits: DocxPackageLimits, private va
                         partKind(name) == DocxPartKind.DOCUMENT -> word to "document"
                         partKind(name) == DocxPartKind.HEADER -> word to "hdr"
                         partKind(name) == DocxPartKind.FOOTER -> word to "ftr"
+                        name == "docprops/custom.xml" -> "http://schemas.openxmlformats.org/officeDocument/2006/custom-properties" to "Properties"
                         else -> null
                     }
                     if (expected != null && expected != uri to local) fail(DocxPackageReason.INVALID_PACKAGE)
@@ -86,6 +89,7 @@ internal class DocxXmlBoundary(private val limits: DocxPackageLimits, private va
                     val resolved = (if (name == "_rels/.rels") "" else "word/") + target
                     val type = attributes.getValue("", "Type")
                     if (resolved !in parts || type != relationshipType(resolved)) fail(DocxPackageReason.UNSAFE_RELATIONSHIP)
+                    if (name == "_rels/.rels" && resolved == "docprops/custom.xml") customRelationships++
                     if (name == "_rels/.rels" && resolved == "word/document.xml") rootRelationship = true
                 }
             }
@@ -122,6 +126,7 @@ internal class DocxXmlBoundary(private val limits: DocxPackageLimits, private va
         else -> when {
             name == "docprops/core.xml" -> "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties"
             name == "docprops/app.xml" -> office + "extended-properties"
+            name == "docprops/custom.xml" -> office + "custom-properties"
             name.matches(Regex("word/theme/theme[0-9]+\\.xml")) -> office + "theme"
             name.matches(Regex("word/(styles|settings|websettings|fonttable|numbering)\\.xml")) -> office + when (name) {
                 "word/fonttable.xml" -> "fontTable"

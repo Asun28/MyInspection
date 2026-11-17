@@ -40,6 +40,40 @@ The R5 ordering defect — `task.ps1 -Phase cleanup` resolves the card only unde
 [#361](https://github.com/Asun28/claude-devops-scaffold/issues/361), filed after L252 recurred a third time
 (`T4-SCHEDULE-REMINDER-DIAGNOSTICS`). Until a release fixes it the constraint stays memory-enforced:
 **cleanup before archive**.
+Two more defects surfaced on 2026-09-14 by `T0-CI-SELFTEST-ADOPTION-REPAIR` (PR #299), both in the adopted
+`scripts/selftest.ps1` and both wrong for every initialized downstream: gate 17ac(o)① asserts the presence of
+`specs/mutations/T63-TD119-MUTATION-RUNNER-results.tsv`, a meta-repository evidence file `init-scaffold.ps1`
+keeps out of downstreams, so the nightly (`-IncludeMeta`) reds on seed-b; and gate 15e dry-runs the real
+`scripts/verify.ps1` in `$RepoRoot` expecting exit 0, which a verify that runs the product build (Gradle here)
+cannot satisfy on the scaffold-selftest runner. Repaired locally with a post-init skip (`[SELFTEST-POSTINIT-MUT-TSV-SKIP]`)
+and a bare-copy degraded-path fixture; reported upstream with `scripts/scaffold-sync.ps1 report`
+(issue links are recorded in the decision ledger row once filed).
+
+Delivery-efficiency feedback (2026-09-10) is tracked upstream in
+[#393](https://github.com/Asun28/claude-devops-scaffold/issues/393), linked to downstream
+[#298](https://github.com/Asun28/MyInspection/issues/298). It includes timed validation/review
+evidence and requests bounded Task Loop simplification: upstream owns reusable scaffold fixes;
+this downstream applies only necessary patches and prioritizes application delivery.
+
+The plan-forge prompt wording written for older models (emphasis markers, internal ticket ids in a lens, and a
+discovery-stage cap in lens rule 4) is tracked upstream as
+[#399](https://github.com/Asun28/claude-devops-scaffold/issues/399), filed 2026-09-25 after downstream PR #334
+(`T0-OPUS55-PROMPT-FIT`) and PR #360 (`T0-PLAN-FORGE-PROMPT-TRIM`) fixed it here. `decompose-cards.mjs` carries
+the same class and is carded downstream as `T0-PLAN-FORGE-FOLLOWUP`.
+
+Upstream lesson ids in adopted code are tracked upstream as
+[#400](https://github.com/Asun28/claude-devops-scaffold/issues/400), filed 2026-09-25 by `T0-UPSTREAM-LESSON-IDS`.
+Code taken from the scaffold in PR #297 (upstream `96ebfcec`) cites lesson ids from the upstream ledger on 461
+lines. The two ledgers number independently, so a cited id usually names a different lesson in
+`docs/lessons/LEDGER.md` (nine checked, all different). The adopted files stay unchanged; `docs/LESSONS.md` says
+how to tell the two apart and where to read the upstream entry.
+
+The 2026-10-14 unused-code audit (`docs/plans/PLAN-AUDIT-CLEANUP-20261014.md`) filed two defects in code adopted
+in PR #297. [#401](https://github.com/Asun28/claude-devops-scaffold/issues/401): nine adopted functions have no
+caller, and four `Upstream*` keys in `scripts/_config.ps1` are never read because their accessors read other key
+names. [#402](https://github.com/Asun28/claude-devops-scaffold/issues/402): gate 1h passes a core once any one of
+its self-checks runs, so four declared `Test-Scaffold*Examples` never run. The adopted files stay unchanged here;
+local code the same audit found unused is removed by `T0-SCRIPTS-ORPHAN-CLEANUP`.
 
 ## Direction 2 — deciding whether to take an upstream release
 
@@ -74,6 +108,13 @@ scaffold is not a reason to stop shipping this app.
 v0.30 made R3 advisory and v0.31 removed mandatory-gate hardening. This project deliberately keeps
 R3 blocking—with round cap, diff budget, and head binding—so advisory-only follow-ons are declined.
 
+v0.47.0 adopted tier-keyed review intensity (#387, PR #297) with tier 0 as `advisory`. This project
+sets tier 0 to `adversarial` instead (`T0-REVIEW-GOVERNING-DOCS`, 2026-09-24), because its tier-0
+paths include the docs that define the gates, the security and license rules and the agents'
+boundaries. The effect: a doc-only diff of more than 100 changed lines now draws effort `high` and no
+longer gets the one-pass guidance; a diff of 100 changed lines or fewer is still read at `low` through
+`ReviewEffortBySize`.
+
 ## Decision ledger
 
 <!-- One row per upstream release, newest first. Every release gets a row,
@@ -89,6 +130,8 @@ R3 blocking—with round cap, diff budget, and head binding—so advisory-only f
 
 | version | decision | date | reason / what was taken | issue |
 |---|---|---|---|---|
+| v0.47.0 | partial | 2026-09-10 | Adopted 18 directly corresponding merged PRs plus the fixed source's complete-module prerequisites for tiered acceptance/nightly-meta, skill routing, review intensity, immutable review base, initializer anchors and ASCII codes from `96ebfcec2a1ff89ac77e665123978d7ae138c857`. Kept MyInspection product verify/CI/archive contracts, strict review-size gate and mandatory review policy; INPUT, TRIAGE and historical receipt work remain excluded. Full mapping: `docs/SCAFFOLD-UPSTREAM-ADOPTION-20260910.md`. | upstream #343/#345/#357/#358/#360/#362/#365/#371/#373/#374/#375/#376/#377/#380/#381/#387/#160/#162 |
+| v0.46.0 | applied | 2026-09-09 | Took the released v0.46.0 dual-version coupling group already present locally (T190): origin remains v0.29.0 while current advances to v0.46.0; the deliberate local fork is retained. Tag `d0c9145970e69626318a26ce922650f1a631c2f0`. The released v0.47.0 tier/meta groups are intentionally not adopted in this row. | upstream #266 / T190 |
 | v0.45.0 | partial | 2026-08-26 | Took seeded shard split (2 OS × 5) and local group-2 equivalent (`f9070ff`); groups 1/3 partial, 4 deferred. Origin v0.29.0; current v0.45.0. Tag `db835867e6f1bab740f13b48e4bae009a34521ef`. | upstream #259/#260/#261 / our #266 |
 | v0.44.0 | partial | 2026-08-24 | Took #201's bounded sync-ledger reader. Deferred card validation (31 live-card migration), seven shared-core selfchecks (overlaps PR #127), and handoff throttling (outside scope). Upstream `DocSyncMap` is N/A to this custom four-pair map. Tag `af4f5724cc5403bfa0521a68c552362bb96f4dd5`. | upstream #201 / v0.44.0 |
 | v0.43.0 | partial | 2026-08-23 | Took our #188 ID cap, #189 guarded promote/demote, and #190 delivery-blocked fixes with hermetic triage tests. Deferred #180/#181/#182/#186/#187/#191–#195; #197 and required-CI fan-in are N/A. | our #183/#184/#185 |

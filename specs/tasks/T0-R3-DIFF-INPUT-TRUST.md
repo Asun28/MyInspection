@@ -33,9 +33,9 @@ acceptance:
   - "A8 合法的小二进制不被误伤：一个真实的小二进制文件（远小于预算）仍能放行，且诊断里如实报告它是二进制"
   - "A9 每条防护各配一枚单句删除变异：删掉该防护后，其专属夹具以专属状态码变红（非零且命中指定断言文本，不接受「红在别处」）"
   - "A10 状态码文档：本卡新增或改动的每个状态码在 QUALITY-RUBRIC §5 状态表各有一行，闸 17t(doc) 的码↔行一一对应成立"
-dod_command: pwsh -NoProfile -Command "if (-not ((Select-String -Path scripts/review.ps1 -SimpleMatch '--no-ext-diff') -and (Select-String -Path scripts/review.ps1 -SimpleMatch '--no-textconv') -and (Select-String -Path scripts/selftest.ps1 -SimpleMatch 'attr-binary-bypass'))) { exit 1 }"
+dod_command: pwsh -NoProfile -File scripts/selftest.ps1 -Fixture attr-binary-bypass
 dod_exit: 0
-dod_assert: 验收集合 A1–A10 每条都有可证伪测试；A5 的夹具在实现前必须先红（RED-first 证据由 task.ps1 -Phase red 落在该卡的 .review 收据里），证明它复现的是真实绕过而非假想。夹具哨兵 attr-binary-bypass 即 A5 的机检锚点。强制点：CI 与 ship 跑 selftest.ps1 -Shard seeded 须 exit 0。
+dod_assert: focused attr-binary-bypass 与完整 seeded 的 17ai 必须调用同一 A5 行为夹具，直接执行实际候选 review.ps1，真实 Git 下 1001 行纯文本被 .gitattributes 标为 -diff 时仍须以 [R3-DIFF-TOO-LARGE] 阻断；实现前须先观察该实际基线绕过导致的命名 A5 断言非零，再由 task.ps1 -Phase red 留下真实 RED 收据及其原始输出。缺参数、缺变异靶点、语法或 setup 失败不算 A5 RED。验收集合 A1–A10 每条仍须有可证伪测试，focused GREEN 不替代完整验收；CI 与 ship 跑 selftest.ps1 -Shard seeded 须 exit 0。
 review_gate: codex {verdict:pass}
 hygiene: 伪装类夹具一律带负控（无防护时必须真能压低体量）；注入 diff 失败/竞态用独立 git shim，不与 diff 配置混用同一注入点
 doc_sync: QUALITY-RUBRIC 补齐本卡状态码行；若度量口径改变（blob 字节计入），在 §5 与预算说明处同步口径
@@ -51,7 +51,7 @@ doc_sync: QUALITY-RUBRIC 补齐本卡状态码行；若度量口径改变（blob
 - gitattributes 的 `textconv` 可以在比对前改写文件内容；
 - gitattributes 的 `-diff` / `binary` / 自定义 binary driver 可以让 git 只输出一行 `Binary files differ`，而 `--numstat` 对该文件输出 `-  -`。
 
-第三条已在 R3 第 4 轮**被复现**：一行 `.gitattributes`（`payload.txt -diff`）＋ 1001 行内容，预算实测 `changedLines=1 / diffChars=288`，两个上限双双放行，且评审者根本看不到那 1001 行。前两条已在本卡拆出前修掉（`--no-ext-diff` / `--no-textconv`），第三条未修——它是同一个病在低一层的再现。
+第三条已在 R3 第 4 轮**被复现**：一行 `.gitattributes`（`payload.txt -diff`）＋ 1001 行内容，预算实测 `changedLines=1 / diffChars=288`，两个上限双双放行，且评审者根本看不到那 1001 行。原卡记录前两条已在拆出前修掉（`--no-ext-diff` / `--no-textconv`）；但核对基线 `aa0c79b302aa6b3bf37de37eac9af0648ebee7fb` 时，三处权威 diff 调用实际仍缺这两个参数，二进制条目也仍只计文件数而不计体量。保留上述历史复现记录；恢复实施时必须针对实际整合基线重新取得 A5 行为 RED，并完成 A1–A10。
 
 ## 决策
 

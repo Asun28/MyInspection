@@ -1,0 +1,6 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": { "a": { "$ref": "#/$defs/a#/$defs/a" } },
+  "$defs": { "a": { "type": "string" } }
+}

@@ -1,0 +1,5 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "patternProperties": { "^x": { "$ref": "specs/prereview-record.schema.json#/$defs/candidate" } }
+}

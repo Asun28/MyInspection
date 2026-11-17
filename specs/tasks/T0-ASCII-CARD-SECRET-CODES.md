@@ -3,7 +3,8 @@ id: T0-ASCII-CARD-SECRET-CODES
 title: 将任务卡与防泄露脚本的机器判定迁到 ASCII 状态码
 depends_on: [T0-ASCII-SHIP-CODES]
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
-status: todo
+status: merged
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
 branch: T0-ASCII-CARD-SECRET-CODES
 worktree: C:\wt\T0-ASCII-CARD-SECRET-CODES
 allow_paths:
@@ -31,3 +32,7 @@ doc_sync: QUALITY-RUBRIC 补充状态码命名与兼容约束
 ## 产出
 
 状态码第二波的窄卡，只处理任务卡校验与防泄露两个高频确定性入口。它依赖第一波建立命名和测试模式，但不触碰 ship 行为。
+
+## R5 closure by upstream adoption — 2026-09-11
+
+Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md), delivered in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc928c4dd36607cc19eace40ec3cc8c01dd1`). `status: merged` records closure through that merged replacement; it does not claim this original card's implementation, DoD, RED, mutation or performance plan was independently completed. The original worktree and evidence are preserved; its old execution queue is retired.

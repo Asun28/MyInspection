@@ -9,11 +9,11 @@
 | 段 | 干什么 | 复用现有件（不重造） |
 |---|---|---|
 | **1 生成前** | 定 PRD、定生成规则、定组件底座 | PRD = `shape-idea`/`docs/PROJECT-BRIEF-TEMPLATE.md`(+可选前端补充节) · 生成规则 = `frontend/README.md` 5 闸 + design tokens 真相源 · 组件底座 = `frontend/` + tokens(下游填) |
-| **2 生成中** | 产出**流程卡(页面地图)** + **意图卡(单页目标)** | 流程卡页面清单 → 喂 `.claude/workflows/plan-forge.mjs` 投影任务卡(复用 DAG 拆解/卡审) · 意图卡 → 用 `.claude/skills/grill-design` 拷问敲定(复用交互式拷问) |
+| **2 生成中** | 产出**流程卡(页面地图)** + **意图卡(单页目标)** | 流程卡页面清单 → 写进计划，经 `.claude/workflows/plan-forge.mjs` 审计后由 `decompose-cards.mjs` 投影任务卡(复用 DAG 拆解/卡审) · 意图卡 → 用 `.claude/skills/grill-design` 拷问敲定(复用交互式拷问) |
 | **3 生成后** | 可视化高保真、局部 AI 改、导出 | 可视化 = **pencil MCP**(现成 `.pen` 编辑器)/ Claude Design / v0(路由,不自造) · 局部改 = `frontend-design`/`taste-skill` · 导出 = 正常 React 工程 |
 | **4 资产回流** | 验证过的区块/页面沉淀复用 | `context/frontend-assets/`(含元信息;只沉淀模式/约定,业务实现仍在 `frontend/`) |
 
-> **边界(复用非重复)**:流程卡 ≠ plan-forge 任务 DAG(前者 UX 页面关系、后者施工依赖,前者**喂**后者);意图卡 = grill-design 的前端产物模板;资产库 = `context/` 的前端子集;可视化编辑只**路由**到 pencil/Claude Design/v0(L26 工具可换,选了记 lesson/ADR);生成规则不另立、直指 `frontend/README.md` 5 闸。
+> **边界(复用非重复)**:流程卡 ≠ decompose-cards 任务 DAG(前者 UX 页面关系、后者施工依赖,前者**喂**后者);意图卡 = grill-design 的前端产物模板;资产库 = `context/` 的前端子集;可视化编辑只**路由**到 pencil/Claude Design/v0(L26 工具可换,选了记 lesson/ADR);生成规则不另立、直指 `frontend/README.md` 5 闸。
 
 ## 第 1 段 · 生成前
 
@@ -34,7 +34,7 @@
 ## 第 2 段 · 生成中（核心产物）
 
 ### 流程卡模板（页面地图 · 整个前端一张）
-> 用途:把整个前端的页面与关系画清楚。填完→**喂 plan-forge**,页面清单投影成带依赖的任务卡。
+> 用途:把整个前端的页面与关系画清楚。填完→写进计划**喂 plan-forge** 审计,审过后由 decompose-cards 把页面清单投影成带依赖的任务卡。
 
 ```
 # 流程卡 · <项目名> 页面地图
@@ -58,7 +58,7 @@
 - 默认落地：<路由>　未登录重定向：<路由>
 ```
 
-> **流程卡 → plan-forge**：把「页面清单」作为任务章节喂 `plan-forge.mjs`,它按页面/页面群拆成带 `depends_on` 的任务卡(共享状态/契约那张卡是冻结点,先于依赖它的页面卡)。**plan-forge 负责拆解与卡审,流程卡只给它 UX 视角的输入。**
+> **流程卡 → plan-forge → decompose-cards**：把「页面清单」作为任务章节写进计划,`plan-forge.mjs` 审计计划,批准后 `decompose-cards.mjs` 按页面/页面群拆成带 `depends_on` 的任务卡(共享状态/契约那张卡是冻结点,先于依赖它的页面卡)。**decompose-cards 负责拆解与卡审,流程卡只给它 UX 视角的输入。**
 
 ### 意图卡模板（单页目标 · 每页一张）
 > 用途:单页设计决策的产出形态。用 `grill-design` 拷问敲定(沿决策树一次一问、每问给推荐),别一次性脑补。
@@ -90,4 +90,4 @@
 验证过的区块/页面 → 沉淀到 `context/frontend-assets/`(元信息见该目录 `README.md`)。**只沉淀模式/约定/元信息,业务组件实现仍在 `frontend/`**(`context/` = 领域知识,不是组件仓)。
 
 ## 闭合
-`想法 → 1-brief(+前端补充) → 流程卡(页面地图) → plan-forge 投影任务卡 → 逐卡施工(意图卡 ← grill-design 敲定每页) → pencil/设计层高保真 → 5 闸验收 → 上线 → 验证过的区块回流 context/frontend-assets/`。
+`想法 → 1-brief(+前端补充) → 流程卡(页面地图) → plan-forge 审计 → decompose-cards 投影任务卡 → 逐卡施工(意图卡 ← grill-design 敲定每页) → pencil/设计层高保真 → 5 闸验收 → 上线 → 验证过的区块回流 context/frontend-assets/`。

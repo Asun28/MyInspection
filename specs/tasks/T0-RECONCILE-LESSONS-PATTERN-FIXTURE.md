@@ -2,7 +2,8 @@
 id: T0-RECONCILE-LESSONS-PATTERN-FIXTURE
 title: 补齐 lessons 精确源的变异守卫语义
 depends_on: [T0-RECONCILE-LESSONS-FIXTURE]
-status: todo
+status: merged
+superseded_by: T0-RECONCILE-LESSONS-FINAL-FIXTURE
 branch: T0-RECONCILE-LESSONS-PATTERN-FIXTURE
 worktree: C:\wt\T0-RECONCILE-LESSONS-PATTERN-FIXTURE
 allow_paths:
@@ -28,3 +29,10 @@ doc_sync: 无
 # T0-RECONCILE-LESSONS-PATTERN-FIXTURE
 
 前一修复补齐了六个空 `refs:`，随后的真实 DoD 证明 L242 还缺注册卡要求的英文 `mutation … guard` 语义。本卡只把 ledger 源前移到不可合并子夹具 `8d16b11`；其相对前一夹具仅修改 L242 的 refs 行。
+
+## Retired (recorded 2026-09-25)
+
+PR #144 was closed unmerged on 2026-08-26 after R3 found that the fixture still failed the six-block contract.
+`T0-RECONCILE-LESSONS-FINAL-FIXTURE` (PR #145, merged ten minutes later) covered all six blocks, including the
+mutation-guard wording for L242, and `T0-RECONCILE-LESSONS` has merged. The card kept `status: todo` until a drift
+check on 2026-09-25 found it. The branch was deleted on 2026-09-25 and its commits remain at `refs/pull/144/head`.

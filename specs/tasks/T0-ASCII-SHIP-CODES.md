@@ -1,9 +1,11 @@
 ---
 id: T0-ASCII-SHIP-CODES
 title: 将 ship saga 与 CI gate 的机器判定迁到稳定 ASCII 状态码
-depends_on: [T0-RECEIPT-LOSS-FAIL-CLOSED]
+depends_on: [T0-RECEIPT-LOSS-SOURCE-CONTRACT]
 plan_ref: docs/TASK-BOARD.md#scaffold-038-selective-backport
-status: todo
+parallelizable_with: []
+status: merged
+superseded_by: T0-SCAFFOLD-UPSTREAM-ADOPTION
 branch: T0-ASCII-SHIP-CODES
 worktree: C:\wt\T0-ASCII-SHIP-CODES
 allow_paths:
@@ -30,10 +32,14 @@ doc_sync: DEVOPS-WORKFLOW 记录 code roster；QUALITY-RUBRIC 规定机器消费
 
 ## 产出
 
-在 `T0-RECEIPT-LOSS-FAIL-CLOSED` 完成整条 CI/恢复链后，选择性回填上游 v0.34 的 ship 状态码思路。先稳定 saga、候选 CI 与 receipt-loss，再迁移机械锚点，避免功能实现与状态码变更混在同一 PR。
+在 `T0-RECEIPT-LOSS-SOURCE-CONTRACT` 完成 receipt-loss 行为与防回归链后，选择性回填上游 v0.34 的 ship 状态码思路。先稳定 saga、候选 CI 与 receipt-loss，再迁移机械锚点，避免功能实现与状态码变更混在同一 PR。
 
 ## 验收原则
 
 - code 是机器契约，prose 可本地化。
 - 负断言必须改锚到新 live text/code，不能留在已死亡字符串上形成 vacuous green。
 - 本卡只换观测面，不改变控制流；diff 中若出现新增/删除 gate 分支即越界。
+
+## R5 closure by upstream adoption — 2026-09-11
+
+Superseded by [T0-SCAFFOLD-UPSTREAM-ADOPTION](./T0-SCAFFOLD-UPSTREAM-ADOPTION.md), delivered in [PR #297](https://github.com/Asun28/MyInspection/pull/297) (`d991cc928c4dd36607cc19eace40ec3cc8c01dd1`). `status: merged` records closure through that merged replacement; it does not claim this original card's implementation, DoD, RED, mutation or performance plan was independently completed. The original worktree and evidence are preserved; its old execution queue is retired.

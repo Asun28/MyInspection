@@ -2,11 +2,12 @@
 # 共享：范围闸（allow_paths 越界拦截）的**判定核**——卡 allow_paths 取值 / 改动清单求值 / 段级匹配器。
 #
 # 为什么是共享件（TD93 item①）：判定逻辑此前只活在 task.ps1 的内联 ship 块里。但「任何已 push 状态的手工恢复」
-# （docs/DEVOPS-WORKFLOW.md）是**绕过 ship 主路**的最后手段平面，而 **CI 没有范围闸**（TD89 的根因）——那条恢复
-# 序列里的范围核对，遂是该平面上范围闸的唯一承载，且原本只是散文（人眼比对 `git diff --name-only` 输出，
+# （docs/DEVOPS-WORKFLOW.md）需要独立的诊断/人工自查平面，而 **CI 没有范围闸**（TD89 的根因）——那条恢复
+# 序列里的范围核对，遂是该平面上的独立诊断，且原本只是散文（人眼比对 `git diff --name-only` 输出，
 # **没有退出码**，漏看一行不会有任何信号）。把核抽到本文件后，独立入口 scripts/check-scope.ps1 与 ship 打的是
 # **同一枚核**：恢复序列因此有了可跑命令，也不必写「等价的第二实现」——后者会重演 TD68（review.ps1 修了、
-# task.ps1 没修，被 R3 抓出）。同 _gitbase.ps1 头注所述之理，在范围闸面的同款应用。
+# task.ps1 没修，被 R3 抓出）。它不替代最终交付：最终交付仍须重入 task.ps1 -Phase ship，共用 R3、候选 CI 的
+# 精确身份/终局快照和 merge 路径。同 _gitbase.ps1 头注所述之理，在范围闸面的同款应用。
 #
 # 调用方职责（本库只判定、不处置）：allow 列表为空 / diff 求值失败 / 基线不可解析 —— **调用方一律 fail-closed**
 # （不确定 ≠ 放行）。输入有效后的**匹配方向**才宽松（前缀 / glob、正斜杠归一，宁放不误拦），绝不误拦合法改动。
@@ -25,7 +26,9 @@ function Get-ScaffoldCardAllowPathFromText {
   return @(Get-YamlBlockListItems $fm 'allow_paths' | ForEach-Object { $_ -replace '\\', '/' })
 }
 
-# 同上，取磁盘上那份卡（ship 侧用：L86 已强制相位命令在主检出跑，故 task.ps1 手上的卡本就是基线检出那份）。
+# Same, but reading the copy ON DISK. NEITHER scope gate uses it: ship and check-scope.ps1 both read the
+# base copy through `git show` (T241/TD247 - "main checkout == baseline" is a guarantee L86 never gave,
+# and an uncommitted widening was honoured because of it). It is left for the two NON-JUDGING callers in task.ps1: the concurrent-session notice and the PR title, which do ask what this checkout looks like right now.
 function Get-ScaffoldCardAllowPath {
   param([Parameter(Mandatory)][string]$CardPath)
   return @(Get-ScaffoldCardAllowPathFromText -CardText (Get-Content -Raw $CardPath))
@@ -74,4 +77,166 @@ function Get-ScaffoldOutOfScopePath {
           $f -eq $norm -or $f -like "$escNorm/*" -or $f -like $_
         })
     })
+}
+
+# -- T120-SCOPE-UNPUSHED-BASE (L114 x6): why an out-of-scope REPORT may not mean an out-of-scope EDIT --
+# The ship scope gate diffs the branch against the REMOTE base (fail-closed since TD68/TD84). When the operator
+# commits to the LOCAL base and never pushes it - a card registration, a lessons entry - the remote base lacks
+# those commits, so files they added to the base THEMSELVES surface as out-of-scope. L114 has recurred six times
+# and its own text says the report alone does not make that state recognisable.
+# This is the pure half of that diagnosis: given the out-of-scope paths and the paths the local base carries but
+# the remote base does not, return the ones the base does NOT explain. An empty result means the unpushed base
+# accounts for the entire block and the repair is a single push. A non-empty result means at least one path is a
+# genuine out-of-scope edit, so the caller must stay silent rather than send the operator down the wrong repair.
+# Pure by design (no git, no IO): the caller supplies both lists, so this is testable from literals and cannot
+# drift between ship and any later caller - the same reason the matcher above lives here rather than inline (TD68).
+# DIAGNOSIS ONLY. Nothing here decides what is blocked; Get-ScaffoldOutOfScopePath already did that, and this
+# function is never allowed to widen or narrow it.
+function Get-ScaffoldUnexplainedOutOfScopePath {
+  param(
+    [string[]]$OutOfScopePath = @(),
+    [string[]]$BaseOnlyPath = @()
+  )
+  # Normalise BOTH sides exactly as the matcher does: a backslash on one side and a forward slash on the other
+  # would otherwise read as unexplained and silence a hint that should have fired.
+  $baseSet = @($BaseOnlyPath | ForEach-Object { $_ -replace '\\', '/' })
+  return @($OutOfScopePath | Where-Object { ($_ -replace '\\', '/') -notin $baseSet })
+}
+
+# -- T147-CONCURRENT-SESSION-NOTICE (L114 x6, divergence half): is a SECOND session writing here? --
+# T120 above named the SINGLE-session shape of a confusing scope block (the unpushed local base). This is the
+# multi-session shape, and it was field-proven during the session that opened the card: a second session
+# created two task cards and appended four tech-debt rows to the shared checkout mid-write, claiming three
+# card numbers the first session had already allocated. Nothing announced it - the collision surfaced only
+# because check-cards happened to run and emit an advisory [CARD-ID-REUSE].
+#
+# ADVISORY BY CONSTRUCTION. L114's own enforced_by says no gate can hold this, and a false positive refusing
+# a legitimate solo ship would be worse than the silence it replaces. So this returns SIGNALS, never a
+# verdict, and the caller prints them without touching its exit code. No lock, no lockfile, no mutex: the
+# repo has none by design and a crashed session holding one would wedge the next.
+#
+# Pure (no git, no IO): the caller supplies the three observations. Each arm SUBTRACTS what this session is
+# responsible for, which is what separates a signal from noise - a worktree this card opened is not a second
+# writer, and a dirty registry file this card is allowed to edit is this session's own work. The registry arm
+# reuses Get-ScaffoldOutOfScopePath rather than restating the matcher, so "covered by allow_paths" cannot
+# come to mean two different things in two places (the TD68 reason the matcher lives here at all).
+function Get-ScaffoldConcurrentSessionSignal {
+  param(
+    [string[]]$WorktreeName = @(),
+    [AllowEmptyString()][string]$SelfCardId = '',
+    [string[]]$BaseOnlyCommit = @(),
+    [string[]]$DirtyRegistryPath = @(),
+    [string[]]$AllowPath = @()
+  )
+  $signals = [System.Collections.Generic.List[object]]::new()
+
+  $foreignWt = @($WorktreeName | Where-Object { $_ -and ($_ -cne $SelfCardId) })
+  if ($foreignWt.Count -gt 0) {
+    $signals.Add([pscustomobject]@{ Signal = 'foreign-worktree'; Detail = @($foreignWt) })
+  }
+  if (@($BaseOnlyCommit | Where-Object { $_ }).Count -gt 0) {
+    $signals.Add([pscustomobject]@{ Signal = 'base-moved'; Detail = @($BaseOnlyCommit | Where-Object { $_ }) })
+  }
+  # A dirty shared registry is only a foreign-writer signal when THIS card is not allowed to touch it.
+  $foreignReg = @(Get-ScaffoldOutOfScopePath -ChangedPath @($DirtyRegistryPath | Where-Object { $_ }) -AllowPath $AllowPath)
+  if ($foreignReg.Count -gt 0) {
+    $signals.Add([pscustomobject]@{ Signal = 'shared-registry'; Detail = @($foreignReg) })
+  }
+  return @($signals)
+}
+
+# -- T112-CORE-SELFCHECK-SCOPE (TD140 / ADR 0011): the declared self-check for the scope decision --
+# This core is the shared judgement behind BOTH the ship scope gate and check-scope.ps1, so a wrong answer
+# here is the difference between a merge that respects allow_paths and one that does not. Until now it was
+# covered only indirectly, through selftest fixtures that drive whole scripts.
+# The rejected shape is the real bug this matcher was written to fix (TD60/TD-123):
+#   prefix-substring - match a changed path against an allow entry by bare CHARACTER prefix instead of by
+#                      path SEGMENT. That is the pre-TD60 implementation, and it is a fail-OPEN error:
+#                      allow `docs/` would admit `docs2/oob.md`, allow `README.md` would admit
+#                      `README.md.bak`. Both are cases below, and both flip under the variant.
+function Test-ScaffoldScopeOutOfScopeVia($ChangedPath, $AllowPath, $Variant) {
+  if ($Variant -eq 'prefix-substring') {
+    return @($ChangedPath | Where-Object {
+        $f = $_ -replace '\\', '/'
+        -not ($AllowPath | Where-Object { $f -like (($_.TrimEnd('/')) + '*') })
+      })
+  }
+  return @(Get-ScaffoldOutOfScopePath -ChangedPath $ChangedPath -AllowPath $AllowPath)
+}
+
+# Declared examples for the scope decision. Returns findings as strings and never throws. Two tables: the
+# matcher (which the -Variant exercises) and the allow_paths reader, whose fail-closed behaviour on an
+# inline flow list is a property check-cards enforces upstream and this core backstops. Fully hermetic -
+# no git, no IO, every input a literal.
+function Test-ScaffoldScopeExamples {
+  [CmdletBinding()]
+  param([ValidateSet('prefix-substring')][string]$Variant)
+  $useVariant = $PSBoundParameters.ContainsKey('Variant')
+  $v = if ($useVariant) { $Variant } else { $null }
+  $findings = @()
+
+  # --- the matcher: which changed paths fall outside allow_paths ---
+  $matchCases = @(
+    @{ what = 'an exactly named file is in scope'; changed = @('README.md'); allow = @('README.md'); expect = 0 }
+    @{ what = 'a directory entry covers what is under it'; changed = @('docs/a.md'); allow = @('docs/'); expect = 1 - 1 }
+    @{ what = 'a SEGMENT boundary is respected - docs/ must not admit docs2/'; changed = @('docs2/oob.md'); allow = @('docs/'); expect = 1 }
+    @{ what = 'a file-name prefix is not a match - README.md must not admit README.md.bak'; changed = @('README.md.bak'); allow = @('README.md'); expect = 1 }
+    @{ what = 'backslashes in a changed path are normalised before matching'; changed = @('docs\a.md'); allow = @('docs/'); expect = 0 }
+    @{ what = 'a deliberate glob entry still works as a glob'; changed = @('frontend/x/y.ts'); allow = @('frontend/**'); expect = 0 }
+    @{ what = 'an empty allow list puts every change out of scope (caller fail-closes on this)'; changed = @('a.md', 'b.md'); allow = @(); expect = 2 }
+    @{ what = 'wildcard metacharacters in an allow entry stay literal in the prefix branch'; changed = @('docs/[wip]/a.md'); allow = @('docs/[wip]/'); expect = 0 }
+    @{ what = 'one out-of-scope path among several in-scope ones is still reported'; changed = @('docs/a.md', 'scripts/x.ps1', 'docs/b.md'); allow = @('docs/'); expect = 1 }
+  )
+  foreach ($c in $matchCases) {
+    $got = @(Test-ScaffoldScopeOutOfScopeVia $c.changed $c.allow $v)
+    if ($got.Count -ne $c.expect) { $findings += "[SCOPE-EXAMPLE] case '$($c.what)' reported $($got.Count) out-of-scope path(s), expected $($c.expect). This matcher decides what the ship scope gate blocks, so a wrong answer here is a merge that ignores allow_paths (TD60/TD-123). [FIX] fix the matcher, never the example." }
+  }
+
+  # --- the allow_paths reader: card TEXT in, normalised entries out ---
+  $blockCard = (@('---', 'id: TZ-EXAMPLE', 'allow_paths:', '  - scripts/x.ps1', '  - docs\y.md', '---', 'body') -join "`n")
+  $flowCard = (@('---', 'id: TZ-EXAMPLE', 'allow_paths: [scripts/x.ps1, docs/y.md]', '---', 'body') -join "`n")
+  $readCases = @(
+    @{ what = 'a block list yields one entry per item, backslashes normalised'; text = $blockCard; expect = 2; contains = 'docs/y.md' }
+    @{ what = 'an inline flow list yields ZERO entries, so the caller fail-closes (check-cards rejects it upstream; this is the backstop)'; text = $flowCard; expect = 0; contains = $null }
+    @{ what = 'text with no front matter yields nothing'; text = 'no front matter here'; expect = 0; contains = $null }
+  )
+  foreach ($c in $readCases) {
+    $got = @(Get-ScaffoldCardAllowPathFromText -CardText $c.text)
+    if ($got.Count -ne $c.expect) { $findings += "[SCOPE-EXAMPLE] case '$($c.what)' read $($got.Count) allow_paths entry/entries, expected $($c.expect). [FIX] fix the reader, never the example." }
+    elseif ($c.contains -and ($got -notcontains $c.contains)) { $findings += "[SCOPE-EXAMPLE] case '$($c.what)' read $($got.Count) entries but not the expected '$($c.contains)' - the count is right and the content is not, which a count-only assertion would miss. [FIX] fix the reader, never the example." }
+  }
+  # --- the unpushed-base diagnosis: which out-of-scope paths the local-only base does NOT account for ---
+  # Direction matters more than the count here. Case 2 is the one that protects the operator: if ANY path is a
+  # real out-of-scope edit, the hint must stay silent, because sending someone to `git push origin <base>` when
+  # they actually have a rogue edit wastes the push and leaves the block standing with a wrong explanation.
+  $unexplainedCases = @(
+    @{ what = 'every out-of-scope path is carried by the unpushed base, so the block is fully explained'; oos = @('specs/tasks/T1-X.md'); baseOnly = @('specs/tasks/T1-X.md'); expect = 0 }
+    @{ what = 'one out-of-scope path the base does not explain must keep the hint silent'; oos = @('specs/tasks/T1-X.md', 'scripts/rogue.ps1'); baseOnly = @('specs/tasks/T1-X.md'); expect = 1 }
+    @{ what = 'an empty base-only list explains nothing, so every out-of-scope path stays unexplained'; oos = @('a.md', 'b.md'); baseOnly = @(); expect = 2 }
+    @{ what = 'backslashes are normalised on BOTH sides before comparing'; oos = @('specs\tasks\T1-X.md'); baseOnly = @('specs/tasks/T1-X.md'); expect = 0 }
+    @{ what = 'a base carrying extra unrelated paths still explains the whole block'; oos = @('a.md'); baseOnly = @('a.md', 'b.md', 'c.md'); expect = 0 }
+  )
+  foreach ($c in $unexplainedCases) {
+    $got = @(Get-ScaffoldUnexplainedOutOfScopePath -OutOfScopePath $c.oos -BaseOnlyPath $c.baseOnly)
+    if ($got.Count -ne $c.expect) { $findings += "[SCOPE-EXAMPLE] case '$($c.what)' reported $($got.Count) unexplained path(s), expected $($c.expect). This decides whether ship prints the [SCOPE-UNPUSHED-BASE] hint; a wrong answer either hides the real cause (L114 x6) or sends the operator to push a base that was never the problem. [FIX] fix the predicate, never the example." }
+  }
+
+  # --- the concurrent-session signals (T147): which observations indicate a SECOND writer in this checkout ---
+  # The negative direction is the one that keeps this usable: a solo checkout must be silent, or the notice
+  # becomes noise that operators learn to skip, which is worse than not printing it. Each positive case pairs
+  # with the subtraction that makes it a signal rather than an artefact of this session's own work.
+  $concurrentCases = @(
+    @{ what = 'a solo checkout produces no signal at all'; wt = @('T1-MINE'); self = 'T1-MINE'; base = @(); reg = @(); allow = @('specs/'); expect = 0 }
+    @{ what = 'a worktree this session did not open is a second writer'; wt = @('T1-MINE', 'T2-THEIRS'); self = 'T1-MINE'; base = @(); reg = @(); allow = @('specs/'); expect = 1 }
+    @{ what = 'the local base carrying commits this session did not make is a second writer'; wt = @('T1-MINE'); self = 'T1-MINE'; base = @('abc123 specs: their card'); reg = @(); allow = @('specs/'); expect = 1 }
+    @{ what = 'a dirty shared registry OUTSIDE this card allow_paths is a second writer'; wt = @('T1-MINE'); self = 'T1-MINE'; base = @(); reg = @('specs/tech-debt-tracker.md'); allow = @('scripts/'); expect = 1 }
+    @{ what = 'a dirty registry this card IS allowed to edit is this session own work, not a signal'; wt = @('T1-MINE'); self = 'T1-MINE'; base = @(); reg = @('specs/tech-debt-tracker.md'); allow = @('specs/tech-debt-tracker.md'); expect = 0 }
+    @{ what = 'all three observations firing at once report all three signals'; wt = @('T2-THEIRS'); self = 'T1-MINE'; base = @('abc123 x'); reg = @('specs/tech-debt-tracker.md'); allow = @('scripts/'); expect = 3 }
+  )
+  foreach ($c in $concurrentCases) {
+    $got = @(Get-ScaffoldConcurrentSessionSignal -WorktreeName $c.wt -SelfCardId $c.self -BaseOnlyCommit $c.base -DirtyRegistryPath $c.reg -AllowPath $c.allow)
+    if ($got.Count -ne $c.expect) { $findings += "[SCOPE-EXAMPLE] case '$($c.what)' reported $($got.Count) concurrent-session signal(s), expected $($c.expect). Too few and the operator meets a confusing scope block with no explanation (L114 x6); too many and the notice becomes noise that gets skipped. [FIX] fix the predicate, never the example." }
+  }
+
+  return $findings
 }
