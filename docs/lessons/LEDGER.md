@@ -2889,7 +2889,7 @@
 - refs: 
 
 ## L386
-- date: 2026-11-16 ｜ tags: selftest,timing,load,tier-s ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3
+- date: 2026-11-16 ｜ tags: selftest,timing,load,tier-s ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 4
 - symptom: Two full selftest -Parallel runs on f5ef8c9d (2026-11-16) each failed one 17post case on a wall-time bound (T37-CIGATE/WORKFLOW-BINDING check-pending 74.96 s > 55 s; TD134-CIAPIFAIL/malformed 60.19 s > 60 s) while every other gate passed; the code was identical to a head that had passed, and the third run of the same command passed.
 - root_cause: Some 17post cases assert wall-clock bounds that include several pwsh launches; with five shards in parallel plus outside load (a ChatGPT process at one full core, Defender scanning fixture files) they cross the bound. The failure says nothing about the diff.
 - rule: Before a Tier-S full run, sample CPU (Get-Counter Process % Processor Time) and keep the machine idle during it. When the only failure is a 17post wall-time bound on code that matches a passing run, rerun the same command unchanged; post every run on the PR, failed ones included, and never edit the card between runs.
