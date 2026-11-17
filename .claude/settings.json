@@ -42,6 +42,15 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"D:/Projects/AIDLC/bin/aidlc-hook.js\""
+          }
+        ]
       }
     ],
     "Stop": [
@@ -54,6 +63,10 @@
           {
             "type": "command",
             "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/handoff-reminder.ps1\""
+          },
+          {
+            "type": "command",
+            "command": "node \"D:/Projects/AIDLC/bin/aidlc-hook.js\""
           }
         ]
       }
@@ -79,6 +92,10 @@
           {
             "type": "command",
             "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/route-new-work.ps1\""
+          },
+          {
+            "type": "command",
+            "command": "node \"D:/Projects/AIDLC/bin/aidlc-hook.js\""
           }
         ]
       }

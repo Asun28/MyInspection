@@ -2308,6 +2308,7 @@ $RootAllow  = @(
   '.claude', '.github', 'docs', 'scripts', 'specs', '_local',        # 工作流交付目录 + 本地工作区
   'backend', 'frontend', 'prompts', 'context', 'data',              # 标准软件 + AI 应用骨架（下游填充内容）
   'android',                                                        # 本项目：Android Gradle 工程（ADR-0001）
+  'intent', 'plans', 'evals', 'aidlc.config.json', 'aidlc.ops.example.json', 'bands.yaml', 'REVIEW.md',  # 本项目：aidlc init（PR #464）铺入，aidlc 从仓库根读取
   'configs', 'tests',
   '.env.example', '.gitattributes', '.gitignore', 'LICENSE', '.mcp.json',
   'AGENTS.md', 'CLAUDE.md', 'CLAUDE.template.md', 'TEMPLATE-README.md', 'CHANGELOG.md',

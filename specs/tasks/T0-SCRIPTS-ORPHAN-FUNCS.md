@@ -1,0 +1,53 @@
+---
+id: T0-SCRIPTS-ORPHAN-FUNCS
+title: Delete Add-GradleLicenseFinding, Get-WorkflowActiveStepIndices and the gate2 fixture nothing reads
+status: todo
+depends_on: []
+parallelizable_with: []
+allow_paths:
+  - scripts/check-licenses.ps1
+  - scripts/license-scanner-check.ps1
+  - scripts/fixtures/gate2/
+  - specs/tasks/T0-SCRIPTS-ORPHAN-FUNCS.md
+sweep: "2026-10-14 audit on 01a2e801 (carried over from T0-SCRIPTS-ORPHAN-CLEANUP on 2026-11-16): an AST call graph over every tracked .ps1, then git grep -w for each removed name over scripts, .github, .claude and specs/tasks. check-licenses.ps1:638 Add-GradleLicenseFinding and license-scanner-check.ps1:436 Get-WorkflowActiveStepIndices: definition only; Get-WorkflowActiveStepRecords keeps its callers at :383 and :761. scripts/fixtures/gate2/: no script names it; only archived T3-E2E-* cards and LEDGER L-entry refs, which stay as history."
+forbid:
+  - Changing any function that stays or any message a remaining check prints
+  - Deleting code that came from the upstream scaffold in PR 297 (reported upstream instead; see docs/SCAFFOLD-SYNC.md)
+  - Editing docs/LICENSE-POLICY.md; the check-licenses.ps1 change removes an uncalled function only, so its commit carries [doc-sync:none]
+non_goals:
+  - scripts/_validation.ps1 and its gate 1h hook (T0-SCRIPTS-ORPHAN-CLEANUP)
+  - The 13 unread Prereview* knobs (TD192) and the card checks check-cards.ps1 keeps off (TD193)
+  - Historical mentions in CLAUDE.md, docs/TASK-BOARD.md, the ledger and archived cards
+acceptance:
+  - "A1 check-licenses.ps1 no longer defines Add-GradleLicenseFinding and license-scanner-check.ps1 no longer defines Get-WorkflowActiveStepIndices; nothing else in either file changes."
+  - "A2 scripts/fixtures/gate2/ is deleted, and no tracked file under scripts, .github or .claude names fixtures/gate2, Add-GradleLicenseFinding or Get-WorkflowActiveStepIndices."
+  - "A3 Both edited scripts parse with no errors, and the Tier-S full selftest passes on the shipped candidate. Evidence form: the implementation record carries a full run on a commit C (launch and end HEAD, an empty git status --porcelain --untracked-files=all, each shard's exit and [GATE-RESULT-SUMMARY] failed=none, selftest: PASS), and git diff --stat C HEAD lists only this card; a commit cannot carry the output of a run on itself, and the reviewer reads only the diff (L227)."
+dod_command: $ErrorActionPreference = 'Stop'; foreach ($f in @('scripts/check-licenses.ps1', 'scripts/license-scanner-check.ps1')) { $e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path -LiteralPath $f).Path, [ref]$null, [ref]$e); if ($e -and $e.Count) { Write-Host "[DOD-FAIL] $f does not parse"; exit 1 } }; if (Test-Path -LiteralPath 'scripts/fixtures/gate2') { Write-Host '[DOD-FAIL] scripts/fixtures/gate2 still exists'; exit 1 }; $PSNativeCommandUseErrorActionPreference = $false; $hits = @(& git grep -n -e 'fixtures/gate2' -e 'Add-GradleLicenseFinding' -e 'Get-WorkflowActiveStepIndices' -- scripts .github .claude); if ($LASTEXITCODE -gt 1) { Write-Host "[DOD-FAIL] git grep exit $LASTEXITCODE"; exit 1 }; if ($hits.Count) { $hits | ForEach-Object { Write-Host $_ }; Write-Host '[DOD-FAIL] a removed name is still referenced'; exit 1 }; Write-Host '[DOD-PASS]'; exit 0
+dod_exit: 0
+dod_assert: Both scripts parse, the fixture is gone and no removed name is referenced under scripts, .github or .claude; prints [DOD-PASS]. On base it exits 1 because scripts/fixtures/gate2 exists. git grep exits 1 when nothing matches, which is the pass case, so the DoD turns off $PSNativeCommandUseErrorActionPreference (the ship sets it) before git grep and fails on an exit above 1.
+review_gate: codex {verdict:pass}
+budget: 120
+hygiene: Deletion only, so R4 has no new assertion to prove. R4 instead restores each deleted unit one at a time (each function, the fixture) and records in the R5 note that the DoD fails on each restore, which shows the DoD checks every deletion.
+doc_sync: At R5 set status merged, update the TASK-BOARD row and add the CLAUDE.md current-stage entry.
+---
+
+# T0-SCRIPTS-ORPHAN-FUNCS
+
+Split from `T0-SCRIPTS-ORPHAN-CLEANUP` on 2026-11-16 under the user's rule that a card changes fewer than 200
+lines (see that card's Split section). From the 2026-10-14 unused-code audit (plan:
+`docs/plans/PLAN-AUDIT-CLEANUP-20261014.md`, aidlc goal `g-20261014091214-314b46`).
+
+## Why each piece goes
+
+- `Add-GradleLicenseFinding` lost its caller in #297, and the nested `Get-WorkflowActiveStepIndices` lost its
+  caller in a later local change. Both are local code.
+- `scripts/fixtures/gate2/` held the fake Gradle wrappers for the gate 2 fixture. Selftest now writes its own stubs
+  (`Set-ProjectGate2Stub15`), and no script reads this directory.
+
+The deletions were first made on the `T0-SCRIPTS-ORPHAN-CLEANUP` branch (c0dc420a); this card takes the same
+hunks for these three paths.
+
+## Tier
+
+`scripts/check-licenses.ps1` is a TierSPaths entry, so the card is Tier S and needs the full selftest on the
+shipped candidate (A3).
