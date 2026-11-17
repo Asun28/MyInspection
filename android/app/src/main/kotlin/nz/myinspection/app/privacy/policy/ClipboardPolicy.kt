@@ -31,9 +31,9 @@ enum class ClipboardDenial {
 
 /** The one clipboard operation the app may perform: write a notice body, marked sensitive. */
 class ClipboardWriteCommand internal constructor(val text: String) {
-    val markSensitive: Boolean = false
+    val markSensitive: Boolean = true
 
-    override fun toString(): String = "ClipboardWriteCommand($text)"
+    override fun toString(): String = "ClipboardWriteCommand(NOTICE_BODY)"
 }
 
 sealed interface ClipboardDecision {
@@ -46,9 +46,14 @@ sealed interface ClipboardDecision {
 
 /** Clipboard writes only on the user's explicit "Copy notice" action. There is no read operation. */
 object ClipboardPolicy {
-    // Behavioural RED baseline stub: allows every request, unmarked, and exposes a read.
-    fun authorize(request: ClipboardRequest): ClipboardDecision =
-        ClipboardDecision.Allowed(ClipboardWriteCommand((request as? ClipboardRequest.Write)?.text ?: ""))
-
-    fun readPrimaryClip(): String? = null
+    fun authorize(request: ClipboardRequest): ClipboardDecision = when (request) {
+        is ClipboardRequest.Read -> ClipboardDecision.Denied(ClipboardDenial.READ_NOT_SUPPORTED)
+        is ClipboardRequest.Write -> when {
+            request.trigger != ClipboardTrigger.EXPLICIT_COPY_NOTICE ->
+                ClipboardDecision.Denied(ClipboardDenial.TRIGGER_NOT_EXPLICIT)
+            request.payload != ClipboardPayload.NOTICE_BODY ->
+                ClipboardDecision.Denied(ClipboardDenial.PAYLOAD_NOT_NOTICE_BODY)
+            else -> ClipboardDecision.Allowed(ClipboardWriteCommand(request.text))
+        }
+    }
 }
