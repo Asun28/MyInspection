@@ -76,8 +76,10 @@ split. `T0-SCRIPTS-ORPHAN-FUNCS` shipped three of them in PR #486; merging origi
   state of both paths): DoD exit 1, `[DOD-FAIL] scripts/_validation.ps1 still exists`. M2 put back the base
   `selftest.ps1` alone (the gate 1h hook): DoD exit 1, `[DOD-FAIL] a removed name is still referenced`. 2/2 killed;
   `selftest.ps1` restored to SHA-256 `1E842C30...C7FA506F` and the status is clean.
-- Tier S: the full selftest ran serially (one process, all 17 gates) from this worktree on the commit that adds this
-  record, C = `77c535ac`. Run 2, 2026-11-17 15:28-16:39 NZDT: `head=77c535ace6752725d39ef45e4fe5e09fc99b1fae
+- Tier S: the full selftest ran from this worktree on C = `77c535ac`, the commit that added the bullets above. This
+  bullet, with the run's output, was added in a later commit, so C does not carry the output of its own run. The run
+  is serial: one `selftest.ps1` process runs all 17 gates without `-Parallel`, so there are no shards and its process
+  exit is the only exit. Run 2, 2026-11-17 15:28-16:39 NZDT: `head=77c535ace6752725d39ef45e4fe5e09fc99b1fae
   status=[]`, `[GATE-RESULT-SUMMARY] failed=none ran=17 wall=4228.3s`, `selftest: PASS`, `exit=0
   headAfter=77c535ace6752725d39ef45e4fe5e09fc99b1fae statusAfter=[]`. Run 1 on the same commit (14:10-15:12) failed
   only gate 17 case `TD134-CIAPIFAIL/malformed` ("ship still running after 90s") while another session's Gradle run
