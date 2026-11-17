@@ -2,7 +2,8 @@
 id: T0-TRIAGE-EVIDENCE-CASE
 title: triage 裁决证据身份、HEAD 绑定与失败可观测性
 depends_on: [T0-LESSONS-CAP-TRIAGE-SPLIT, T0-TRIAGE-EVIDENCE-INPUTS]
-status: todo
+status: merged
+superseded_by: T0-STALE-PR-CLOSEOUT
 branch: T0-TRIAGE-EVIDENCE-CASE
 worktree: C:\wt\T0-TRIAGE-EVIDENCE-CASE
 allow_paths:
@@ -99,3 +100,7 @@ Exact preview source `543716AD996D954680171B5DD1FBF9E0D1D764C0BD4ED43CFC1C8CABA4
 
 T0-TRIAGE-EVIDENCE-INPUTS 先交付既有 discovery/read/字段/HEAD 失败可观测性；本卡再交付实际目录 comparer、leaf/root 身份、稳定来源选择与 dual-actual。最终验收、全部历史记录及9个当前 oracle 均保留；R3 计数1与原始收据不重置。
 本卡须在最终源码上重跑全部9项当前变异及历史19项语义、8项 Add-Finding AST 删除、1项 profile guard；按实际 source SHA 保存证据，不借用前置项或历史收据宣称完成。
+
+## Retired 2026-11-17
+
+PR #294 was closed unmerged by the owner's 2026-11-17 ruling, recorded in `T0-STALE-PR-CLOSEOUT`. The defect is in `scripts/triage.ps1`, adopted from the scaffold in #297, so it was filed upstream as Asun28/claude-devops-scaffold#406. The branch stays on origin.
