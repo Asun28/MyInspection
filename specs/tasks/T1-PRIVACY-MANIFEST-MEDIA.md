@@ -50,7 +50,7 @@ everything (accept tests fail) or accepts everything (reject tests fail) before 
 
 ## Attempt evidence
 
-Attempt 4, 2026-11-17, base `71ebe8b9`. DoD on code tree `e4af607a`: exit 0; 306 JVM tests, 0 failures, 1 skipped. The ship reruns the full DoD on the final candidate.
+Attempt 5, 2026-11-17, code tree `832bcb03` (merged with master `ca813eb2`, which carries T1-PRIVACY-SENSITIVE-SURFACE). DoD: exit 0; 311 JVM tests, 0 failures, 1 skipped.
 
 | Item | Proof | Result |
 |---|---|---|
