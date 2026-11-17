@@ -1,7 +1,7 @@
 ---
 id: T0-SCRIPTS-ORPHAN-CLEANUP
 title: Delete scripts/_validation.ps1, the selftest risk router nothing calls since PR 297
-status: todo
+status: merged
 depends_on: []
 parallelizable_with: [T2-PHOTO-INVARIANT-CLEANUP]
 allow_paths:
@@ -93,3 +93,23 @@ split. `T0-SCRIPTS-ORPHAN-FUNCS` shipped three of them in PR #486; merging origi
 | A1 | `git diff origin/master HEAD` deletes `_validation.ps1` and only the two gate 1h lines; the `_symbol-markdown.ps1` and `_unicode.ps1` loads and example calls stay; the DoD's `selftest -Only 1` passes | pass |
 | A2 | DoD: `selftest.ps1` parses and `git grep` over scripts, .github and .claude finds none of the five names; R4 M2 puts back the hook and the DoD exits 1 | pass |
 | A3 | DoD's `selftest -Only 1` passes; the full serial selftest on C `77c535ac` passes (`failed=none ran=17`, exit 0) and `git diff --stat 77c535ac HEAD` lists only this card | pass |
+
+## R5 (2026-11-17)
+
+Merged by PR #490 (squash `505305e5`, reviewed head `dee2bfc9`, CI `44014547439` attempt 1). `aidlc card next`
+ran the ship. Codex R3 passed both axes with zero findings, in the aidlc R3 (decision 1) and in the ship's
+`review.ps1` leg (its log names it round 4 because `review.ps1` counts every `.r*.json` file in `.review`, and the
+aidlc R3 had left three there).
+
+**hygiene.** R4 is in the implementation record above: putting back `_validation.ps1` with the gate 1h hook, or the
+hook alone, made the DoD exit 1; 2/2 killed.
+
+**Tier S.** The record carries the serial full selftest on C = `77c535ac`; `git diff --stat 77c535ac dee2bfc9`
+lists only this card.
+
+**Pre-review.** The aidlc R2 (deepseek-v4-pro) blocked round 1 on the Tier S bullet's wording: "the commit that adds
+this record" read as C carrying the output of its own run, and A3 asks for each shard's exit. `dee2bfc9` names C as
+the commit that holds the bullets above and a later commit as the one that holds the output, and states that the
+serial run has no shards.
+
+**doc_sync.** This R5 sets the status, the TASK-BOARD row and the CLAUDE.md current-stage entry.
