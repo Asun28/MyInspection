@@ -75,6 +75,12 @@ names. [#402](https://github.com/Asun28/claude-devops-scaffold/issues/402): gate
 its self-checks runs, so four declared `Test-Scaffold*Examples` never run. The adopted files stay unchanged here;
 local code the same audit found unused is removed by `T0-SCRIPTS-ORPHAN-CLEANUP`.
 
+The 2026-11-17 stale-PR closeout (`T0-STALE-PR-CLOSEOUT`) filed
+[#406](https://github.com/Asun28/claude-devops-scaffold/issues/406): in `scripts/triage.ps1`, the delivery-blocked
+probe picks its case rule from the OS instead of measuring each evidence directory, turns resolve, enumerate and
+parse failures into no finding, and its selfcheck gives every evidence root the same HEAD SHA. Downstream PR #294
+(`T0-TRIAGE-EVIDENCE-CASE`) was closed in its favour.
+
 ## Direction 2 — deciding whether to take an upstream release
 
 ```powershell

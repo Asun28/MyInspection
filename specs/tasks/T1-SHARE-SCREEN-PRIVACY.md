@@ -1,7 +1,7 @@
 ---
 id: T1-SHARE-SCREEN-PRIVACY
 title: Verified report ShareStaging, narrow FileProvider, and temporary grants
-depends_on: [T1-LOCAL-DATA-SECURITY, T1-PRIVACY-MANIFEST-POLICY-GATE, T3-REPORT-EXPORT-CORE]
+depends_on: [T1-LOCAL-DATA-SECURITY, T1-PRIVACY-MANIFEST-MEDIA, T1-PRIVACY-CLIPBOARD-POLICY, T1-PRIVACY-SENSITIVE-SURFACE, T3-REPORT-EXPORT-CORE]
 status: todo
 branch: T1-SHARE-SCREEN-PRIVACY
 worktree: C:\wt\T1-SHARE-SCREEN-PRIVACY
@@ -18,7 +18,7 @@ forbid:
   - 直接接受 File/String/path/MIME/hash 组合，或在本卡自造已验证报告信封；只接受 T3-REPORT-EXPORT-CORE 的不可伪造 verified-artifact primitive
   - 禁止未经授权的运行期出站网络、账号/RBAC、遥测；未经本卡 version review 不得改冻结 schema/backup format
 non_goals:
-  - SelectedMediaPolicy、ClipboardPolicy、SensitiveSurfacePolicy、backup/D2D/cleartext/读取权限闸（T1-PRIVACY-MANIFEST-POLICY-GATE）
+  - SelectedMediaPolicy、ClipboardPolicy、SensitiveSurfacePolicy、backup/D2D/cleartext/读取权限闸（T1-PRIVACY-MANIFEST-MEDIA、T1-PRIVACY-CLIPBOARD-POLICY、T1-PRIVACY-SENSITIVE-SURFACE）
   - PDF/HTML 渲染、验证回执、chooser 产品流程、UI 导航（T3-REPORT-EXPORT-CORE/UI）；remediation HTTP；SAF 备份/恢复
 requirements:
   - "R1 分享只消费 T3-REPORT-EXPORT-CORE 的已关闭、重开验证且带类型/大小/SHA-256/内部相对位置的 typed verified artifact；不得用路径、扩展名或调用方 Boolean 替代。"

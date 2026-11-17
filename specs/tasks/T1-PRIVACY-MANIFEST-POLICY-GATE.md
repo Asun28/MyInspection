@@ -2,7 +2,8 @@
 id: T1-PRIVACY-MANIFEST-POLICY-GATE
 title: Android merged-manifest privacy gate and narrow policy primitives
 depends_on: [T1-LOCAL-DATA-SECURITY]
-status: todo
+status: merged
+superseded_by: T1-PRIVACY-MANIFEST-MEDIA
 branch: T1-PRIVACY-MANIFEST-POLICY-GATE
 worktree: C:\wt\T1-PRIVACY-MANIFEST-POLICY-GATE
 allow_paths:
@@ -46,3 +47,7 @@ doc_sync: ADR-0006 + SECURITY + TASK-BOARD（R5）
 ## 预算与执行
 
 完整 diff 目标 450–620 changed lines / 30k–44k characters：Gradle/manifest/XML 45–75、policy 120–170、直接 JVM 与 merged-manifest 回归 190–260、R4 与修复余量 95–115。首选 GPT-5.6 Terra · high；merged-manifest 解析和闭集 policy 需要高 effort，预算不因 effort 上调。超过 650 行或 48k 字符先把 policy matrix 与 manifest gate 分开，不削弱 merged-artifact 验收。
+
+## Retired 2026-11-17
+
+PR #465 (357 lines) was closed and this card split into three cards of under 200 changed lines each, registered in #481: `T1-PRIVACY-MANIFEST-MEDIA` (the merged-manifest gate plus SelectedMediaPolicy), `T1-PRIVACY-CLIPBOARD-POLICY` and `T1-PRIVACY-SENSITIVE-SURFACE`. Each reuses the #465 branch's code. This card's text stays their shared contract.

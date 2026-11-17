@@ -1,7 +1,8 @@
 ---
 id: T0-PREREVIEW-REMOTE-POLICY
 title: Adopt prereview policy bytes and document the pending protocol
-status: todo
+status: merged
+superseded_by: T0-PREREVIEW-PROTOCOL-DOC
 branch: T0-PREREVIEW-REMOTE-POLICY
 worktree: C:\wt\T0-PREREVIEW-REMOTE-POLICY
 depends_on: [T0-PREREVIEW-REMOTE-SCHEMA, T0-PREREVIEW-POLICY-SOURCE-CHECK]
@@ -32,3 +33,7 @@ PR #308 retained two real source-evidence blocks: first head fd682ef6a57e648283e
 ## Reconcile note (2026-09-24)
 
 The 2026-09 local/origin reconcile landed the local-only parts of local master's PR review v2 phase 1a chain on master: PROTOCOL-DOC (`a66af219`), CHECKLISTS (`2782b55b`), RECORDS (`dec30514`), FACTS-LIB (`b675d6a6`) and STATE-1A (`62ec5f3b`). For the schema and its checker (SCHEMA and UNIT-ID-REVISION), master keeps origin's versions from T0-PREREVIEW-REMOTE-SCHEMA. Both files in this card's allow_paths, `docs/PREREVIEW-PROTOCOL.md` and `docs/PREREVIEW-CHECKLISTS.md`, are therefore on master at their local merged bytes. Whether this card is closed, narrowed or kept is a user decision.
+
+## Retired 2026-11-17
+
+PR #308 was closed as superseded on 2026-11-17 (`T0-STALE-PR-CLOSEOUT`): `docs/PREREVIEW-PROTOCOL.md` and `docs/PREREVIEW-CHECKLISTS.md` reached master in the 2026-09 reconcile through `T0-PREREVIEW-PROTOCOL-DOC` and `T0-PREREVIEW-CHECKLISTS`. The branch stays on origin. It has no row on docs/TASK-BOARD.md, so `post-merge.ps1 retire` could not take it; this card-text PR makes the same edit.

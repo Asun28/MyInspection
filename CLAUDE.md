@@ -69,6 +69,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 当前阶段
 
+**2026-11-17 远端交付**：`T0-SCRIPTS-ORPHAN-FUNCS` 经 [PR #486](https://github.com/Asun28/MyInspection/pull/486) 合并（`8bedaaba`；reviewed head `1fa5ada4`，CI `43991816723` attempt 1，Codex R3 第 1 轮 pass、零 finding），2026-10-14 未用代码审计目标（aidlc g-20261014091214-314b46）的一张卡。删除无人调用的 `Add-GradleLicenseFinding`（`check-licenses.ps1`）与 `Get-WorkflowActiveStepIndices`（`license-scanner-check.ps1`），以及没有脚本读取的 `scripts/fixtures/gate2/`，共 75 行。R4 3/3。Tier-S 全量自检（单进程跑完 17 闸）在提交 C `3cea38c8` 上通过，`git diff --stat C HEAD` 只列该卡。首次 ship 停在 DoD 腿：ship 以 `$PSNativeCommandUseErrorActionPreference` 运行 DoD，而 `git grep` 无匹配时退出 1，正是该 DoD 的通过情形；PR #480 修正本卡与 `T0-SCRIPTS-ORPHAN-CLEANUP` 的 DoD。aidlc 把这次失败读成 license-blocked，对该卡是终局 STOP（已报 Asun28/AIDLC#347），本卡因此直接以 `task.ps1 -Phase ship` 交付，各闸照常运行。
+
 **2026-11-17 远端交付**：`T0-WORKTREE-ROOT-UNIFY` 经 [PR #478](https://github.com/Asun28/MyInspection/pull/478) 合并（`4de391ee`；reviewed head `c518d4a4`，CI `43966420426` attempt 1，Codex R3 第 2 轮 pass、零 finding）。`scripts/_config.ps1` 的 `WorktreeRoot` 与 `aidlc.config.json` 的 `worktreeRoot` 同为 `D:\wt\MyInspection`，`task.ps1` 与 aidlc 从此期望同一个 worktree 路径（此前 aidlc 期望 `C:\wt\MyInspection\<id>` 而 task.ps1 建 `C:\wt\<id>`，每张卡都停在 ownership）。合并后步骤已提前于 2026-11-16 应用户要求完成：本仓登记在 `C:\wt` 的 31 个 worktree 经 robocopy 与 `git worktree repair` 移到 `D:\wt\MyInspection`，C: 可用空间由 3.7 GB 升到 20.6 GB。R4 2/2。Tier-S 证据按 PR #475 的形态记在卡里（提交 C 上的全量运行，`git diff --stat C HEAD` 只列该卡）。R3 第 1 轮 block 一条：记录里写了卡片列为 non-goal 的 worktree 搬迁，移到 R5 说明后第 2 轮 pass。
 
 **2026-11-16 远端交付**：`T0-AIDLC-INIT-GATES` 经 [PR #470](https://github.com/Asun28/MyInspection/pull/470) 合并（`5ce832a2`；reviewed head `f5ef8c9d`，CI `43818265657` attempt 1，Codex R3 第 4 轮 pass、零 finding）。aidlc init（PR #464）铺入的 4 个顶层文件与 3 个目录登记进 selftest `$RootAllow` 与本文件根目录规则，6 个 aidlc skill 写进 `docs/DELIVERY-CHAINS.md` 触发层行，selftest 闸 8、9 恢复通过；#464 之后每晚 scaffold-selftest 只在这两闸失败，所有 Tier-S 卡的全量自检因此无法通过。R4 3/3。R3 前三轮都只 block A4：评审只读 diff（L227），而提交装不下对自身的运行结果；用户裁定后 PR #475 在四张 Tier-S 卡写明证据形态（记录带提交 C 上的全量运行，且 `git diff --stat C HEAD` 只列该卡），第 4 轮评审自行跑该 diff 后 pass。最终 head 上第 3 次全量自检通过，前两次各有一个 17post 时限用例在负载下超时（L386）。
@@ -577,7 +579,7 @@ SVG 按名排除且写明理由：它是可带脚本的文档、不是位图）�
 > **轮次上限三次经用户裁定 `ResetRounds`**：每轮都是互不相同的真缺陷、都被接受修复、都带来新的击杀变异，
 > 不属该闸要止住的「同一争点拉锯」；计数被清零，评审本身一次没跳过。
 
-**当前已解锁待做**（按 depends_on 核对，2026-09-26）：前置均已合并的产品卡包括 `T1-APP-BOUNDARY-ASSEMBLY`、`T1-PRIVACY-MANIFEST-POLICY-GATE`、`T2-MEDIA-ACCESS-BOUNDARY` 与 `T5-OPERATION-EVENT-STORE`（最后一个前置 `T1-LOCAL-DATA-SECURITY` 于 2026-09-26 合并），以及 `T2-GHOST-EDGE-OVERLAY` 与 `T3-REPORT-IMPORT-COMMIT`。`T3-PDF-RENDER-DEVICE` 的 `T1-SPIKE-PLATFORM` 真机 spike（master `e8c2359a`）与图片 bridge（master `fee6451f`）前置已满足，但仍待 `T3-PDF-TEXT-METRICS-OPS` 与 `T3-PDF-ANDROID-TEXT-MEASURER`；
+**当前已解锁待做**（按 depends_on 核对，2026-09-26）：前置均已合并的产品卡包括 `T1-APP-BOUNDARY-ASSEMBLY`、`T1-PRIVACY-MANIFEST-MEDIA`、`T1-PRIVACY-CLIPBOARD-POLICY`、`T1-PRIVACY-SENSITIVE-SURFACE`（2026-11-17 由 `T1-PRIVACY-MANIFEST-POLICY-GATE` 拆出）、`T2-MEDIA-ACCESS-BOUNDARY` 与 `T5-OPERATION-EVENT-STORE`（最后一个前置 `T1-LOCAL-DATA-SECURITY` 于 2026-09-26 合并），以及 `T2-GHOST-EDGE-OVERLAY` 与 `T3-REPORT-IMPORT-COMMIT`。`T3-PDF-RENDER-DEVICE` 的 `T1-SPIKE-PLATFORM` 真机 spike（master `e8c2359a`）与图片 bridge（master `fee6451f`）前置已满足，但仍待 `T3-PDF-TEXT-METRICS-OPS` 与 `T3-PDF-ANDROID-TEXT-MEASURER`；
 `T5-BACKUP-IO` 仍待 `T1-SHARE-SCREEN-PRIVACY` 与 `T1-APP-BOUNDARY-ASSEMBLY`。
 
 **T0-GATE-HARDENING 的事后 R3 已结清**：其合并 `5ba3319` 未经 `task.ps1 ship`（`-SkipRed` ×2），post-hoc R3
