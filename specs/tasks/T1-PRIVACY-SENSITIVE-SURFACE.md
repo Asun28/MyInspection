@@ -37,3 +37,15 @@ Plan: `docs/plans/PLAN-STALE-PRS-20261117.md`.
 Starting point: PR #465's head `7456984c` holds `SensitiveSurfacePolicy.kt` (29 lines) and its test (three tests,
 43 lines), green on that head. Bring them over onto current master. RED must fail on assertions, not on missing
 symbols.
+
+## Attempt evidence
+
+Attempt 1, 2026-11-17, candidate `6f1fc4c3` on base `21f33cb9`. DoD: exit 0; SensitiveSurfacePolicyTest 3 tests, 0 failures.
+
+| Item | Proof | Result |
+|---|---|---|
+| A1 | Tests `backup password, restore preflight, tenant contact and full sensitive photo use a secure window` and `capture, inspection list and report action carry no secure window`. RED `3591596d` (stub marks every surface ordinary): DoD exit 1; the secure-surface test and the exact-set test fail on `AssertionError`. | pass |
+| A2 | Test `only the four listed surfaces are secure, so no surface applies a global secure window` compares the whole secure set. R4 S1-S4 (drop each of the four from the secure set) and S5-S7 (add each ordinary surface to it) are each killed by an `AssertionError` with no compile error: 7 of 7. | pass |
+| A3 | `SensitiveSurfacePolicy.kt` has no import line and only returns a `SurfaceProtection` value; it sets no window flag. | pass |
+
+The R4 runner first rewrote the file unchanged (same SHA-256) and passed unmutated, and restored and rechecked the file after each mutant.
