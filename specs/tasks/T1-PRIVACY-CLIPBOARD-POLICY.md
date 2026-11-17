@@ -38,3 +38,15 @@ Plan: `docs/plans/PLAN-STALE-PRS-20261117.md`.
 Starting point: PR #465's head `7456984c` holds `ClipboardPolicy.kt` (59 lines) and `ClipboardPolicyTest.kt`
 (six tests, 86 lines), green on that head. Bring them over onto current master. RED must fail on assertions, not
 on missing symbols (the reason #465's first review blocked).
+
+## Attempt evidence
+
+Attempt 1, 2026-11-17, candidate `5eb0e5cf` on base `21f33cb9`. DoD: exit 0; ClipboardPolicyTest 6 tests, 0 failures.
+
+| Item | Proof | Result |
+|---|---|---|
+| A1 | RED `8a90de7c` (stub allows every request, unmarked): DoD exit 1, all 6 tests fail on `AssertionError`. R4 C1 (drop the explicit-action check), C2 (drop the notice-body check), C3 (`markSensitive = false`) and C7 (wrong denial reason) are each killed by an `AssertionError`. | pass |
+| A2 | Tests `every clipboard read is denied whatever triggers it`, `the policy and its write command expose no way to read clipboard content` (reflection) and `the write command does not print the notice body`. R4 C4 (allow reads), C6 (add a public `readPrimaryClip`) and C5 (`toString` prints the body) are each killed by an `AssertionError`. | pass |
+| A3 | `ClipboardPolicy.kt` has no import line; the policy returns a `ClipboardWriteCommand` and calls no clipboard API. | pass |
+
+R4 ran each mutant against `:app:testDebugUnitTest --tests ...ClipboardPolicyTest`; a kill needed an `AssertionError` and no compile error. The runner first rewrote the file unchanged (same SHA-256) and passed unmutated, and restored and rechecked the file after each mutant: 7 of 7 killed.
