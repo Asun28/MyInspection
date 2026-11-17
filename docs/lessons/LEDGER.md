@@ -2889,9 +2889,25 @@
 - refs: 
 
 ## L386
-- date: 2026-11-16 ｜ tags: selftest,timing,load,tier-s ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- date: 2026-11-16 ｜ tags: selftest,timing,load,tier-s ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3
 - symptom: Two full selftest -Parallel runs on f5ef8c9d (2026-11-16) each failed one 17post case on a wall-time bound (T37-CIGATE/WORKFLOW-BINDING check-pending 74.96 s > 55 s; TD134-CIAPIFAIL/malformed 60.19 s > 60 s) while every other gate passed; the code was identical to a head that had passed, and the third run of the same command passed.
 - root_cause: Some 17post cases assert wall-clock bounds that include several pwsh launches; with five shards in parallel plus outside load (a ChatGPT process at one full core, Defender scanning fixture files) they cross the bound. The failure says nothing about the diff.
 - rule: Before a Tier-S full run, sample CPU (Get-Counter Process % Processor Time) and keep the machine idle during it. When the only failure is a 17post wall-time bound on code that matches a passing run, rerun the same command unchanged; post every run on the PR, failed ones included, and never edit the card between runs.
 - enforced_by: 
 - refs: 
+
+## L387
+- date: 2026-11-17 ｜ tags: lessons,r5,selftest,ledger ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: The T0-AIDLC-INIT-GATES R5 PR (#476) put an L386 citation in CLAUDE.md and the card note; L386 existed only in the main checkout's uncommitted ledger, so master failed selftest gates 2 and 16 (dangling lesson reference) and the next card's full Tier-S run (T0-WORKTREE-ROOT-UNIFY on 80259d42, 40 minutes) was spent on it.
+- root_cause: Lessons added during a goal stay uncommitted until a lessons PR; R5 and card text reach master first, and gates 2 and 16 check every L<n> in CLAUDE.md, skills and docs against the ledger on the same tree.
+- rule: In any tracked text (R5 stage entry, card note, docs), cite only lesson ids already defined in origin/master's docs/lessons/LEDGER.md (git show origin/master:docs/lessons/LEDGER.md | Select-String '^## L<n>'). For a new lesson, land the lessons PR first or leave the id out.
+- enforced_by: 
+- refs: 
+
+## L388
+- date: 2026-11-17 ｜ tags: dod,ship,pwsh,native-exit,aidlc ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1 ｜ cost: one ship, a final aidlc card stop, and a second 64-minute Tier-S run
+- symptom: The T0-SCRIPTS-ORPHAN-FUNCS ship (2026-11-17, candidate ee572070) stopped at its DoD leg with "DoD exit 1" although the same dod_command printed [DOD-PASS] when run with pwsh -Command; aidlc then read the ship output as license-blocked and recorded a final STOP risk on the card run.
+- root_cause: The ship runs the DoD through Get-ScaffoldDodPayload (scripts/_cards.ps1), which sets $ErrorActionPreference Stop and $PSNativeCommandUseErrorActionPreference $true. git grep exits 1 when nothing matches, which was the pass case, so the DoD threw NativeCommandExitException. The manual checks, R4 and aidlc loopDod all ran the DoD without that payload. aidlc ship.ts checks the license regex before the DoD regex.
+- rule: Run every DoD check, R4 baseline included, through the payload the ship builds: . scripts/_cards.ps1; pwsh -NoProfile -Command (Get-ScaffoldDodPayload -Dod $dod). In a dod_command, any native command whose non-zero exit is a pass case (git grep and findstr no match, git diff --quiet with changes, fc) needs $PSNativeCommandUseErrorActionPreference = $false before it and an explicit $LASTEXITCODE check after it. When an aidlc card stops after a ship, read the last line of _local/effectiveness-ledger.jsonl for the gate that actually failed before acting on the stop reason.
+- enforced_by: 
+- refs: PR 480; task.ps1 ship DoD leg; scripts/_cards.ps1 Get-ScaffoldDodPayload
