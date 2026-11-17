@@ -102,6 +102,7 @@ class SelectedMediaPolicyTest {
     fun `the policy source imports no android type`() {
         val source = File("src/main/kotlin/nz/myinspection/app/privacy/policy/SelectedMediaPolicy.kt")
         assertTrue(source.isFile, "no source at ${source.absolutePath}")
-        assertEquals(emptyList(), source.readLines().filter { it.trimStart().startsWith("import android.") })
+        val androidImport = Regex("""^\s*import\s+`?android`?\.""")
+        assertEquals(emptyList(), source.readLines().filter { androidImport.containsMatchIn(it) })
     }
 }
