@@ -2,7 +2,7 @@
 id: T1-PRIVACY-CLIPBOARD-POLICY
 title: ClipboardPolicy, a write-only clipboard command for the explicit Copy notice action
 depends_on: [T1-LOCAL-DATA-SECURITY]
-status: todo
+status: merged
 branch: T1-PRIVACY-CLIPBOARD-POLICY
 worktree: D:\wt\MyInspection\T1-PRIVACY-CLIPBOARD-POLICY
 allow_paths:
@@ -54,3 +54,7 @@ Attempt 3, 2026-11-17, code tree `76a0ca78` (merged with master `ca813eb2`). DoD
 | A3 | Test `no class in the policy package references an android type` reads every class of the package (from the unit-test classes directory or `classes.jar`) and fails on any `android/` reference, private members and method bodies included; adding a private function with an `android.content.ClipData` parameter to `ClipboardPolicy` fails that test alone on an `AssertionError` (added after review). The policy returns a `ClipboardWriteCommand` and calls no clipboard API. | pass |
 
 R4 ran each mutant against `:app:testDebugUnitTest --tests ...ClipboardPolicyTest`; a kill needed an `AssertionError` and no compile error. The runner first rewrote the file unchanged (same SHA-256) and passed unmutated, and restored and rechecked the file after each mutant: 7 of 7 killed.
+
+## R5 2026-11-17
+
+Merged via PR #493 (squash `8d9e57d6`, reviewed head `2ae8d1e2`, CI run 44021822443 attempt 1, Codex R3 pass). A3 was amended in PR #496 by the user's ruling; aidlc stopped this card at its 3-hour card deadline, and by the user's ruling it shipped through task.ps1 with every gate.
