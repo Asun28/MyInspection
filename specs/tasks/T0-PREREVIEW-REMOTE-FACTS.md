@@ -1,7 +1,8 @@
 ---
 id: T0-PREREVIEW-REMOTE-FACTS
 title: Publish reviewed prereview facts library against the remote foundation
-status: todo
+status: merged
+superseded_by: T0-PREREVIEW-FACTS-LIB
 branch: T0-PREREVIEW-REMOTE-FACTS
 worktree: C:\wt\T0-PREREVIEW-REMOTE-FACTS
 depends_on: [T0-PREREVIEW-REMOTE-SCHEMA, T0-PREREVIEW-REMOTE-POLICY]
@@ -35,3 +36,7 @@ The original tests and mutation receipts are historical evidence only. Run the D
 ## Reconcile note (2026-09-24)
 
 The 2026-09 local/origin reconcile landed the local-only parts of local master's PR review v2 phase 1a chain on master: PROTOCOL-DOC (`a66af219`), CHECKLISTS (`2782b55b`), RECORDS (`dec30514`), FACTS-LIB (`b675d6a6`) and STATE-1A (`62ec5f3b`). For the schema and its checker (SCHEMA and UNIT-ID-REVISION), master keeps origin's versions from T0-PREREVIEW-REMOTE-SCHEMA. `scripts/_prereview-facts.ps1` and `scripts/fixtures/prereview/facts-lib/` are therefore on master at their local merged bytes, plus the gate 1h self-check entry the reconcile added, which makes the file SHA-256 `FD50745DA618EF4A...`; the plan's `23A38171...` pin that this card's hygiene retains, and its 18/18 receipt, describe the pre-reconcile file. Whether this card is closed, narrowed or kept is a user decision.
+
+## Retired 2026-11-17
+
+Retired unimplemented by the owner's 2026-11-17 ruling. This card never had a PR or a branch of its own. Both paths in its allow_paths reached master in the 2026-09 reconcile through `T0-PREREVIEW-FACTS-LIB` (`b675d6a6`) and the gate 1h entry (`d316cf0e`), and on master `ff78775a` this card's DoD passes as written (`[PREREVIEW-FACTS-LIB-SELFCHECK-PASS] checks=31`; file SHA-256 `FD50745DA618EF4A...`, not the plan's pre-reconcile `23A38171...` pin). It has no row on docs/TASK-BOARD.md, so `post-merge.ps1 retire` could not take it; this card-text PR makes the same edit.
