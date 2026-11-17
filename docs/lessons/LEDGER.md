@@ -2319,7 +2319,7 @@
 - refs: T7-AUDIT-CARDS-CLOSURE R3 d177d201→5bccf3ef; T7-AUDIT-DOCS-CLOSURE R3 898be83f→4d46499f
 
 ## L309
-- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 18
+- date: 2026-09-07 ｜ tags: docs,review,design-system ｜ tier: must ｜ kind: pitfall ｜ severity: major ｜ recurrence: 19
 - symptom: R3 六轮 11 条 finding 全部属实、却几乎全是「新写的中心规则与文档既有实例不符」：每轮修完措辞，下一轮就在另一处冒出新缝（tooltip 行 → 相机行 → 计数播报 → 点标记分类 → 二元记录态两栖）。轮次上限被迫两次人裁 reset，仍未收敛。
 - root_cause: 把一条中心规则加进成熟规范文档时，规则的每一句声称都在对整份文档做全称断言，而我只对着「开卡时盘点出的那几处冲突」验证过它。既有实例（相机控件、Settings 错误点、state-badge DOT、非徽标计数）从未被逐个代入新规则试算，于是每次收窄措辞都在另一处制造出新的不一致。
 - rule: 给成熟文档加中心规则时，写完规则先做「实例代入表」再送评审：把文档里受该规则管辖的既有实例全部列出（grep 不变量而非症状词），逐个代入新规则算一遍「它合规吗 / 按规则它该长什么样 / 与它自己那行冲突吗」，冲突的当场消解或显式豁免并写明理由。规则里每出现一次全称词（every / never / all / 一律），就回头核一遍该全称在文档里是否真成立。同一条规则连续两轮以不同形态被证伪 ⇒ 停手做实例代入表，别补第三次措辞（同 L189 的识别信号）。
@@ -2881,7 +2881,7 @@
 - refs: 
 
 ## L385
-- date: 2026-11-16 ｜ tags: aidlc,ship ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
+- date: 2026-11-16 ｜ tags: aidlc,ship ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3
 - symptom: after card T0-AGP-BUILTIN-KOTLIN merged (PR 472) via task.ps1 -Phase ship, aidlc kept the card run in BUILD/SHIP; card close refused (no verified merge) and card report refused mergeVerified (loop-owned)
 - root_cause: aidlc sets mergeVerified only from the merge operation it records when its own card next SHIP directive runs the ship; a direct task.ps1 ship leaves no operation
 - rule: On a repo with aidlc shipPath scaffold, ship a goal card by following aidlc card next to its SHIP directive, not by calling task.ps1 -Phase ship directly; if already shipped directly, the registry status merged still satisfies the goal arc-verified check
@@ -2911,3 +2911,11 @@
 - rule: Run every DoD check, R4 baseline included, through the payload the ship builds: . scripts/_cards.ps1; pwsh -NoProfile -Command (Get-ScaffoldDodPayload -Dod $dod). In a dod_command, any native command whose non-zero exit is a pass case (git grep and findstr no match, git diff --quiet with changes, fc) needs $PSNativeCommandUseErrorActionPreference = $false before it and an explicit $LASTEXITCODE check after it. When an aidlc card stops after a ship, read the last line of _local/effectiveness-ledger.jsonl for the gate that actually failed before acting on the stop reason.
 - enforced_by: 
 - refs: PR 480; task.ps1 ship DoD leg; scripts/_cards.ps1 Get-ScaffoldDodPayload
+
+## L389
+- date: 2026-11-17 ｜ tags: aidlc,deadline,gradle,sessions ｜ tier: ledger ｜ kind: pitfall ｜ severity: major ｜ recurrence: 1
+- symptom: Three aidlc cards (goal g-20261117003816-2171ee) reached their 3-hour card deadline (STOP/time) with green DoD, RED and R4 and only the ship left. Most of the 3 hours went to waiting for the local Gradle lane, which another session held for full selftests and integrated acceptance. aidlc goal extend refused (extension must move the deadline later) because it only moves the goal deadline.
+- root_cause: The card clock starts at the first PREPARE and counts waits; aidlc has no card-level extension (card deadline = min(start + 3h, goal deadline)), and RED, DoD, R4 and the ship legs all need local Gradle, which cannot run beside another session's full selftest (L381).
+- rule: Before PREPARE on a card that needs local Gradle, agree Gradle slots with every live session on the machine (ListAgents, SendMessage) and PREPARE only as many cards as those slots can carry to ship within 3 hours. A card that still stops on time with only the ship left ships with task.ps1 -Phase ship under a recorded user ruling, with every gate, and the goal CLOSE then waits on L385.
+- enforced_by: 
+- refs: 
