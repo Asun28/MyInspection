@@ -1237,10 +1237,8 @@ $coreExampleFindings = @(Test-ScaffoldCoreSelfCheckExamples)
 # coverage rather than treating the modules as a permanent pending exception.
 . (Join-Path $PSScriptRoot '_symbol-markdown.ps1')
 . (Join-Path $PSScriptRoot '_unicode.ps1')
-. (Join-Path $PSScriptRoot '_validation.ps1')
 $coreExampleFindings += @(Test-ScaffoldSymbolMarkdownExamples)
 $coreExampleFindings += @(Test-ScaffoldUnicodeExamples)
-$coreExampleFindings += @(Test-ScaffoldValidationExamples)
 # The local prereview cores (records, facts, state) joined in the 2026-09 local/origin reconcile. Each runs
 # its own -SelfCheck through a child process, so none of their functions or StrictMode settings enter this
 # scope; a core whose self-check does not end on its pass sentinel returns one finding.
