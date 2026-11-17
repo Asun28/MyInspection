@@ -22,7 +22,7 @@ non_goals:
 acceptance:
   - "A1 The merged-manifest task in :app:check requires android:usesCleartextTraffic=false next to the existing allowBackup and backup/D2D checks, and fails when any uses-permission or uses-permission-sdk-23 element declares READ_MEDIA_IMAGES or READ_EXTERNAL_STORAGE; removing the cleartext attribute or adding either permission to the production manifest makes :app:check fail."
   - "A2 SelectedMediaPolicy accepts only a single user-selected item from the system Photo Picker or a single SAF document; every other origin, a batch or empty selection, and an item the user did not choose are rejected. JVM tests fail on an assertion (not a missing symbol) when any allowlist entry is removed."
-  - "A3 The existing allowBackup and backup/D2D domain checks keep their behaviour: the build.gradle.kts change only adds the cleartext entry and the permission check, and SelectedMediaPolicy imports no android.* type."
+  - "A3 The existing allowBackup and backup/D2D domain checks keep their behaviour: the build.gradle.kts change adds the cleartext entry and the permission check and changes no existing code line; and the compiled classes of the policy package, as the unit tests load them, reference no android.* type."
 dod_command: cmd /c android\gradlew.bat -p android --offline --no-daemon -q :app:check :app:assembleDebug
 dod_exit: 0
 dod_assert: :app:check runs the merged-manifest gate on the real merged manifest and the SelectedMediaPolicy JVM tests; exit 0 on the candidate. On base the gate passes and the policy tests do not exist, so RED is a test commit whose policy stub fails the tests on assertions plus a manifest edit the gate rejects.
@@ -37,6 +37,10 @@ doc_sync: At R5 set status merged, update the TASK-BOARD row; ADR-0006 and docs/
 Split on 2026-11-17 from `T1-PRIVACY-MANIFEST-POLICY-GATE` (PR #465, 357 lines) under the user's rule that a card
 changes about 200 lines or fewer. This card keeps R1 and the media half of R2; the parent card's text stays the
 contract. Plan: `docs/plans/PLAN-STALE-PRS-20261117.md`.
+
+## Amendment 2026-11-17 (A3)
+
+A3 used to say the policy "imports no android.* type". Three Codex R3 rounds each found legal Kotlin that a source regex misses (extra spaces, a comment between tokens, spaces around the dot), and only an unused import can escape the bytecode check. By the user's ruling A3 now names the property that matters at runtime: the compiled classes reference no android.* type. The source-import test is dropped.
 
 Starting point: PR #465's head `7456984c` already holds the gate (17 lines in `build.gradle.kts`, one manifest
 attribute) and `SelectedMediaPolicy` with five tests (122 lines), green on that head. Bring them over onto current

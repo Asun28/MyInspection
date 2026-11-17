@@ -2881,7 +2881,7 @@
 - refs: 
 
 ## L385
-- date: 2026-11-16 ｜ tags: aidlc,ship ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- date: 2026-11-16 ｜ tags: aidlc,ship ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
 - symptom: after card T0-AGP-BUILTIN-KOTLIN merged (PR 472) via task.ps1 -Phase ship, aidlc kept the card run in BUILD/SHIP; card close refused (no verified merge) and card report refused mergeVerified (loop-owned)
 - root_cause: aidlc sets mergeVerified only from the merge operation it records when its own card next SHIP directive runs the ship; a direct task.ps1 ship leaves no operation
 - rule: On a repo with aidlc shipPath scaffold, ship a goal card by following aidlc card next to its SHIP directive, not by calling task.ps1 -Phase ship directly; if already shipped directly, the registry status merged still satisfies the goal arc-verified check
@@ -2889,7 +2889,7 @@
 - refs: 
 
 ## L386
-- date: 2026-11-16 ｜ tags: selftest,timing,load,tier-s ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 3
+- date: 2026-11-16 ｜ tags: selftest,timing,load,tier-s ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 4
 - symptom: Two full selftest -Parallel runs on f5ef8c9d (2026-11-16) each failed one 17post case on a wall-time bound (T37-CIGATE/WORKFLOW-BINDING check-pending 74.96 s > 55 s; TD134-CIAPIFAIL/malformed 60.19 s > 60 s) while every other gate passed; the code was identical to a head that had passed, and the third run of the same command passed.
 - root_cause: Some 17post cases assert wall-clock bounds that include several pwsh launches; with five shards in parallel plus outside load (a ChatGPT process at one full core, Defender scanning fixture files) they cross the bound. The failure says nothing about the diff.
 - rule: Before a Tier-S full run, sample CPU (Get-Counter Process % Processor Time) and keep the machine idle during it. When the only failure is a 17post wall-time bound on code that matches a passing run, rerun the same command unchanged; post every run on the PR, failed ones included, and never edit the card between runs.
