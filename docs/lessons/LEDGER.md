@@ -2881,7 +2881,7 @@
 - refs: 
 
 ## L385
-- date: 2026-11-16 ｜ tags: aidlc,ship ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 1
+- date: 2026-11-16 ｜ tags: aidlc,ship ｜ tier: ledger ｜ kind: pitfall ｜ severity: minor ｜ recurrence: 2
 - symptom: after card T0-AGP-BUILTIN-KOTLIN merged (PR 472) via task.ps1 -Phase ship, aidlc kept the card run in BUILD/SHIP; card close refused (no verified merge) and card report refused mergeVerified (loop-owned)
 - root_cause: aidlc sets mergeVerified only from the merge operation it records when its own card next SHIP directive runs the ship; a direct task.ps1 ship leaves no operation
 - rule: On a repo with aidlc shipPath scaffold, ship a goal card by following aidlc card next to its SHIP directive, not by calling task.ps1 -Phase ship directly; if already shipped directly, the registry status merged still satisfies the goal arc-verified check
