@@ -59,3 +59,37 @@ or pick answers"); a Fable 5.2 consult also recommended two cards.
 
 `scripts/selftest.ps1` is a TierSPaths entry, so the card is Tier S and needs the full selftest on the shipped
 candidate (A3).
+
+## Implementation record (2026-11-17)
+
+The first implementation (branch head 7bfcb2c3, change c0dc420a) covered all six units of the card before the
+split. `T0-SCRIPTS-ORPHAN-FUNCS` shipped three of them in PR #486; merging origin/master `21f33cb9` into this branch
+(71800392) leaves this card's two paths.
+
+- Change: `scripts/_validation.ps1` deleted (502 lines). In `scripts/selftest.ps1` gate 1h, the dot-source of
+  `_validation.ps1` and the `Test-ScaffoldValidationExamples` call removed (2 lines); gate 1h still dot-sources
+  `_symbol-markdown.ps1` and `_unicode.ps1` and adds their examples.
+- DoD on 71800392, run through the payload the ship builds (`Get-ScaffoldDodPayload`): `[DOD-PASS]`, exit 0; this
+  includes `selftest -Only 1`.
+- R4 (hygiene), under the same payload: the runner first rewrote `selftest.ps1` through its own byte path (SHA-256
+  unchanged) and saw the DoD pass. M1 put back the base copies of `_validation.ps1` and `selftest.ps1` (the base
+  state of both paths): DoD exit 1, `[DOD-FAIL] scripts/_validation.ps1 still exists`. M2 put back the base
+  `selftest.ps1` alone (the gate 1h hook): DoD exit 1, `[DOD-FAIL] a removed name is still referenced`. 2/2 killed;
+  `selftest.ps1` restored to SHA-256 `1E842C30...C7FA506F` and the status is clean.
+- Tier S: the full selftest ran from this worktree on C = `77c535ac`, the commit that added the bullets above. This
+  bullet, with the run's output, was added in a later commit, so C does not carry the output of its own run. The run
+  is serial: one `selftest.ps1` process runs all 17 gates without `-Parallel`, so there are no shards and its process
+  exit is the only exit. Run 2, 2026-11-17 15:28-16:39 NZDT: `head=77c535ace6752725d39ef45e4fe5e09fc99b1fae
+  status=[]`, `[GATE-RESULT-SUMMARY] failed=none ran=17 wall=4228.3s`, `selftest: PASS`, `exit=0
+  headAfter=77c535ace6752725d39ef45e4fe5e09fc99b1fae statusAfter=[]`. Run 1 on the same commit (14:10-15:12) failed
+  only gate 17 case `TD134-CIAPIFAIL/malformed` ("ship still running after 90s") while another session's Gradle run
+  overlapped it; that is the wall-time case L386 records, and run 2 reran it unchanged. `git diff --stat 77c535ac
+  HEAD` lists only this card.
+
+## Attempt evidence
+
+| Item | Proof | Result |
+|---|---|---|
+| A1 | `git diff origin/master HEAD` deletes `_validation.ps1` and only the two gate 1h lines; the `_symbol-markdown.ps1` and `_unicode.ps1` loads and example calls stay; the DoD's `selftest -Only 1` passes | pass |
+| A2 | DoD: `selftest.ps1` parses and `git grep` over scripts, .github and .claude finds none of the five names; R4 M2 puts back the hook and the DoD exits 1 | pass |
+| A3 | DoD's `selftest -Only 1` passes; the full serial selftest on C `77c535ac` passes (`failed=none ran=17`, exit 0) and `git diff --stat 77c535ac HEAD` lists only this card | pass |
