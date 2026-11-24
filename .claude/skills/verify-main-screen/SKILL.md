@@ -65,4 +65,4 @@ The photo flow (system camera), the PDF export flow (system file picker), other 
 ## Cleanup
 1. If step 4 of Launch printed no path, `adb -s emulator-5580 uninstall nz.myinspection.app`; else `adb -s emulator-5580 shell am force-stop nz.myinspection.app`.
 2. For each new pid of Launch, check its name with `Get-Process -Id <pid>`, then `Stop-Process -Id <pid>`: the emulator, its qemu, netsimd and crashpad_handler children, the adb server if this run started it, and any java left by the build.
-3. Wait until `Get-Process -Id <pid>` fails for each of them; a new boot fails while the old qemu still exits. Keep `$out`.
+3. Wait until `Get-CimInstance Win32_Process -Filter "ProcessId=<pid>"` prints nothing for each of them: `Get-Process` loses a qemu that still exits and holds the AVD. Keep `$out`.
