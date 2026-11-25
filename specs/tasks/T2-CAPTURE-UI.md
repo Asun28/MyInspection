@@ -13,6 +13,7 @@ allow_paths:
   - android/app/src/main/kotlin/nz/myinspection/app/media/camera/
   - android/app/src/main/res/
   - android/app/src/test/kotlin/nz/myinspection/app/feature/capture/
+  - .claude/skills/verify-main-screen/SKILL.md
 forbid:
   - 业务判断写进 Composable/ViewModel（判定一律调 :core；UI 只呈现与转发）
   - 下拉框选状态（需求 §5：大按钮）
