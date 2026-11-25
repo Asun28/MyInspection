@@ -3,7 +3,7 @@ id: T0-UI-VERIFY-PILOT
 title: Pilot the optional ui-verify skill once on the app's main screen, on an Android emulator, with a verify-main-screen skill
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-UI-VERIFY-PILOT
 worktree: D:\wt\MyInspection\T0-UI-VERIFY-PILOT
 allow_paths:
@@ -176,3 +176,7 @@ Answers (R4):
 4. Should `screenshot` join `CANDIDATE_BOUND_KINDS`? Recommendation: no, not now. `verifyAudit` blocks an entry whose digest is not the merged one, and a commit that changes only this card changes the digest, so each evidence commit or repair would make valid captures stale. Two driver runs of one APK gave different sha256 values (clock and time text), so the bytes do not show the candidate either; the APK sha256 does. Revisit it with a rule that compares the covered files.
 
 Selftest (A7) on C, empty `git status` before and after: `[GATE-RESULT-SUMMARY] failed=11,14 ran=9 wall=556.1s`, exit 1: 3, 4, 5, 8, 9, 15 and 16 PASS, 11 and 14 FAIL. On base `ffa037d2`, `-Only 11,14`: `failed=11,14 ran=2 wall=231.1s`, exit 1. The sorted distinct WARNING lines of both logs are equal (11 each); the two behind the failures are the dangling link `CLAUDE.md` to `scripts/_validation.ps1` (gate 11) and 14q, whose nested run fails on gate 11 alone. `git diff --stat C HEAD` lists only this card.
+
+## R5 2026-11-25
+
+Merged via PR #505 (squash `b62c9762`, reviewed head `904550ad`, CI run 45690404143, Codex R3 and the ship's Codex review pass with no finding). R3 decisions 1 to 3 (F1 to F10) and one ship review (F11) blocked; each finding was repaired. Owner rulings in the session: A7 amended (PR #504), three deadline extensions, one redesign (a Windows job object owns every process of the driver), one continuation with two decisions after F11. Follow-up: #506. `post-merge.ps1 r5` was not run, because it adds a CLAUDE.md entry and the owner has uncommitted edits there.
