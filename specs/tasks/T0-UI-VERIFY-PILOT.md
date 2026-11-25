@@ -117,7 +117,39 @@ Arm 1 is the blob id, arm 2 the sections and sync commit, arm 3 the sha256 count
 ## Amendment 2026-11-25 (A7)
 A7 asked for gates 11 and 14 to pass. Both already fail on master `ffa037d2` (`CLAUDE.md:78`, gate 14 through its nested run of gate 11), and this card may not change CLAUDE.md. The owner chose in the session to amend A7 to the base comparison.
 
+## PR summary
+### What
+This change adds the unchanged `ui-verify` skill and one `verify-main-screen` skill. It also records one run on an Android emulator.
+### Why / Intent
+The earlier trial of `ui-verify` covered one web page. This card tests the skill on a device.
+### How / Behaviour
+The new skill starts the app, types made-up data and asserts each state from a screen dump. It saves pictures and one video outside git.
+### System impact
+The app, the scripts and the CI do not change. One index row names the two skills.
+### Security
+The run used made-up data on an emulator. The driver refuses a device that is not an emulator and an emulator with a window.
+### Tests and review
+The DoD passes, and each of the four mutants makes it fail. Gates 11 and 14 fail as they do on the base commit.
+### Risk
+The skill finds controls by text, so a label change stops the driver with a failure.
+### Ownership
+The repository owner keeps both skills. The owner also decides on the five proposed AIDLC issues.
+### Docs
+`docs/DELIVERY-CHAINS.md` names the two skills. A separate docs change sets the card status and the board row after the merge.
+
 ## Attempt evidence
+| Item | Proof | Result |
+|---|---|---|
+| A1 | DoD arm 1; mutant: one byte of `ui-verify` changed | pass; mutant exit 1, `ui-verify blob` |
+| A2 | DoD arm 2; mutants: no Cleanup section, sync commit of 40 zeros | pass; mutants exit 1, `no section Cleanup` and `not an ancestor` |
+| A3 | DoD arm 3 and the run table below | Met rows with sha256, negative check exit 1 |
+| A4 | the four Unverified rows below | each with its reason |
+| A5 | the four answers below | answered, proposals (a) to (e) |
+| A6 | the run and process paragraphs below; `git ls-files` | no capture in git, each process gone |
+| A7 | DoD arm 4; mutant: `ui-verify` dropped from the index row; selftest on C below | pass; mutant exit 1, `9j [SKILL-CONTRACT]` |
+
+The mutants ran one at a time in a scratch clone at `158a06a9`; the control there printed `[DOD-PASS]`, exit 0.
+
 RED: `aidlc card red` on master `ffa037d2`, `[DOD-FAIL] missing .claude/skills/ui-verify/SKILL.md`, exit 1.
 
 Run on `8d6a06739fd571702a96c013c4f22339713a97a6`, 2026-11-24 19:10 to 19:13 UTC, by a fresh verifier agent that had the skill path, the capture directory and no device step. HEAD and an empty `git status` before and after. Device `emulator-5580` (AVD `Pixel_6`), API 35, `ro.kernel.qemu` 1. The app was installed before, so it stays. `app-debug.apk` sha256 `2f6d5cf5cefccdc8646571723c70598093a53e18be32b2f6042d6c87773c3d95`. Captures: `D:\wt\MyInspection-captures\T0-UI-VERIFY-PILOT\run1`; `git ls-files` lists none. The coordinator hashed the files again (equal) and found `drive.ps1` equal to the committed block. Every row below came from `pwsh -NoProfile -File $out\drive.ps1 -Out $out`, exit 0; step-1 is the state after the address and Start, step-2 after the item, step-3 after the condition.
