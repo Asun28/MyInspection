@@ -117,8 +117,62 @@ Arm 1 is the blob id, arm 2 the sections and sync commit, arm 3 the sha256 count
 ## Amendment 2026-11-25 (A7)
 A7 asked for gates 11 and 14 to pass. Both already fail on master `ffa037d2` (`CLAUDE.md:78`, gate 14 through its nested run of gate 11), and this card may not change CLAUDE.md. The owner chose in the session to amend A7 to the base comparison.
 
+## PR summary
+### What
+This change adds the unchanged `ui-verify` skill and one `verify-main-screen` skill. It also records one run on an Android emulator.
+### Why / Intent
+The earlier trial of `ui-verify` covered one web page. This card tests the skill on a device.
+### How / Behaviour
+The new skill starts the app, types made-up data and asserts each state from a screen dump. It saves pictures and one video outside git.
+### System impact
+The app, the scripts and the CI do not change. One index row names the two skills.
+### Security
+The run used made-up data. The driver acts only on the headless emulator that the same run booted. It stops only the processes of its own job and never uninstalls the app.
+### Tests and review
+The DoD passes, and each of the four mutants makes it fail. Gates 11 and 14 fail as they do on the base commit.
+### Risk
+The skill finds controls by text, so a label change stops the driver with a failure.
+### Ownership
+The repository owner keeps both skills. The owner also decides on the five proposed AIDLC issues.
+### Docs
+`docs/DELIVERY-CHAINS.md` names the two skills. A separate docs change sets the card status and the board row after the merge.
+
 ## Attempt evidence
-Not run. The run fills this table and the answers below it.
+| Item | Proof | Result |
+|---|---|---|
+| A1 | DoD arm 1; mutant: one byte of `ui-verify` changed | pass; mutant exit 1, `ui-verify blob` |
+| A2 | DoD arm 2; mutants: no Cleanup section, sync commit of 40 zeros | pass; mutants exit 1, `no section Cleanup` and `not an ancestor` |
+| A3 | DoD arm 3 and the run table below | Met rows with sha256, negative check exit 1 |
+| A4 | the four Unverified rows below | each with its reason |
+| A5 | the four answers below | answered, proposals (a) to (e) |
+| A6 | the run and process paragraphs below; `git ls-files` | no capture in git, each process gone |
+| A7 | DoD arm 4; mutant: `ui-verify` dropped from the index row; selftest on C below | pass; mutant exit 1, `9j [SKILL-CONTRACT]` |
+
+RED: `aidlc card red` on master `ffa037d2`, `[DOD-FAIL] missing .claude/skills/ui-verify/SKILL.md`, exit 1. The mutants ran one at a time in a scratch clone at C; the control there printed `[DOD-PASS]`, exit 0.
+Run on C = `2e3fb055ff1d2ca7c82253b5770d4c68c7e3b5d8`, 2026-11-25 09:59 to 10:03 UTC, by a fresh verifier agent that had the skill path, the capture directory, limits and the report list, and no device step. HEAD and an empty `git status` before and after. Device `emulator-5580` (AVD `Pixel_6`), API 35, `ro.kernel.qemu` 1. Built and installed `app-debug.apk` sha256 `2f6d5cf5cefccdc8646571723c70598093a53e18be32b2f6042d6c87773c3d95`. Captures: `D:\wt\MyInspection-captures\T0-UI-VERIFY-PILOT\run6`; `git ls-files` lists none. The coordinator hashed the files again (equal) and found `drive.ps1` equal to the committed block. Every row came from `pwsh -NoProfile -File $out\drive.ps1 -Out $out -Apk android\app\build\outputs\apk\debug\app-debug.apk`, exit 0, `settle: 0 system dialogs answered with Wait`; step-1 is the state after the address and Start, step-2 after the item, step-3 after the condition.
 
 | Target | Source | Expected | Actual | Evidence | Verdict |
 |---|---|---|---|---|---|
+| base capture | driver row `base` | Walking skeleton, Address and Start inspection in the dump, no Export PDF | all four true | `base.png` sha256 `4558cf35928f48a7aeadd85237e1ee1e0901d3791007e35ba3ef55e452d57f2f` | Met |
+| title and Address label visible | driver row `visible` | both below the action bar | both false: an app defect, the action bar covers them on API 35 | `visible.png` sha256 `dcbfcfaa320b351e1e235ee96f1c0328cdee27765353fe18f9c1b1262288126c` (status bar icons changed since `base.png`) | Not Met, known violation; owner: the repository owner, follow-up issue filed at CLOSE |
+| step 1 | driver row `step-1` | the address, a text starting `Started `, Item, Take photo; Export PDF disabled | all five true; the typed address is in the dump and hidden in the picture | `step-1.png` sha256 `e041218c8a2bf07985e0b8f445bd5fa43121ffb8870b952f81b0f0a74a071ff0` | Met |
+| negative check | `drive.ps1 -Assert on:Export PDF` in the state of step 1 | exit 1 | exit 1, `ASSERT FALSE on:Export PDF` | `negative.png`, same sha256 as `step-1.png` | Met |
+| step 2 | driver row `step-2` | Sample wall; Export PDF disabled | both true | `step-2.png` sha256 `46a5731741c652dac3ab42129bf0deb55661960ff6b441aad0d025d5c7f3955e` | Met |
+| step 3, the end state | driver row `step-3` | Sample wall; Export PDF enabled | both true | `step-3.png` sha256 `a558fd70dc36ed65b0ceb85b5a6d0358cfc5515acafdda87beac17fefb8243a9` | Met |
+| screen recording | driver row `video` | a finished file that lasts to the step-3 tap, at 57 s | 65.5 s by its header, recorder alive at step-3 and gone at the end; 249 frames, the coordinator viewed 12 spread over it: the flow up to the enabled Export PDF, no real data | `video.mp4` sha256 `f3488c7a5206b08f393764ff14c0f6198522bc1dcd8676e0c3185a754d006974` | Met |
+| before and after pair | not run | - | this card changes no interface | none | Unverified |
+| photo flow | not run | - | the system camera is outside the app's window | none | Unverified |
+| PDF export flow | not run | - | the system file picker is outside the app's window | none | Unverified |
+| `aidlc evidence retain` | not run before the candidate | - | it needs the recorded success; the result goes to CLOSE | none | Unverified |
+
+The agent opened the six pictures: typed sample text, the keyboard's word suggestions and the clock, no real data.
+Processes: the driver (one process in a Windows job object) printed `ended` for adb server 34164, emulator 7852, conhost 13996 and 64256, qemu-system-x86_64-headless 57544, crashpad_handler 64724 and netsimd 41616, then `job: 0 left`, read from the job; and `gone` for its recorder, device screenrecord 2857, by `pgrep` on the tag in its file name. The agent and the coordinator each looked for these seven host pids in `Win32_Process` after the run and found none; ports 5037, 5580 and 5581 were free. Every other command is synchronous. The build left no java. A crashpad_handler (43148) ran before and stays.
+Failed tries: (1) the run on `64473edf` (driver exit 1): a "System UI isn't responding" dialog covered the app on a busy host, and `seen:` crashed on a missing node; two tries before it failed on that agent's own extraction script, and it deleted their files and one stray script in the checkout. (2) R3 blocked `0c246d7e` (F1 to F7), `8bd0d0ca` (F2, F5, F6, F8, F9) and `ce9aacba` (F9, F10); the runs on `8d6a0673`, `bf468f7c` and `120ab0e6` passed with the faults of those findings. (3) The run on `ce8e5214` passed, and its cleanup uninstalled the app from the AVD, because the boot step read it as absent where earlier boots had found it; the cause is not established. The uninstall is removed since `120ab0e6`, and that run installed the app again, its earlier data on that AVD is lost. (4) Two drafts of the wait failed (`/sdcard` not ready; a Pixel Launcher dialog). (5) Two builds failed: Gradle's file watcher hung in `listFileSystems`, then its cache lock stayed held; hence `--no-watch-fs`. (6) Earlier drafts: Start pressed before adb had typed; dropped characters; keyboard settings that did not help; a boot while the old qemu held the AVD; a windowed emulator that showed a fragment of the host clipboard (captures deleted, AVD keyboard changes reverted). All processes were stopped by pid.
+Failure paths of the R3 repairs, each run on the driver of `53c68fe1` without its message edit (C differs from it only in what it prints: process names, API level) or a variant of one or two replaced strings; after each one the process table held no process of the run. Exit 1 before any start: emulator port taken; adb server port taken. Exit 1, `job: 0 left`: emulator exits; launcher exits after it started a child (the child ended); no boot in time; a window; no headless qemu in the job; bad APK; installed bytes that differ; planned throw mid-flow (no recorder left); screen that never settles. F10: the adb server killed mid-flow; the server that adb started in its place was in the job and ended, exit 1. F9: a child whose parent had ended, then qemu killed mid-flow; the child ended, exit 1. The driver itself killed mid-flow with six processes alive: Windows ended all. The job cannot be read: `job: the job cannot be read`, and the job ended with the driver. A process that does not end (the kill left out): `job: 7 left`, then ended with the driver. Alone, with the job code of the driver: a child that asks to break away is refused (error 5), a detached child stays in the job and ended. Recorder that ends early, does not start, ignores the signal (killed, file not finished), or whose probe fails (`unknown`): every capture row printed, video Unverified, exit 2, `job: 0 left`. Not run: a job that Windows does not create, which throws before any start.
+Answers (R4):
+1. Did the text suffice? `ui-verify`: yes for the shape of the skill and the rows, no for the device (next answer). `verify-main-screen`: the agent of the 10:00 UTC run added no device step, only a wrapper that sets `$out` and the working directory; earlier runs showed the missing wait, the unclear extraction and the uninstall, now repaired in the text.
+2. What was missing in `ui-verify`, as proposed AIDLC issues: (a) made-up data in the app does not keep host data (clipboard, keyboard suggestions, notifications) out of a capture; (b) item 2 says that a picture alone is not a pass, and not that an assertion alone can pass on an element that is covered; (c) no capture name for a baseline without a pair, a negative check or an extra row; (d) cleanup by pid does not ask for an identity (pid and start time), a wait until the process table drops it, a tool that starts a server of its own (on Windows a job object holds all of these, pids do not), the recorder on the device, or that cleanup must not delete what was there before; (e) retain takes the digest of the recorded success, and the captures of a run whose evidence is committed come from an earlier commit.
+3. How long: writing the skill with its probes about 40 min and the three R3 repairs about 150 min; on C, with other work on the host, build 61 s, boot 61 s (the driver prints `booted in`), drive about 118 s, cleanup about 2 s, the whole run about 250 s. The driver took 181.2 s (10:00:28.3 to 10:03:29.6 UTC); it prints no time for the last two, so cleanup is from the time of its last capture file, `video.mp4` (10:03:27.8), to its end, and drive is the rest, with the start of the driver and the install in it; on a quieter host the driver took 123 s with a boot of 36 s.
+4. Should `screenshot` join `CANDIDATE_BOUND_KINDS`? Recommendation: no, not now. `verifyAudit` blocks an entry whose digest is not the merged one, and a commit that changes only this card changes the digest, so each evidence commit or repair would make valid captures stale. Two driver runs of one APK gave different sha256 values (clock and time text), so the bytes do not show the candidate either; the APK sha256 does. Revisit it with a rule that compares the covered files.
+
+Selftest (A7) on C, empty `git status` before and after: `[GATE-RESULT-SUMMARY] failed=11,14 ran=9 wall=556.1s`, exit 1: 3, 4, 5, 8, 9, 15 and 16 PASS, 11 and 14 FAIL. On base `ffa037d2`, `-Only 11,14`: `failed=11,14 ran=2 wall=231.1s`, exit 1. The sorted distinct WARNING lines of both logs are equal (11 each); the two behind the failures are the dangling link `CLAUDE.md` to `scripts/_validation.ps1` (gate 11) and 14q, whose nested run fails on gate 11 alone. `git diff --stat C HEAD` lists only this card.
