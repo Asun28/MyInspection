@@ -118,7 +118,34 @@ Arm 1 is the blob id, arm 2 the sections and sync commit, arm 3 the sha256 count
 A7 asked for gates 11 and 14 to pass. Both already fail on master `ffa037d2` (`CLAUDE.md:78`, gate 14 through its nested run of gate 11), and this card may not change CLAUDE.md. The owner chose in the session to amend A7 to the base comparison.
 
 ## Attempt evidence
-Not run. The run fills this table and the answers below it.
+RED: `aidlc card red` on master `ffa037d2`, `[DOD-FAIL] missing .claude/skills/ui-verify/SKILL.md`, exit 1.
+
+Run on `8d6a06739fd571702a96c013c4f22339713a97a6`, 2026-11-24 19:10 to 19:13 UTC, by a fresh verifier agent that had the skill path, the capture directory and no device step. HEAD and an empty `git status` before and after. Device `emulator-5580` (AVD `Pixel_6`), API 35, `ro.kernel.qemu` 1. The app was installed before, so it stays. `app-debug.apk` sha256 `2f6d5cf5cefccdc8646571723c70598093a53e18be32b2f6042d6c87773c3d95`. Captures: `D:\wt\MyInspection-captures\T0-UI-VERIFY-PILOT\run1`; `git ls-files` lists none. The coordinator hashed the files again (equal) and found `drive.ps1` equal to the committed block. Every row below came from `pwsh -NoProfile -File $out\drive.ps1 -Out $out`, exit 0; step-1 is the state after the address and Start, step-2 after the item, step-3 after the condition.
 
 | Target | Source | Expected | Actual | Evidence | Verdict |
 |---|---|---|---|---|---|
+| base capture | driver row `base` | Walking skeleton, Address and Start inspection in the dump, no Export PDF | all four true | `base.png` sha256 `f09b72f9e3d71a3e2dfd97931262727443e8f31a8f6d78885cd663a8c241d66e` | Met |
+| title and Address label visible | driver row `visible` | both below the action bar | both false: an app defect, the action bar covers them on API 35 | `visible.png`, same sha256 as `base.png` | Not Met, known violation; owner: the repository owner, follow-up issue filed at CLOSE |
+| step 1 | driver row `step-1` | the address, a text starting `Started `, Item, Take photo; Export PDF disabled | all five true; the typed address is in the dump and hidden in the picture | `step-1.png` sha256 `827b8b5575f87d10cff321f52b7d2c424c60f359fb420de481074b1f7289def6` | Met |
+| negative check | `drive.ps1 -Assert on:Export PDF` in the state of step 1 | exit 1 | exit 1, `ASSERT FALSE on:Export PDF` | `negative.png`, same sha256 as `step-1.png` | Met |
+| step 2 | driver row `step-2` | Sample wall; Export PDF disabled | both true | `step-2.png` sha256 `3401a43e53e55db8178f78dcfa559f6e6d4bdf25f72e959adde15bc74107c3ed` | Met |
+| step 3, the end state | driver row `step-3` | Sample wall; Export PDF enabled | both true | `step-3.png` sha256 `c335b9fb8af7a49f2671bdb06cb060820124ec5e941944ae68898c230b6960bf` | Met |
+| screen recording | driver row `video` | recording from base to step 3 | 891023 bytes, recorder alive at step 3; 240 frames, 44.8 s; the coordinator viewed 12 frames spread over it, they show the flow up to the enabled Export PDF and no real data | `video.mp4` sha256 `64e999fb344f77177b59ef1cb4820bd495fc1f619c7c68202f4eb0c9cae4f05f` | Met |
+| before and after pair | not run | - | this card changes no interface | none | Unverified |
+| photo flow | not run | - | the system camera is outside the app's window | none | Unverified |
+| PDF export flow | not run | - | the system file picker is outside the app's window | none | Unverified |
+| `aidlc evidence retain` | not run before the candidate | - | it needs the recorded success; the result goes to CLOSE | none | Unverified |
+
+The agent opened the five pictures: they show the typed sample text, the keyboard's word suggestions and the clock, no real data.
+
+Processes the run started, each gone by `Get-CimInstance Win32_Process -Filter "ProcessId=<pid>"` printing nothing: emulator 51508, qemu-system-x86_64-headless 65736, netsimd 66068, crashpad_handler 56460, adb 44732. The build left no java process. A crashpad_handler (43148) ran before and stays.
+
+Failed tries before the run, while the skill was written: the driver pressed Start before adb had typed (step-1 Not Met, so the check caught it); a whole-string `input text` dropped characters; a keyboard setting and a disabled input method did not keep the keyboard away (the second one opened the voice input); a boot failed while the old qemu still held the AVD. A windowed emulator showed a fragment of the host clipboard on its keyboard; those captures were deleted, and the skill now boots without a window and refuses one. The IME changes were reverted on the AVD. The processes of these tries were stopped by pid.
+
+Answers (R4):
+1. Did the text suffice? `ui-verify`: yes for the shape of the skill and the rows, no for the device (next answer). `verify-main-screen`: the agent finished with three additions: it extracted the code block itself, wrote its own boot loop, and noticed that the first adb call starts the server after the listing of step 1.
+2. What was missing in `ui-verify`, as proposed AIDLC issues: (a) made-up data in the app does not keep host data (clipboard, keyboard suggestions, notifications) out of a capture; (b) item 2 says that a picture alone is not a pass, and not that an assertion alone can pass on an element that is covered; (c) no capture name for a baseline without a pair, a negative check or an extra row; (d) cleanup by pid does not say to wait until the process table drops the pid, nor that a tool can start a server of its own; (e) retain takes the digest of the recorded success, and the captures of a run whose evidence is committed come from an earlier commit.
+3. How long: writing the skill with its probes about 40 min; build 71 s the first time and 12 s up to date; boot 29 s; drive 53 s; cleanup 9 s; the agent's whole run 180 s.
+4. Should `screenshot` join `CANDIDATE_BOUND_KINDS`? Recommendation: no, not now. `verifyAudit` blocks an entry whose digest is not the merged one, and a commit that changes only this card changes the digest, so each evidence commit or repair would make valid captures stale (`8d6a0673` here). Two driver runs of one APK gave different sha256 values (clock and time text), so the bytes do not show the candidate either; the APK sha256 does. Revisit it with a rule that compares the covered files.
+
+Selftest (A7) on C = `8d6a0673`, empty `git status` before and after: `[GATE-RESULT-SUMMARY] failed=11,14 ran=9 wall=375.2s`, exit 1: 3, 4, 5, 8, 9, 15 and 16 PASS, 11 and 14 FAIL. On base `ffa037d2`, `-Only 11,14`: `failed=11,14 ran=2 wall=231.1s`, exit 1. The sorted WARNING lines of both logs are equal (`comm` shows none only in the candidate's); the two behind the failures are the dangling link `CLAUDE.md` to `scripts/_validation.ps1` (gate 11) and 14q, whose nested run fails on gate 11 alone. Gate 14's other nested gates pass in both. `git diff --stat C HEAD` lists only this card.
