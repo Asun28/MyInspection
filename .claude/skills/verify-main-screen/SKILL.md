@@ -7,15 +7,15 @@ description: >-
 # verify-main-screen
 
 ## Coverage
-Under `android/app/src/main/kotlin/nz/myinspection/app/`: `MainActivity.kt`, `skeleton/SkeletonScreen.kt` and `skeleton/SkeletonState.kt`.
+Under `android/app/src/main/kotlin/nz/myinspection/app/`: `MainActivity.kt`, `skeleton/SkeletonScreen.kt` and `skeleton/SkeletonState.kt`. Under `android/app/src/main/`: `AndroidManifest.xml` and `res/values/themes.xml`, whose NoActionBar theme and the root inset padding in `MainActivity.kt` keep the screen clear of the bars on API 35; a new root screen keeps both.
 
-Sync commit: `ffa037d2a69cafc7f93e07fbca9bdb0ea197a48f`
+Sync commit: `1bb9d3b84bd85cbc079d335a324bb7adeab6f46c`
 
 ## Launch
 PowerShell 7 on Windows, from the checkout root. Pick `$out`, a new capture directory outside every worktree, and save the block of Drive, without its two fence lines, as `$out\drive.ps1`. Build: `cmd /c android\gradlew.bat -p android --offline --no-daemon --no-watch-fs -q "-Pkotlin.compiler.execution.strategy=in-process" :app:assembleDebug`, exit 0. It leaves no daemon, and does not list the host's drives, which can hang. The driver boots the emulator itself.
 
 ## Drive
-Run `pwsh -NoProfile -File $out\drive.ps1 -Out $out -Apk android\app\build\outputs\apk\debug\app-debug.apk` with a limit of at least 10 min (it takes about 2). Exit 0: every row is Met or a known violation; 2: a row is Not Met or Unverified, or cleanup is not proven; 1: the driver failed.
+Run `pwsh -NoProfile -File $out\drive.ps1 -Out $out -Apk android\app\build\outputs\apk\debug\app-debug.apk` with a limit of at least 10 min (it takes about 2). Exit 0: every row is Met; 2: a row is Not Met or Unverified, or cleanup is not proven; 1: the driver failed.
 
 The driver puts itself in a Windows job object, so that every process that it or a child starts, an adb server included, belongs to the run, also after its parent ended. It refuses a taken emulator port and an adb server that already runs (that one is not its own: ask its owner). It boots cold (a quick boot can hang, L352) without a window (a window shares the host clipboard, which the on-screen keyboard shows). Before it installs, drives or captures, it checks that a headless qemu of its job listens on the port of the serial, and before each device call that this qemu still runs. It compares the installed bytes with the APK and waits until three dumps in a row show the screen; after a cold boot on a busy host it taps Wait on a "System UI" or "Pixel Launcher isn't responding" dialog, never on one of the app. A node counts as seen only if it overlaps no visible status bar or navigation bar, read from `dumpsys window` once the screen settles, and no action bar in the dump; a tap aims at the part of a control that no bar covers. It types one character per call, because a whole-string `input text` drops characters under load. Every adb call to a device names the serial: a phone may be attached.
 ```powershell
@@ -29,7 +29,7 @@ function Control([string]$t) { $n = Find $t; if (-not $n) { throw "no text $t" }
 function Tap([string]$t) { Dump; $r = Rect (Control $t); $top = $r[1]; $bot = $r[3]; foreach ($b in (Bars)) { if ($b[0] -lt $r[2] -and $r[0] -lt $b[2]) { if ($b[1] -le $r[1] -and $b[3] -gt $top) { $top = $b[3] } elseif ($b[3] -ge $r[3] -and $b[1] -lt $bot) { $bot = $b[1] } } }; if ($top -ge $bot) { throw "$t is covered" }; Dev shell input tap ([int](($r[0] + $r[2]) / 2)) ([int](($top + $bot) / 2)); Start-Sleep 2 }
 function Enter([string]$v) { foreach ($c in $v.ToCharArray()) { Dev shell input text "$c".Replace(' ', '%s') }; Start-Sleep 2; Dump; if (-not (Find $v)) { throw "not typed: $v" } }
 function Check([string]$c) { $k, $t = $c -split ':', 2; switch ($k) { 'has' { [bool](Find $t) } 'no' { -not (Find $t) } 'on' { (Control $t).enabled -eq 'true' } 'off' { (Control $t).enabled -eq 'false' } 'seen' { $n = Find $t; [bool]$n -and -not (Covered (Rect $n)) } default { throw $c } } }; function Shot([string]$id) { Dev shell screencap -p /sdcard/s.png; Dev pull /sdcard/s.png "$Out\$id.png" | Out-Null; (Get-FileHash "$Out\$id.png").Hash.ToLower() }
-function Row([string]$id, [string[]]$checks, [switch]$Known) { Dump; $obs = $checks | % { "$_=$(Check $_)" }; $ok = -not ($obs -match '=False$'); if (-not $ok -and -not $Known) { $script:bad++ }; "| $id | $($checks -join ', ') | $($obs -join ', ') | $id.png sha256 ``$(Shot $id)`` | $(if ($ok) { 'Met' } elseif ($Known) { 'Not Met (known)' } else { 'Not Met' }) |" }
+function Row([string]$id, [string[]]$checks) { Dump; $obs = $checks | % { "$_=$(Check $_)" }; $ok = -not ($obs -match '=False$'); if (-not $ok) { $script:bad++ }; "| $id | $($checks -join ', ') | $($obs -join ', ') | $id.png sha256 ``$(Shot $id)`` | $(if ($ok) { 'Met' } else { 'Not Met' }) |" }
 if ($Assert) { $script:ui = [xml](Get-Content -Raw "$Out\ui.xml"); if (Check $Assert) { exit 0 }; "ASSERT FALSE $Assert"; exit 1 } # reads the last dump of the driver, calls no device
 Add-Type -Namespace Win -Name Job -MemberDefinition (('IntPtr CreateJobObject(IntPtr a, IntPtr n)', 'bool SetInformationJobObject(IntPtr j, int c, byte[] b, int n)', 'bool AssignProcessToJobObject(IntPtr j, IntPtr p)', 'bool QueryInformationJobObject(IntPtr j, int c, byte[] b, int n, IntPtr r)', 'bool IsProcessInJob(IntPtr p, IntPtr j, out bool r)' | % { "[DllImport(`"kernel32`", SetLastError = true)] public static extern $_;" }) -join "`n")
 if (Listen 5037) { throw 'an adb server already runs' }; if (Listen $port, ($port + 1)) { throw "port $port is taken" }
@@ -50,7 +50,7 @@ function Rec([string]$sig) { if ($qemu.HasExited) { return 'unknown' }; $o = "$(
 try {
 try { Dev shell "screenrecord --time-limit 180 /sdcard/flow-$tag.mp4 </dev/null >/dev/null 2>&1 &"; foreach ($n in 1..10) { Start-Sleep 1; if (($s = Rec) -eq 'alive') { break } }; if ($s -ne 'alive') { throw "the recorder is $s" } } catch { $recErr = "$_" }; $sw = [Diagnostics.Stopwatch]::StartNew(); Start-Sleep 1
 Row 'base' 'has:Walking skeleton', 'has:Address', 'has:Start inspection', 'no:Export PDF'
-Row 'visible' 'seen:Walking skeleton', 'seen:Address' -Known; Tap 'Address'; Enter '1 Example Street'; Tap 'Start inspection'
+Row 'visible' 'seen:Walking skeleton', 'seen:Address'; Tap 'Address'; Enter '1 Example Street'; Tap 'Start inspection'
 Row 'step-1' 'has:1 Example Street', 'has:Started ', 'has:Item', 'has:Take photo', 'off:Export PDF'
 Dump; $n = & pwsh -NoProfile -File $PSCommandPath -Out $Out -Assert 'on:Export PDF'; $rc = $LASTEXITCODE; $ok = $rc -eq 1 -and "$n" -eq 'ASSERT FALSE on:Export PDF'; if (-not $ok) { $bad++ }
 "| negative | on:Export PDF must exit 1 | exit $rc, $n | negative.png sha256 ``$(Shot 'negative')`` | $(if ($ok) { 'Met' } else { 'Not Met' }) |"
@@ -68,7 +68,7 @@ exit ($fail ? 1 : $bad ? 2 : 0)
 ```
 
 ## Flows
-One flow: type an address, start the inspection, type an item, choose the first condition. End state: `Export PDF` is enabled. The rows `base` and `step-1` to `step-3` assert each state from the uiautomator dump; `negative` asserts the end state too early and must fail. Look at each picture as well: the dump lists nodes that another view covers. Known violation: on API 35 the action bar covers the title and the Address label (row `visible`). When a card fixes it, remove `-Known`.
+One flow: type an address, start the inspection, type an item, choose the first condition. End state: `Export PDF` is enabled. The rows `base` and `step-1` to `step-3` assert each state from the uiautomator dump; `negative` asserts the end state too early and must fail. Look at each picture as well: the dump lists nodes that another view covers. The row `visible` asserts that no system bar or action bar covers the title and the Address label.
 
 ## Not covered
 The photo flow (system camera), the PDF export flow (system file picker), other API levels and a physical phone.
