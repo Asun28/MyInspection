@@ -11,7 +11,8 @@
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="false"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MyInspection">
 
         <activity
             android:name=".MainActivity"

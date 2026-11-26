@@ -3,7 +3,10 @@ package nz.myinspection.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -20,6 +23,8 @@ import nz.myinspection.app.skeleton.SkeletonScreen
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Edge-to-edge on every API level, as API 35 enforces it; the root below pads by the insets (T0-MAIN-SCREEN-INSETS).
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         PhotoOrphanCleanupScheduler.schedule(this)
         setContent {
@@ -32,7 +37,11 @@ class MainActivity : ComponentActivity() {
 private fun InspectionAppRoot() {
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
-            SkeletonScreen()
+            // The surface fills the window behind the system bars; the content stays clear of the status bar,
+            // the navigation bar, a display cutout and the keyboard. A new root screen keeps this padding.
+            Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
+                SkeletonScreen()
+            }
         }
     }
 }
