@@ -172,28 +172,28 @@ Run `before`, base APK, 2026-11-26 01:49:48 to 01:51:33 UTC, exit 2 (`visible` t
 
 | Target | Expected | Actual | Evidence | Verdict |
 |---|---|---|---|---|
-| base | Walking skeleton, Address, Start inspection; no Export PDF | all true | `base.png` sha256 `80f5f337ed001814ce8b4db260fc22d33f3f4a85a26ca3fefade6a43c97b03cd` | Met |
+| base | Walking skeleton, Address, Start inspection; no Export PDF | all true | base.png sha256 `80f5f337ed001814ce8b4db260fc22d33f3f4a85a26ca3fefade6a43c97b03cd` | Met |
 | visible | both nodes clear of every bar | both false: the action bar covers them | `visible.png`, same sha256 as `base.png` | Not Met, as expected before the fix |
-| step-1 | address typed, `Started `, Item, Take photo; Export PDF disabled | all true | `step-1.png` sha256 `23c86e5e1182fd145ab6f7eeeb72eb0a4f1bd71d2a239551f17737a819b1c7df` | Met |
-| negative | `on:Export PDF` exits 1 | exit 1 | `negative.png` sha256 `51b01c9ca0e4329b4bbfd127cc6f0c9a7ee67723634416c468e747ecdca36a81` | Met |
-| step-2 | Sample wall; Export PDF disabled | both true | `step-2.png` sha256 `685b1cb6b1f0d93d5bdbea28d315caaa6b889b9f310beaf8cbb41910343ab3f3` | Met |
-| step-3 | Sample wall; Export PDF enabled | both true | `step-3.png` sha256 `0a4f9edaaf72a98decceff49c9b2cec6ae57da5357ea2ba5807182040b3106ce` | Met |
-| video | finished, lasts to the step-3 tap (37.9 s) | 45.9 s, recorder gone at the end | `video.mp4` sha256 `f7c99e62a07b7935055b68d3c9791b1eb1f8ffb853571c910723dc9ff6d71972` | Met |
+| step-1 | address typed, `Started `, Item, Take photo; Export PDF disabled | all true | step-1.png sha256 `23c86e5e1182fd145ab6f7eeeb72eb0a4f1bd71d2a239551f17737a819b1c7df` | Met |
+| negative | `on:Export PDF` exits 1 | exit 1 | negative.png sha256 `51b01c9ca0e4329b4bbfd127cc6f0c9a7ee67723634416c468e747ecdca36a81` | Met |
+| step-2 | Sample wall; Export PDF disabled | both true | step-2.png sha256 `685b1cb6b1f0d93d5bdbea28d315caaa6b889b9f310beaf8cbb41910343ab3f3` | Met |
+| step-3 | Sample wall; Export PDF enabled | both true | step-3.png sha256 `0a4f9edaaf72a98decceff49c9b2cec6ae57da5357ea2ba5807182040b3106ce` | Met |
+| video | finished, lasts to the step-3 tap (37.9 s) | 45.9 s, recorder gone at the end | video.mp4 sha256 `f7c99e62a07b7935055b68d3c9791b1eb1f8ffb853571c910723dc9ff6d71972` | Met |
 
 Run `after`, candidate APK, 02:01:33 to 02:03:38 UTC, exit 0:
 
 | Target | Expected | Actual | Evidence | Verdict |
 |---|---|---|---|---|
-| base | as before | all true | `base.png` sha256 `80178cc760c7d09533c9e389ce74cf4cf0239695aed3174a397693271956c9fa` | Met |
+| base | as before | all true | base.png sha256 `80178cc760c7d09533c9e389ce74cf4cf0239695aed3174a397693271956c9fa` | Met |
 | visible | both nodes clear of every bar | both true; bars `0,0,1080,128` and `0,2337,1080,2400`, no action bar | `visible.png`, same sha256 as `base.png` | Met |
-| step-1 | as before | all true | `step-1.png` sha256 `e59f651ae7835545120511221f53e6c8553b6437d34319e5cb9cd42e5fb4f87b` | Met |
+| step-1 | as before | all true | step-1.png sha256 `e59f651ae7835545120511221f53e6c8553b6437d34319e5cb9cd42e5fb4f87b` | Met |
 | negative | exit 1 | exit 1 | `negative.png`, same sha256 as `step-1.png` | Met |
-| step-2 | as before | both true | `step-2.png` sha256 `f89417450cfcd5e2e65d4f364fda3f0b4936a388797870fdd88ce3bfc01d68e0` | Met |
-| step-3 | as before | both true | `step-3.png` sha256 `14318e1c9734cd5aa9d7a33d69ee79cff40f3c540eff12d794642a80bada03b5` | Met |
-| video | finished, lasts to the step-3 tap (41 s) | 48.7 s, recorder gone at the end | `video.mp4` sha256 `5d33f1cdd6a6ead2e9045cd312ebb578c752b9ef73b175603ff9444fb6435226` | Met |
+| step-2 | as before | both true | step-2.png sha256 `f89417450cfcd5e2e65d4f364fda3f0b4936a388797870fdd88ce3bfc01d68e0` | Met |
+| step-3 | as before | both true | step-3.png sha256 `14318e1c9734cd5aa9d7a33d69ee79cff40f3c540eff12d794642a80bada03b5` | Met |
+| video | finished, lasts to the step-3 tap (41 s) | 48.7 s, recorder gone at the end | video.mp4 sha256 `5d33f1cdd6a6ead2e9045cd312ebb578c752b9ef73b175603ff9444fb6435226` | Met |
 
-Run `probe`, probe APK, 01:51:42 to 01:53:36 UTC, exit 2: `visible` Not Met with `seen:Walking skeleton=False` (the status bar covers it), `seen:Address=True`; `visible.png` sha256 `98a04103956f07c43c8b9f5c906a64c1862f67bd9e12de55ae9c35917549e6b9`; every other row Met. The old check, which compared only with the action bar, would have passed this screen.
-Run `probe-mutant`, probe APK, 01:59:37 to 02:01:32 UTC, exit 0: the copy drops every bar whose top is 0 (the status bar) before the check; bars `0,2337,1080,2400`; `visible` Met with both true; `visible.png` sha256 `8443e000955f2aa55992c27f0ffb8c2ffef0681c13c8a4ddd754895d0a36e387`. So the status bar bound is what catches the probe.
+Run `probe`, probe APK, 01:51:42 to 01:53:36 UTC, exit 2: `visible` Not Met with `seen:Walking skeleton=False` (the status bar covers it), `seen:Address=True`; visible.png sha256 `98a04103956f07c43c8b9f5c906a64c1862f67bd9e12de55ae9c35917549e6b9`; every other row Met. The old check, which compared only with the action bar, would have passed this screen.
+Run `probe-mutant`, probe APK, 01:59:37 to 02:01:32 UTC, exit 0: the copy drops every bar whose top is 0 (the status bar) before the check; bars `0,2337,1080,2400`; `visible` Met with both true; visible.png sha256 `8443e000955f2aa55992c27f0ffb8c2ffef0681c13c8a4ddd754895d0a36e387`. So the status bar bound is what catches the probe.
 Pictures, looked at: `before` shows the action bar over the title; `probe` shows the title under the status bar icons; `after` shows the title and the Address field below the status bar, then the typed sample text with the keyboard and its word suggestions (Street, wall). No real data.
 Processes: each run printed `ended` with name and pid for the seven host processes of its job, then `job: 0 left`, and `gone` for its device recorder: before adb 19284, emulator 34368, conhost 65668 and 52748, qemu-system-x86_64-headless 63324, crashpad_handler 11128, netsimd 31840, screenrecord 3280; probe 60156, 32240, 16848, 17696, 58136, 57728, 28340, screenrecord 3232; probe-mutant 35808, 54608, 17592, 62268, 67344, 64424, 59336, screenrecord 3308; after 50472, 39964, 39448, 62584, 17712, 3448, 49292, screenrecord 3333 (same name order as before). After the runs no adb, emulator, qemu or netsimd process ran and ports 5037, 5580 and 5581 were free. A crashpad_handler (43148) ran before and stays. The app stays installed (the candidate APK); no run uninstalled it. Each Gradle build left no java process.
 Failed tries: (1) `diag.ps1` first run: both APK paths reached one parameter, the first install failed, cleanup ended its seven processes, `job: 0 left`. (2) The first `probe-mutant` copy kept only `navigationBars` in the bar pattern and stopped with `no system bar bounds in dumpsys window` (exit 1, `job: 0 left`); replaced by the copy above. (3) The first `after` run: `base` and `visible` Met, then the screen stayed black in both pictures and the app left the foreground before the address was typed (`not typed: 1 Example Street`, exit 1, `job: 0 left`, ended adb 51472, emulator 52160, conhost 58436 and 64804, qemu 16680, crashpad_handler 55020, netsimd 42760, screenrecord 3340 gone). A `diag.ps1` run of the same APK right after it found the app resumed, the picture rendered, the title at `[42,170][471,244]` and an empty crash log, and the repeat run above passed, so it is recorded as an emulator display failure, cause not established. The third `diag.ps1` run printed no process lines to a file; it exited 0, which the script allows only after `job: 0 left`, and the process check after it found none of its processes.
