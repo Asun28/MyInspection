@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- No framework action bar: the Compose root owns the whole window and pads it by the system bar insets
+         (MainActivity). The platform default theme draws an action bar over the content on API 35, where the
+         window is edge-to-edge (T0-MAIN-SCREEN-INSETS). -->
+    <style name="Theme.MyInspection" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
