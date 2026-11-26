@@ -3,7 +3,7 @@ id: T0-MAIN-SCREEN-INSETS
 title: On API 35 the action bar no longer covers the title and the Address label of the main screen, proven by a ui-verify before and after pair
 depends_on: []
 parallelizable_with: []
-status: todo
+status: merged
 branch: T0-MAIN-SCREEN-INSETS
 worktree: D:\wt\MyInspection\T0-MAIN-SCREEN-INSETS
 allow_paths:
